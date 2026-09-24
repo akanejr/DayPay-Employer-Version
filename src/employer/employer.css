@@ -13,10 +13,23 @@
 
 .ew-head {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+/* Without min-width:0 a long roster summary can push the Add button off a
+   narrow phone screen. The button is non-shrinkable so it always stays put. */
+.ew-head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ew-head > .ew-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .ew-title {

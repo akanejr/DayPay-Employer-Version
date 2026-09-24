@@ -233,36 +233,52 @@ function Staff({ employees, periods, loading, error, reload }) {
 
   const active = employees.filter(e => e.status === 'active')
   const archived = employees.filter(e => e.status !== 'active')
-  const visible = showArchived ? employees : active
 
   if (loading) return <div className="ew-loading">Loading your staff…</div>
-
-  if (error) {
-    return (
-      <div className="ew-msg ew-msg-error">
-        {error.message}
-        {error.hint && <span className="ew-msg-hint">{error.hint}</span>}
-      </div>
-    )
-  }
 
   return (
     <>
       <div className="ew-head">
-        <div>
+        <div className="ew-head-text">
           <h2 className="ew-title">Staff</h2>
           <p className="ew-sub">
-            {active.length === 0
-              ? 'No one on the roster yet'
-              : `${active.length} ${active.length === 1 ? 'person' : 'people'}${archived.length && !showArchived ? ` · ${archived.length} archived` : ''}`}
+            {error
+              ? 'Could not load your roster'
+              : active.length === 0
+                ? 'No one on the roster yet'
+                : `${active.length} ${active.length === 1 ? 'person' : 'people'}${archived.length && !showArchived ? ` · ${archived.length} archived` : ''}`}
           </p>
         </div>
-        {!adding && (
+        {!adding && !rateFor && (
           <button type="button" className="ew-btn ew-btn-primary" onClick={() => { setAdding(true); setRateFor(null) }}>
             + Add
           </button>
         )}
       </div>
+
+      {/* The error is shown BELOW the header rather than replacing the whole
+          screen. Previously a load failure hid the Add button too, which made
+          a data problem look like a broken interface. */}
+      {error && (
+        <div className="ew-msg ew-msg-error">
+          {error.message}
+          {error.hint && <span className="ew-msg-hint">{error.hint}</span>}
+          {(error.code || error.cause?.message) && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>
+                Technical detail
+              </summary>
+              <pre style={{
+                margin: '7px 0 0', padding: '8px 10px', borderRadius: 8,
+                background: 'rgba(0,0,0,.06)', fontSize: 11.5,
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.45,
+              }}>
+{error.code ? `code: ${error.code}\n` : ''}{error.cause?.message || ''}{error.cause?.details ? `\ndetails: ${error.cause.details}` : ''}{error.cause?.hint ? `\nhint: ${error.cause.hint}` : ''}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
 
       {adding && (
         <AddEmployee
