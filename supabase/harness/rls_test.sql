@@ -223,19 +223,26 @@ select public._harness_record(
      where employee_id = '22222222-2222-4222-8222-222222222222') = 0);
 
 -- Attempt to self-confirm a day (bypassing the employer entirely).
+-- The SQLSTATE is reported, not just "refused": a refusal for the WRONG reason
+-- would otherwise look identical to a correct refusal. The expected code is
+-- 42501 (insufficient_privilege — the RLS policy doing its job). Anything
+-- starting "P0001" or "23514" means a trigger rejected it instead, which is
+-- not the guarantee we are trying to demonstrate.
 do $$
-declare refused boolean;
+declare refused boolean; state text; msg text;
 begin
   begin
     insert into public.day_records (employee_id, work_date, kind, status)
     values ('11111111-1111-4111-8111-111111111111', current_date - 5, 'work', 'confirmed');
-    refused := false;
+    refused := false; state := '-'; msg := 'insert SUCCEEDED';
   exception when others then
-    refused := true;
+    refused := true; state := sqlstate; msg := sqlerrm;
   end;
   perform public._harness_record(
-    10, 'FORGERY', 'employee CANNOT insert a self-confirmed day',
-    'refused', case when refused then 'refused' else 'ALLOWED' end, refused);
+    10, 'FORGERY', 'employee CANNOT insert a self-confirmed day (expect 42501)',
+    'refused', case when refused then 'refused [' || state || '] ' || msg
+                    else 'ALLOWED' end,
+    refused);
 end $$;
 
 -- Attempt to dictate the amount. The server must overwrite it: a weekend day

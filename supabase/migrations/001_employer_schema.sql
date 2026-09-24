@@ -255,7 +255,7 @@ create trigger day_records_compute_money
   for each row execute function public.day_records_compute_money();
 
 
--- ── Freeze confirmed money and log every change ────────────────────────────
+-- ── BEFORE: validate and stamp. No writes to other tables. ────────────────────
 
 create or replace function public.day_records_guard()
 returns trigger
@@ -263,17 +263,17 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare
-  snapshot jsonb;
 begin
-  if tg_op = 'UPDATE' then
-    -- Frozen money: once confirmed, the amount is history. Changing the
-    -- rate on a confirmed record is refused outright.
+  if tg_op = 'INSERT' then
+    new.claimed_by := coalesce(new.claimed_by, auth.uid());
+
+  else  -- UPDATE
+    -- Frozen money: a confirmed day's amount is history.
     if old.status = 'confirmed' then
-      if new.amount <> old.amount
-         or new.rate <> old.rate
-         or new.multiplier <> old.multiplier
-         or new.work_date <> old.work_date
+      if new.amount       <> old.amount
+         or new.rate        <> old.rate
+         or new.multiplier  <> old.multiplier
+         or new.work_date   <> old.work_date
          or new.employee_id <> old.employee_id then
         raise exception
           'This day is confirmed and its amount is final. Reopen it before changing the money.'
@@ -281,7 +281,7 @@ begin
       end if;
     end if;
 
-    -- Employees cannot move a record into 'confirmed'. Only an employer can.
+    -- Only the employer may move a day into 'confirmed'.
     if new.status = 'confirmed'
        and old.status <> 'confirmed'
        and not public.is_employer_of(new.employee_id) then
@@ -290,42 +290,26 @@ begin
     end if;
   end if;
 
-  -- Status bookkeeping, so callers cannot forge the timestamps.
-  if tg_op = 'INSERT' then
-    new.claimed_by := coalesce(new.claimed_by, auth.uid());
-    new.created_at := now();
-  end if;
-
-  if new.status = 'confirmed' and (tg_op = 'INSERT' or old.status <> 'confirmed') then
-    new.confirmed_by := auth.uid();
-    new.confirmed_at := now();
-  end if;
-
-  if new.status = 'disputed' and (tg_op = 'INSERT' or old.status <> 'disputed') then
-    new.disputed_by := auth.uid();
-    new.disputed_at := now();
-  end if;
-
-  if new.status = 'claimed' and tg_op = 'UPDATE' and old.status in ('confirmed','disputed') then
-    -- Reopened: clear the resolution stamps.
-    new.confirmed_by := null; new.confirmed_at := null;
-    new.disputed_by := null;  new.disputed_at := null;
-  end if;
-
-  -- Audit trail.
-  if tg_op = 'INSERT' then
-    insert into public.day_record_events (day_record_id, employee_id, actor, action, after)
-    values (new.id, new.employee_id, auth.uid(), 'created', to_jsonb(new));
-  else
-    if new.status is distinct from old.status then
-      insert into public.day_record_events (day_record_id, employee_id, actor, action, reason, before, after)
-      values (new.id, new.employee_id, auth.uid(), 'status:' || old.status || '->' || new.status,
-              new.note, to_jsonb(old), to_jsonb(new));
-    elsif new is distinct from old then
-      insert into public.day_record_events (day_record_id, employee_id, actor, action, reason, before, after)
-      values (new.id, new.employee_id, auth.uid(), 'amended',
-              new.note, to_jsonb(old), to_jsonb(new));
+  -- Resolution stamps. Branching on tg_op rather than using
+  -- `tg_op = 'INSERT' or old.status ...` because PostgreSQL does not guarantee
+  -- short-circuit evaluation, and reading OLD during an INSERT would raise
+  -- "record old is not assigned yet" and mask the real behaviour.
+  if new.status = 'confirmed' then
+    if tg_op = 'INSERT' or old.status <> 'confirmed' then
+      new.confirmed_by := auth.uid();
+      new.confirmed_at := now();
     end if;
+  elsif new.status = 'disputed' then
+    if tg_op = 'INSERT' or old.status <> 'disputed' then
+      new.disputed_by := auth.uid();
+      new.disputed_at := now();
+    end if;
+  elsif new.status = 'claimed' and tg_op = 'UPDATE'
+        and old.status in ('confirmed', 'disputed') then
+    new.confirmed_by := null;
+    new.confirmed_at := null;
+    new.disputed_by  := null;
+    new.disputed_at  := null;
   end if;
 
   return new;
@@ -335,11 +319,64 @@ create trigger day_records_guard
   before insert or update on public.day_records
   for each row execute function public.day_records_guard();
 
--- Note: two BEFORE triggers fire in name-alphabetical order, so
--- `day_records_compute_money` runs before `day_records_guard`. The money is
--- therefore settled by the time the guard inspects it. Do not rename either
--- trigger without preserving that ordering.
 
+-- ── AFTER: record the audit trail. ───────────────────────────────────────
+-- This MUST be an AFTER trigger. `day_record_events.day_record_id` has a
+-- foreign key to `day_records.id`, and in a BEFORE trigger that row does not
+-- exist yet — the constraint fails with 23503.
+
+create or replace function public.day_records_audit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into public.day_record_events
+      (day_record_id, employee_id, actor, action, after)
+    values
+      (new.id, new.employee_id, auth.uid(), 'created', to_jsonb(new));
+
+  else  -- UPDATE
+    if new.status is distinct from old.status then
+      insert into public.day_record_events
+        (day_record_id, employee_id, actor, action, reason, before, after)
+      values
+        (new.id, new.employee_id, auth.uid(),
+         'status:' || old.status || '->' || new.status,
+         new.note, to_jsonb(old), to_jsonb(new));
+
+    -- Fields compared explicitly: record-level `is distinct from` is not
+    -- dependable, and `updated_at` changes on every write, so whole-row
+    -- comparison would log a spurious "amended" for no-ops.
+    elsif new.kind          is distinct from old.kind
+       or new.work_date     is distinct from old.work_date
+       or new.leave_type    is distinct from old.leave_type
+       or new.leave_percent is distinct from old.leave_percent
+       or new.note          is distinct from old.note
+       or new.amount        is distinct from old.amount
+       or new.rate          is distinct from old.rate
+       or new.multiplier    is distinct from old.multiplier
+       or new.employee_id   is distinct from old.employee_id then
+      insert into public.day_record_events
+        (day_record_id, employee_id, actor, action, reason, before, after)
+      values
+        (new.id, new.employee_id, auth.uid(), 'amended',
+         new.note, to_jsonb(old), to_jsonb(new));
+    end if;
+  end if;
+
+  return null;
+end $$;
+
+create trigger day_records_audit
+  after insert or update on public.day_records
+  for each row execute function public.day_records_audit();
+
+-- Note: the two BEFORE triggers fire in name-alphabetical order, so
+-- `day_records_compute_money` runs before `day_records_guard`. Money is
+-- therefore settled before the guard inspects it.
 
 -- ============================================================================
 -- ROW LEVEL SECURITY
