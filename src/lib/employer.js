@@ -53,12 +53,46 @@ function describe(error) {
     }
     return { message: msg }
   }
-  if (code === '42501' || code === '42P01') {
-    return { message: 'You do not have access to that.', hint: 'Are you signed in as the employer?' }
+
+  /* 42501 is insufficient_privilege. There are two very different causes and
+     the raw message is the only way to tell them apart:
+
+       "permission denied for table X"  -> the GRANT is missing. RLS and GRANTs
+                                           are separate layers: a policy says
+                                           which ROWS, a grant says whether the
+                                           table may be touched at all. This is
+                                           a setup problem, not a user problem,
+                                           and telling someone to "sign in as
+                                           the employer" would send them
+                                           chasing the wrong thing.
+
+       "new row violates row-level security policy" -> the policy doing its job.
+                                           Genuinely a permission matter. */
+  if (code === '42501') {
+    if (/permission denied for table/i.test(msg)) {
+      return {
+        message: 'Setup problem: the database has not granted access to these tables.',
+        hint: 'Run the pending migration (supabase/migrations, in order). This is not something you did wrong.',
+      }
+    }
+    return { message: 'You do not have permission to do that.', hint: 'Check this record belongs to you.' }
   }
+
+  /* 42P01 is undefined_table — usually a migration that has not been run. It
+     was previously reported as a permissions problem, which sent people
+     looking in the wrong place. */
+  if (code === '42P01') {
+    const table = /relation "([^"]+)"/.exec(msg)?.[1] || 'a table'
+    return {
+      message: `Setup problem: ${table} does not exist yet.`,
+      hint: 'Run the migrations in supabase/migrations, in order, in the Supabase SQL Editor.',
+    }
+  }
+
   if (/insufficient_privilege|Only the employer/.test(msg)) {
     return { message: 'Only the employer can do that.' }
   }
+
   return { message: msg }
 }
 
