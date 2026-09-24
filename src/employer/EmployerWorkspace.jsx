@@ -20,6 +20,7 @@ import {
   deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
 } from '../lib/employer'
 import StaffDays from './StaffDays'
+import Summary from './Summary'
 import './employer.css'
 
 // ── Small helpers ───────────────────────────────────────────────────────────
@@ -447,11 +448,20 @@ export default function EmployerWorkspace() {
         >
           Roster
         </button>
+        <button
+          type="button" role="tab" aria-selected={pane === 'summary'}
+          className={`ew-subtab${pane === 'summary' ? ' active' : ''}`}
+          onClick={() => setPane('summary')}
+        >
+          Summary
+        </button>
       </div>
 
-      {pane === 'days' ? (
-        <StaffDays employees={employees} />
-      ) : (
+      {pane === 'days' && <StaffDays employees={employees} />}
+
+      {pane === 'summary' && <Summary employees={employees} />}
+
+      {pane === 'roster' && (
         <Staff
           employees={employees}
           periods={periods}

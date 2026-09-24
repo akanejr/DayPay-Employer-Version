@@ -393,3 +393,89 @@ describe('display helpers', () => {
     }
   })
 })
+
+// ── Month-end export ────────────────────────────────────────────────────────
+
+import { buildMonthCsv, monthLabelFor } from '../src/lib/employerLogic.js'
+
+describe('monthLabelFor', () => {
+  test('names the month and year', () => {
+    assert.equal(monthLabelFor(2026, 0), 'January 2026')
+    assert.equal(monthLabelFor(2026, 8), 'September 2026')
+    assert.equal(monthLabelFor(2026, 11), 'December 2026')
+  })
+})
+
+describe('buildMonthCsv', () => {
+  const staff = [
+    { id: 'a', full_name: 'Amina Yusuf', job_title: 'Welder' },
+    { id: 'b', full_name: 'Chidi, "Junior"', job_title: null },
+  ]
+
+  const rows = [
+    { employee_id: 'a', work_date: '2026-05-02', kind: 'weekend', rate: 16000, multiplier: 2, amount: 32000, status: 'confirmed', note: null },
+    { employee_id: 'a', work_date: '2026-05-01', kind: 'work', rate: 16000, multiplier: 1, amount: 16000, status: 'claimed', note: null },
+  ]
+
+  test('has a header and one line per day', () => {
+    const out = buildMonthCsv(rows, staff).split('\r\n')
+    assert.match(out[0], /^Date,Employee,Job title,Kind/)
+    assert.equal(out.length, 5, 'header + 2 days + blank + total')
+  })
+
+  test('sorts by date, oldest first', () => {
+    const out = buildMonthCsv(rows, staff).split('\r\n')
+    assert.match(out[1], /^2026-05-01/)
+    assert.match(out[2], /^2026-05-02/)
+  })
+
+  test('the control total matches the sum of the rows', () => {
+    const out = buildMonthCsv(rows, staff)
+    assert.match(out, /Total,.*48000/)
+  })
+
+  test('a name containing a comma or quote survives intact', () => {
+    const out = buildMonthCsv(
+      [{ employee_id: 'b', work_date: '2026-05-01', kind: 'work', amount: 1000, status: 'claimed' }],
+      staff,
+    )
+    assert.match(out, /"Chidi, ""Junior"""/, 'quoted and doubled per RFC 4180')
+  })
+
+  test('a day whose employee is not on the roster is labelled, not dropped', () => {
+    const out = buildMonthCsv(
+      [{ employee_id: 'gone', work_date: '2026-05-01', kind: 'work', amount: 5000, status: 'claimed' }],
+      staff,
+    )
+    assert.match(out, /\(not on roster\)/)
+    assert.match(out, /Total,.*5000/, 'and still counted in the total')
+  })
+
+  test('spreadsheet formula injection is neutralised', () => {
+    const out = buildMonthCsv(
+      [{ employee_id: 'a', work_date: '2026-05-01', kind: 'work', amount: 1, status: 'claimed', note: '=SUM(A1:A9)' }],
+      staff,
+    )
+    assert.ok(!/,=SUM/.test(out), 'a leading = must not reach the spreadsheet')
+    assert.match(out, /'=SUM/)
+  })
+
+  test('empty input still yields a valid file with a zero total', () => {
+    const out = buildMonthCsv([], staff, { monthLabel: 'May 2026' })
+    assert.match(out, /^Date,Employee/)
+    assert.match(out, /Total — May 2026,.*0/)
+  })
+
+  test('null and malformed rows do not throw', () => {
+    assert.doesNotThrow(() => buildMonthCsv(null, null))
+    assert.doesNotThrow(() => buildMonthCsv([null, undefined], staff))
+  })
+
+  test('amounts as strings sum as numbers', () => {
+    const out = buildMonthCsv([
+      { employee_id: 'a', work_date: '2026-05-01', kind: 'work', amount: '16000.00', status: 'claimed' },
+      { employee_id: 'a', work_date: '2026-05-02', kind: 'work', amount: '5000.50', status: 'claimed' },
+    ], staff)
+    assert.match(out, /21000\.5/)
+  })
+})

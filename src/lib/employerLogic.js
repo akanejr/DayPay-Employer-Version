@@ -225,3 +225,63 @@ export function summarise(days, employees) {
     unmatchedTotal: Math.round(unmatchedTotal * 100) / 100,
   }
 }
+
+// ── Month-end export ────────────────────────────────────────────────────────
+
+/* CSVs are dangerous in a spreadsheet: a cell beginning =, +, - or @ is
+   interpreted as a formula, and a leading - is a legitimate negative number
+   here. Only the formula triggers are neutralised, by prefixing a tab, which
+   spreadsheets ignore. */
+function csvCell(value) {
+  if (value === null || value === undefined) return ''
+  let s = String(value)
+  if (/^[=+@]/.test(s)) s = `'${s}`
+  if (/[",\n\r]/.test(s)) s = `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
+const CSV_HEADERS = [
+  'Date', 'Employee', 'Job title', 'Kind', 'Rate', 'Multiplier',
+  'Amount', 'Status', 'Note',
+]
+
+/* One row per recorded day, plus a control total. The total line is included
+   because a CSV that disagrees with the screen is worse than no CSV — having
+   the figure in the file makes any discrepancy immediately visible. */
+export function buildMonthCsv(days, employees, { monthLabel = '' } = {}) {
+  const byId = new Map((employees || []).map(e => [e.id, e]))
+  const sorted = [...(days || [])]
+    .filter(Boolean)
+    .sort((a, b) => (a.work_date < b.work_date ? -1 : a.work_date > b.work_date ? 1 : 0))
+
+  const lines = [CSV_HEADERS.join(',')]
+  let total = 0
+
+  for (const d of sorted) {
+    const emp = byId.get(d.employee_id)
+    total += Number(d.amount) || 0
+    lines.push([
+      d.work_date,
+      emp ? emp.full_name : '(not on roster)',
+      emp?.job_title || '',
+      KIND_LABELS[d.kind] || d.kind || '',
+      d.rate ?? '',
+      d.multiplier ?? '',
+      Number(d.amount) || 0,
+      d.status || '',
+      d.note || '',
+    ].map(csvCell).join(','))
+  }
+
+  lines.push('')
+  lines.push([monthLabel ? `Total — ${monthLabel}` : 'Total', '', '', '', '', '',
+    Math.round(total * 100) / 100, '', ''].map(csvCell).join(','))
+
+  return lines.join('\r\n')
+}
+
+export function monthLabelFor(year, monthIndex) {
+  const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December']
+  return `${MON[monthIndex]} ${year}`
+}

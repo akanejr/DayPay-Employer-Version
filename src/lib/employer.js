@@ -23,6 +23,7 @@ import {
   formatNaira, initials, monthBounds, todayKey, rateOn, multiplierFor,
   makeInviteCode, summarise, parseDateKey, isWeekendKey, shiftDateKey,
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
+  buildMonthCsv, monthLabelFor,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -32,6 +33,7 @@ export {
   formatNaira, initials, monthBounds, todayKey, rateOn, multiplierFor,
   makeInviteCode, summarise, parseDateKey, isWeekendKey, shiftDateKey,
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
+  buildMonthCsv, monthLabelFor,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────

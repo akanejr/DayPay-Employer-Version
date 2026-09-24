@@ -423,3 +423,117 @@
 .ew-monthfoot { margin-top: 14px; }
 .ew-monthfoot-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--text-2); }
 .ew-monthfoot-row strong { font-size: 19px; color: var(--daypay-green); font-variant-numeric: tabular-nums; }
+
+/* ── Month bar (summary) ─────────────────────────────────────────────────── */
+
+.ew-monthbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+}
+
+/* ── The headline figure ─────────────────────────────────────────────────── */
+
+.ew-owe {
+  background: var(--daypay-navy);
+  border-radius: 16px;
+  padding: 18px 16px;
+  color: #fff;
+}
+
+.ew-owe-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; opacity: .72; }
+
+.ew-owe-figure {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  color: #4ADE80;
+  line-height: 1.1;
+  word-break: break-word;
+}
+
+.ew-owe-sub { font-size: 13px; opacity: .8; margin-top: 6px; }
+
+.ew-owe-flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.ew-owe-flags .ew-chip { background: rgba(255,255,255,.16); color: #FDE68A; border-color: transparent; }
+
+/* ── Payroll rows ────────────────────────────────────────────────────────── */
+
+.ew-pay {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ew-pay + .ew-pay { margin-top: 9px; }
+
+.ew-pay-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 12px 13px;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.ew-pay-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-pay-amount { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+
+.ew-pay-figure {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--daypay-green);
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-pay-chev { color: var(--text-4); font-size: 12px; }
+
+.ew-pay-detail {
+  border-top: 1px dashed var(--border-light);
+  padding: 11px 13px 13px;
+  background: var(--bg-sunken);
+}
+
+.ew-pay-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+  padding: 3px 0;
+}
+
+.ew-pay-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+
+/* ── Disputed days ───────────────────────────────────────────────────────── */
+
+.ew-disputed { margin: 6px 0 0 13px; padding-left: 11px; border-left: 2px solid var(--amber); }
+
+.ew-disputed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  padding: 5px 0;
+}
+
+/* ── Month-end actions ───────────────────────────────────────────────────── */
+
+.ew-monthend { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+
+.ew-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
