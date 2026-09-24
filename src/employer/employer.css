@@ -277,3 +277,149 @@
   padding: 8px 11px;
   user-select: all;
 }
+
+/* ── Sub-tabs inside the Staff view ──────────────────────────────────────── */
+
+.ew-subtabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 3px;
+}
+
+.ew-subtab {
+  flex: 1 1 0;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.ew-subtab.active { background: var(--bg-elevated); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+
+/* ── Date stepper ────────────────────────────────────────────────────────── */
+
+.ew-datebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+}
+
+.ew-datebar-step {
+  flex: 0 0 auto;
+  width: 42px; height: 42px;
+  font-size: 22px;
+  line-height: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.ew-datebar-step:disabled { opacity: .45; cursor: default; }
+
+.ew-datebar-mid { flex: 1 1 auto; text-align: center; min-width: 0; }
+
+.ew-datebar-day {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ew-datebar-today {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--daypay-green);
+  background: none;
+  border: 0;
+  padding: 2px 0 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ── Quick strip ─────────────────────────────────────────────────────────── */
+
+.ew-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 2px 0;
+}
+
+.ew-strip-day { font-size: 12.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
+
+/* ── Day rows ────────────────────────────────────────────────────────────── */
+
+.ew-dayrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px 13px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.ew-dayrow + .ew-dayrow { margin-top: 8px; }
+.ew-dayrow.is-marked { border-color: var(--daypay-green); background: var(--daypay-green-light); }
+
+.ew-dayrow-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-muted { color: var(--text-4); font-size: 12.5px; }
+
+.ew-kinds { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+
+.ew-kindchip {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.ew-kindchip.active { background: var(--daypay-navy); color: #fff; border-color: var(--daypay-navy); }
+.ew-kindchip:disabled { opacity: .5; cursor: default; }
+
+.ew-toggle {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 66px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--daypay-green);
+  background: transparent;
+  color: var(--daypay-green);
+  cursor: pointer;
+}
+
+.ew-toggle.is-on { background: var(--daypay-green); color: #fff; }
+.ew-toggle:disabled { opacity: .5; cursor: default; }
+
+/* ── Month footer ────────────────────────────────────────────────────────── */
+
+.ew-monthfoot { margin-top: 14px; }
+.ew-monthfoot-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--text-2); }
+.ew-monthfoot-row strong { font-size: 19px; color: var(--daypay-green); font-variant-numeric: tabular-nums; }

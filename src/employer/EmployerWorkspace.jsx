@@ -19,6 +19,7 @@ import {
   archiveEmployee, restoreEmployee, listAllRatePeriods, addRatePeriod,
   deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
 } from '../lib/employer'
+import StaffDays from './StaffDays'
 import './employer.css'
 
 // ── Small helpers ───────────────────────────────────────────────────────────
@@ -385,6 +386,7 @@ function Staff({ employees, periods, loading, error, reload }) {
 // ── Container ───────────────────────────────────────────────────────────────
 
 export default function EmployerWorkspace() {
+  const [pane, setPane] = useState('days')
   const [employees, setEmployees] = useState([])
   const [periods, setPeriods] = useState([])
   const [loading, setLoading] = useState(true)
@@ -411,6 +413,12 @@ export default function EmployerWorkspace() {
 
   const activeCount = employees.filter(e => e.status === 'active').length
 
+  const ratesSet = employees.filter(
+    e => e.status === 'active' && currentRateFor(periods, e.id),
+  ).length
+
+  if (loading) return <div className="ew-loading">Loading your staff…</div>
+
   return (
     <div className="ew">
       <div className="ew-summary">
@@ -420,19 +428,38 @@ export default function EmployerWorkspace() {
         </div>
         <div className="ew-stat">
           <div className="ew-stat-label">Rates set</div>
-          <div className="ew-stat-value">
-            {employees.filter(e => e.status === 'active' && currentRateFor(periods, e.id)).length}
-          </div>
+          <div className="ew-stat-value">{ratesSet}</div>
         </div>
       </div>
 
-      <Staff
-        employees={employees}
-        periods={periods}
-        loading={loading}
-        error={error}
-        reload={reload}
-      />
+      <div className="ew-subtabs" role="tablist">
+        <button
+          type="button" role="tab" aria-selected={pane === 'days'}
+          className={`ew-subtab${pane === 'days' ? ' active' : ''}`}
+          onClick={() => setPane('days')}
+        >
+          Mark days
+        </button>
+        <button
+          type="button" role="tab" aria-selected={pane === 'roster'}
+          className={`ew-subtab${pane === 'roster' ? ' active' : ''}`}
+          onClick={() => setPane('roster')}
+        >
+          Roster
+        </button>
+      </div>
+
+      {pane === 'days' ? (
+        <StaffDays employees={employees} />
+      ) : (
+        <Staff
+          employees={employees}
+          periods={periods}
+          loading={false}
+          error={error}
+          reload={reload}
+        />
+      )}
     </div>
   )
 }

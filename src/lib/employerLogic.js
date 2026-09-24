@@ -44,6 +44,63 @@ export function todayKey(date = new Date()) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
+/* Parses 'YYYY-MM-DD' as a LOCAL date. Never `new Date(key)`, which is parsed
+   as UTC midnight and shifts the weekday backwards in any zone behind UTC —
+   which would silently mark the wrong kind on the wrong day. */
+export function parseDateKey(key) {
+  if (typeof key !== 'string') return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key)
+  if (!m) return null
+  const [, y, mo, d] = m.map(Number)
+  const dt = new Date(y, mo - 1, d)
+  // Reject impossible dates (2026-02-31) rather than silently rolling over.
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null
+  return dt
+}
+
+export function isWeekendKey(key) {
+  const d = parseDateKey(key)
+  if (!d) return false
+  const dow = d.getDay()
+  return dow === 0 || dow === 6
+}
+
+export function shiftDateKey(key, days) {
+  const d = parseDateKey(key)
+  if (!d) return null
+  d.setDate(d.getDate() + days)
+  return todayKey(d)
+}
+
+/* Weekend work earns the multiplier, so the kind must follow the DATE, not the
+   tap. Marking "present" on a Saturday must not record a plain workday. */
+export function suggestedKind(key) {
+  return isWeekendKey(key) ? 'weekend' : 'work'
+}
+
+const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const DOW3 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+export function prettyDateKey(key) {
+  const d = parseDateKey(key)
+  if (!d) return key || ''
+  return `${DOW3[d.getDay()]} ${d.getDate()} ${MON3[d.getMonth()]} ${d.getFullYear()}`
+}
+
+export function shortDateKey(key) {
+  const d = parseDateKey(key)
+  if (!d) return key || ''
+  return `${d.getDate()} ${MON3[d.getMonth()]}`
+}
+
+export const KIND_LABELS = {
+  work: 'Worked',
+  weekend: 'Weekend',
+  overtime: 'Overtime',
+  holiday: 'Holiday',
+  leave: 'Leave',
+}
+
 // ── Rates ───────────────────────────────────────────────────────────────────
 
 /* The rate period in force on a given date, or null if none covers it.

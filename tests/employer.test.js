@@ -292,3 +292,104 @@ describe('summarise', () => {
     assert.equal(s.total, 21000.5)
   })
 })
+
+// ── Date keys and day kinds ─────────────────────────────────────────────────
+// These matter because a weekend day earns 2×, so if the weekday is computed
+// wrongly the money is wrong. `new Date('2026-05-02')` is UTC midnight and
+// shifts the weekday backwards in zones behind UTC, so parsing is explicit.
+
+import {
+  parseDateKey, isWeekendKey, shiftDateKey, suggestedKind,
+  prettyDateKey, shortDateKey, KIND_LABELS,
+} from '../src/lib/employerLogic.js'
+
+describe('parseDateKey', () => {
+  test('parses a valid key to local parts', () => {
+    const d = parseDateKey('2026-05-02')
+    assert.equal(d.getFullYear(), 2026)
+    assert.equal(d.getMonth(), 4, 'May is month index 4')
+    assert.equal(d.getDate(), 2)
+  })
+
+  test('rejects impossible dates instead of rolling them over', () => {
+    // new Date(2026, 1, 31) silently becomes 3 March. That would mark the
+    // wrong day, so the parser must refuse it.
+    assert.equal(parseDateKey('2026-02-31'), null)
+    assert.equal(parseDateKey('2026-13-01'), null)
+    assert.equal(parseDateKey('2026-00-10'), null)
+  })
+
+  test('rejects malformed and non-string input', () => {
+    assert.equal(parseDateKey('2026-5-2'), null)
+    assert.equal(parseDateKey(''), null)
+    assert.equal(parseDateKey(null), null)
+    assert.equal(parseDateKey(undefined), null)
+    assert.equal(parseDateKey(20260502), null)
+  })
+})
+
+describe('isWeekendKey', () => {
+  test('identifies Saturday and Sunday', () => {
+    assert.equal(isWeekendKey('2026-05-02'), true, 'Sat 2 May 2026')
+    assert.equal(isWeekendKey('2026-05-03'), true, 'Sun 3 May 2026')
+  })
+
+  test('weekdays are not weekends', () => {
+    assert.equal(isWeekendKey('2026-05-01'), false, 'Fri 1 May 2026')
+    assert.equal(isWeekendKey('2026-05-04'), false, 'Mon 4 May 2026')
+    assert.equal(isWeekendKey('2026-05-08'), false, 'Fri 8 May 2026')
+  })
+
+  test('an invalid key is not silently treated as a weekend', () => {
+    assert.equal(isWeekendKey('nonsense'), false)
+    assert.equal(isWeekendKey(null), false)
+  })
+})
+
+describe('suggestedKind', () => {
+  test('THE MONEY RULE: the kind follows the date, not the tap', () => {
+    // Marking "present" on a Saturday must record weekend work, because that
+    // earns the multiplier. Defaulting to plain 'work' would underpay.
+    assert.equal(suggestedKind('2026-05-02'), 'weekend')
+    assert.equal(suggestedKind('2026-05-03'), 'weekend')
+    assert.equal(suggestedKind('2026-05-04'), 'work')
+  })
+})
+
+describe('shiftDateKey', () => {
+  test('moves a day at a time', () => {
+    assert.equal(shiftDateKey('2026-05-02', 1), '2026-05-03')
+    assert.equal(shiftDateKey('2026-05-02', -1), '2026-05-01')
+  })
+
+  test('crosses month and year boundaries', () => {
+    assert.equal(shiftDateKey('2026-05-31', 1), '2026-06-01')
+    assert.equal(shiftDateKey('2026-06-01', -1), '2026-05-31')
+    assert.equal(shiftDateKey('2026-12-31', 1), '2027-01-01')
+    assert.equal(shiftDateKey('2027-01-01', -1), '2026-12-31')
+  })
+
+  test('handles leap day', () => {
+    assert.equal(shiftDateKey('2028-02-28', 1), '2028-02-29')
+    assert.equal(shiftDateKey('2028-02-29', 1), '2028-03-01')
+  })
+
+  test('an invalid key stays invalid', () => {
+    assert.equal(shiftDateKey('nonsense', 1), null)
+    assert.equal(shiftDateKey(null, 1), null)
+  })
+})
+
+describe('display helpers', () => {
+  test('prettyDateKey names the weekday', () => {
+    assert.match(prettyDateKey('2026-05-02'), /^Sat 2 May 2026$/)
+  })
+  test('shortDateKey is compact', () => {
+    assert.equal(shortDateKey('2026-05-02'), '2 May')
+  })
+  test('labels exist for every kind the schema allows', () => {
+    for (const k of ['work', 'weekend', 'overtime', 'holiday', 'leave']) {
+      assert.ok(KIND_LABELS[k], `missing label for ${k}`)
+    }
+  })
+})

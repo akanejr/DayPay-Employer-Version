@@ -21,7 +21,8 @@
 import { supabase } from './supabase'
 import {
   formatNaira, initials, monthBounds, todayKey, rateOn, multiplierFor,
-  makeInviteCode, summarise,
+  makeInviteCode, summarise, parseDateKey, isWeekendKey, shiftDateKey,
+  suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -29,7 +30,8 @@ import {
    a single entry point and never need to know which file holds what. */
 export {
   formatNaira, initials, monthBounds, todayKey, rateOn, multiplierFor,
-  makeInviteCode, summarise,
+  makeInviteCode, summarise, parseDateKey, isWeekendKey, shiftDateKey,
+  suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
