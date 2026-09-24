@@ -19,6 +19,18 @@
  */
 
 import { supabase } from './supabase'
+import {
+  formatNaira, initials, monthBounds, todayKey, rateOn, multiplierFor,
+  makeInviteCode, summarise,
+} from './employerLogic'
+
+/* The pure helpers live in employerLogic.js — no imports there, so they can be
+   tested with `node --test` and zero dependencies. Re-exported so callers have
+   a single entry point and never need to know which file holds what. */
+export {
+  formatNaira, initials, monthBounds, todayKey, rateOn, multiplierFor,
+  makeInviteCode, summarise,
+}
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -161,17 +173,6 @@ export async function listEmployees({ includeArchived = false } = {}) {
   return run(q, 'load your staff list')
 }
 
-/* A short, readable invite code. Avoids characters that are easy to misread
-   when someone is copying it over the phone: 0/O, 1/I/L. */
-const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
-
-export function makeInviteCode(length = 8) {
-  const bytes = new Uint8Array(length)
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(bytes)
-  else for (let i = 0; i < length; i++) bytes[i] = Math.floor(Math.random() * 256)
-  return Array.from(bytes, b => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('')
-}
-
 export async function createEmployee({ fullName, jobTitle = null, email = null, withInvite = true }) {
   const uid = await currentUserId()
   const name = (fullName || '').trim()
@@ -282,30 +283,10 @@ export async function deleteRatePeriod(id) {
   )
 }
 
-/* The rate in force on a given date — mirrors the server's own lookup so the
-   UI can show what a day WILL be worth before it is saved. */
-export function rateOn(periods, workDate) {
-  if (!periods?.length) return null
-  const sorted = [...periods].sort((a, b) => (a.effective_from < b.effective_from ? -1 : 1))
-  let found = null
-  for (const p of sorted) {
-    if (p.effective_from <= workDate) found = p
-    else break
-  }
-  return found
-}
-
 // ── Days ────────────────────────────────────────────────────────────────────
 
 const DAY_COLS = 'id, employee_id, work_date, kind, leave_type, leave_percent, rate, multiplier, amount, status, note, confirmed_at, disputed_at'
 
-export function monthBounds(year, monthIndex) {
-  const pad = n => String(n).padStart(2, '0')
-  const from = `${year}-${pad(monthIndex + 1)}-01`
-  const last = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate()
-  const to = `${year}-${pad(monthIndex + 1)}-${pad(last)}`
-  return { from, to }
-}
 
 export async function listEmployeeMonth(employeeId, year, monthIndex) {
   const { from, to } = monthBounds(year, monthIndex)
@@ -408,52 +389,3 @@ export async function confirmMonth(employeeId, year, monthIndex) {
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 
-/* Payroll totals for a month, per employee and overall.
-   `amount` is the stored, frozen figure — this deliberately does NOT recompute
-   from today's rate, because that is exactly the error DayPay exists to avoid. */
-export function summarise(days, employees) {
-  const byEmployee = new Map()
-  for (const e of employees) {
-    byEmployee.set(e.id, {
-      employee: e, days: 0, worked: 0, leave: 0, equivalents: 0,
-      total: 0, claimed: 0, confirmed: 0, disputed: 0,
-    })
-  }
-
-  let total = 0
-  let unconfirmed = 0
-  let disputed = 0
-
-  for (const d of days) {
-    const row = byEmployee.get(d.employee_id)
-    if (!row) continue // day belongs to an archived or unknown employee
-    row.days += 1
-    if (d.kind === 'leave') row.leave += 1
-    else { row.worked += 1; row.equivalents += Number(d.multiplier) || 0 }
-    row.total += Number(d.amount) || 0
-    if (d.status === 'confirmed') row.confirmed += 1
-    else if (d.status === 'disputed') row.disputed += 1
-    else row.claimed += 1
-
-    total += Number(d.amount) || 0
-    if (d.status === 'claimed') unconfirmed += 1
-    if (d.status === 'disputed') disputed += 1
-  }
-
-  const rows = [...byEmployee.values()].filter(r => r.days > 0)
-
-  return {
-    rows,
-    total: Math.round(total * 100) / 100,
-    unconfirmed,
-    disputed,
-    staffCount: rows.length,
-  }
-}
-
-export function formatNaira(n) {
-  const v = Number(n)
-  if (!isFinite(v)) return '₦0'
-  const neg = v < 0
-  return `${neg ? '-' : ''}₦${Math.abs(Math.round(v)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`
-}

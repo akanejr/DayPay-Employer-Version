@@ -17,24 +17,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   EmployerError, ensureEmployer, listEmployees, createEmployee, updateEmployee,
   archiveEmployee, restoreEmployee, listAllRatePeriods, addRatePeriod,
-  deleteRatePeriod, rateOn, formatNaira,
+  deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
 } from '../lib/employer'
 import './employer.css'
 
 // ── Small helpers ───────────────────────────────────────────────────────────
-
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
-  if (!parts.length) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
-
-function todayKey() {
-  const d = new Date()
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
 
 function prettyDate(key) {
   if (!key) return ''
