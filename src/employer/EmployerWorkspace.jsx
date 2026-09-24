@@ -1,0 +1,435 @@
+/* DayPay Employer Version — employer workspace.
+ *
+ * Container for the employer-side screens. Kept separate from App.jsx on
+ * purpose: that file is already 3,000+ lines of employee-side logic, and the
+ * employer side has a different shape (many people, one viewer) so mixing them
+ * would make both harder to reason about.
+ *
+ * Screens:
+ *   Staff   — the roster, pay rates, archives           (built)
+ *   Month   — mark days for staff                       (next)
+ *   Summary — what you owe this month                   (next)
+ *
+ * Copyright © 2026 Akaninyene. All rights reserved.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  EmployerError, ensureEmployer, listEmployees, createEmployee, updateEmployee,
+  archiveEmployee, restoreEmployee, listAllRatePeriods, addRatePeriod,
+  deleteRatePeriod, rateOn, formatNaira,
+} from '../lib/employer'
+import './employer.css'
+
+// ── Small helpers ───────────────────────────────────────────────────────────
+
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+function todayKey() {
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+function prettyDate(key) {
+  if (!key) return ''
+  const [y, m, d] = key.split('-').map(Number)
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  return `${d} ${MON[m - 1]} ${y}`
+}
+
+/* The most recent rate period tells us what this person earns today. */
+function currentRateFor(periods, employeeId) {
+  const mine = periods.filter(p => p.employee_id === employeeId)
+  return rateOn(mine, todayKey())
+}
+
+// ── Rate history editor ─────────────────────────────────────────────────────
+
+function RateEditor({ employee, periods, onChanged, onClose }) {
+  const [from, setFrom] = useState(todayKey())
+  const [rate, setRate] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const mine = useMemo(
+    () => periods.filter(p => p.employee_id === employee.id)
+      .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1)),
+    [periods, employee.id],
+  )
+
+  async function save() {
+    setBusy(true); setErr(null)
+    try {
+      await addRatePeriod(employee.id, {
+        effectiveFrom: from,
+        dailyRate: Number(rate),
+        weekendMultiplier: 2,
+        holidayMultiplier: 2,
+      })
+      setRate('')
+      await onChanged()
+    } catch (e) {
+      setErr(e instanceof EmployerError ? e : new EmployerError(String(e)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove(id) {
+    setBusy(true); setErr(null)
+    try {
+      await deleteRatePeriod(id)
+      await onChanged()
+    } catch (e) {
+      setErr(e instanceof EmployerError ? e : new EmployerError(String(e)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ew-card">
+      <div className="ew-field">
+        <label className="ew-label">Pay rate for {employee.full_name}</label>
+        {mine.length === 0 ? (
+          <p className="ew-hint">
+            No rate set yet. A rate is needed before any day can be logged —
+            days are valued at the rate in force on the day itself.
+          </p>
+        ) : (
+          <div className="ew-rates">
+            {mine.map(p => (
+              <div className="ew-rate-row" key={p.id}>
+                <span className="ew-rate-when">
+                  from {prettyDate(p.effective_from)}
+                  {p.effective_from > todayKey() && <span className="ew-chip ew-chip-warn" style={{ marginLeft: 6 }}>future</span>}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <span className="ew-rate-amt">{formatNaira(p.daily_rate)}/day</span>
+                  <button
+                    type="button"
+                    className="ew-btn ew-btn-danger ew-btn-sm"
+                    onClick={() => remove(p.id)}
+                    disabled={busy || mine.length === 1}
+                    title={mine.length === 1 ? 'An employee needs at least one rate' : 'Delete this rate'}
+                  >
+                    ✕
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="ew-row" style={{ marginTop: 12 }}>
+        <div className="ew-field">
+          <label className="ew-label">New rate starts</label>
+          <input className="ew-input" type="date" value={from} onChange={e => setFrom(e.target.value)} />
+        </div>
+        <div className="ew-field">
+          <label className="ew-label">Daily rate (₦)</label>
+          <input
+            className="ew-input" type="number" inputMode="numeric" min="0" placeholder="16000"
+            value={rate} onChange={e => setRate(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <p className="ew-hint" style={{ marginTop: 7 }}>
+        A raise applies only from its start date. Days already logged keep the
+        rate they were worked at — the past is never recalculated.
+      </p>
+
+      {err && (
+        <div className="ew-msg ew-msg-error" style={{ marginTop: 10 }}>
+          {err.message}{err.hint && <span className="ew-msg-hint">{err.hint}</span>}
+        </div>
+      )}
+
+      <div className="ew-actions">
+        <button type="button" className="ew-btn ew-btn-ghost" onClick={onClose} disabled={busy}>Close</button>
+        <button
+          type="button" className="ew-btn ew-btn-primary"
+          onClick={save} disabled={busy || !rate || !from}
+        >
+          {busy ? 'Saving…' : 'Add rate'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Add-employee form ───────────────────────────────────────────────────────
+
+function AddEmployee({ onCreated, onCancel }) {
+  const [name, setName] = useState('')
+  const [job, setJob] = useState('')
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  async function save() {
+    setBusy(true); setErr(null)
+    try {
+      await createEmployee({ fullName: name, jobTitle: job, email })
+      setName(''); setJob(''); setEmail('')
+      await onCreated()
+    } catch (e) {
+      setErr(e instanceof EmployerError ? e : new EmployerError(String(e)))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ew-card">
+      <div className="ew-form">
+        <div className="ew-field">
+          <label className="ew-label">Full name</label>
+          <input className="ew-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Amina Yusuf" autoFocus />
+        </div>
+        <div className="ew-row">
+          <div className="ew-field">
+            <label className="ew-label">Job title <span style={{ textTransform: 'none', fontWeight: 400 }}>(optional)</span></label>
+            <input className="ew-input" value={job} onChange={e => setJob(e.target.value)} placeholder="e.g. Welder" />
+          </div>
+          <div className="ew-field">
+            <label className="ew-label">Email <span style={{ textTransform: 'none', fontWeight: 400 }}>(optional)</span></label>
+            <input className="ew-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="for inviting them later" />
+          </div>
+        </div>
+      </div>
+
+      {err && (
+        <div className="ew-msg ew-msg-error" style={{ marginTop: 11 }}>
+          {err.message}{err.hint && <span className="ew-msg-hint">{err.hint}</span>}
+        </div>
+      )}
+
+      <div className="ew-actions">
+        <button type="button" className="ew-btn ew-btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
+        <button type="button" className="ew-btn ew-btn-primary" onClick={save} disabled={busy || !name.trim()}>
+          {busy ? 'Adding…' : 'Add to roster'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Staff screen ────────────────────────────────────────────────────────────
+
+function Staff({ employees, periods, loading, error, reload }) {
+  const [adding, setAdding] = useState(false)
+  const [rateFor, setRateFor] = useState(null)
+  const [showArchived, setShowArchived] = useState(false)
+  const [busyId, setBusyId] = useState(null)
+
+  const active = employees.filter(e => e.status === 'active')
+  const archived = employees.filter(e => e.status !== 'active')
+  const visible = showArchived ? employees : active
+
+  if (loading) return <div className="ew-loading">Loading your staff…</div>
+
+  if (error) {
+    return (
+      <div className="ew-msg ew-msg-error">
+        {error.message}
+        {error.hint && <span className="ew-msg-hint">{error.hint}</span>}
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="ew-head">
+        <div>
+          <h2 className="ew-title">Staff</h2>
+          <p className="ew-sub">
+            {active.length === 0
+              ? 'No one on the roster yet'
+              : `${active.length} ${active.length === 1 ? 'person' : 'people'}${archived.length && !showArchived ? ` · ${archived.length} archived` : ''}`}
+          </p>
+        </div>
+        {!adding && (
+          <button type="button" className="ew-btn ew-btn-primary" onClick={() => { setAdding(true); setRateFor(null) }}>
+            + Add
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <AddEmployee
+          onCreated={async () => { setAdding(false); await reload() }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+
+      {active.length === 0 && !adding && (
+        <div className="ew-empty">
+          <div className="ew-empty-title">Your roster is empty</div>
+          <p className="ew-empty-body">
+            Add the people you pay by the day. You can set each person's rate,
+            log their days, and see what you owe at month end.
+          </p>
+        </div>
+      )}
+
+      {active.length > 0 && rateFor === null && !adding && active.map(e => {
+        const rate = currentRateFor(periods, e.id)
+        const hasRate = !!rate
+        return (
+          <div className="ew-person" key={e.id}>
+            <div className="ew-avatar">{initials(e.full_name)}</div>
+            <div className="ew-person-body">
+              <div className="ew-name">{e.full_name}</div>
+              <div className="ew-meta">
+                {e.job_title && <span>{e.job_title}</span>}
+                {hasRate
+                  ? <span className="ew-rate">{formatNaira(rate.daily_rate)}/day</span>
+                  : <span className="ew-rate-none">No rate set</span>}
+                {e.employee_user_id && <span className="ew-chip ew-chip-live">linked</span>}
+              </div>
+            </div>
+            <div className="ew-person-actions">
+              <button
+                type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+                onClick={() => { setRateFor(e.id); setAdding(false) }}
+              >
+                {hasRate ? 'Rates' : 'Set rate'}
+              </button>
+              <button
+                type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+                disabled={busyId === e.id}
+                onClick={async () => {
+                  setBusyId(e.id)
+                  try { await archiveEmployee(e.id); await reload() } finally { setBusyId(null) }
+                }}
+                title="Move off the active roster. Records are kept."
+              >
+                Archive
+              </button>
+            </div>
+          </div>
+        )
+      })}
+
+      {rateFor && (() => {
+        const emp = employees.find(x => x.id === rateFor)
+        if (!emp) return null
+        return (
+          <>
+            <div className="ew-person">
+              <div className="ew-avatar">{initials(emp.full_name)}</div>
+              <div className="ew-person-body">
+                <div className="ew-name">{emp.full_name}</div>
+                {emp.job_title && <div className="ew-meta">{emp.job_title}</div>}
+              </div>
+            </div>
+            <RateEditor
+              employee={emp}
+              periods={periods}
+              onChanged={reload}
+              onClose={() => setRateFor(null)}
+            />
+          </>
+        )
+      })()}
+
+      {archived.length > 0 && rateFor === null && !adding && (
+        <>
+          <button
+            type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+            style={{ alignSelf: 'flex-start', marginTop: 4 }}
+            onClick={() => setShowArchived(v => !v)}
+          >
+            {showArchived ? 'Hide archived' : `Show ${archived.length} archived`}
+          </button>
+
+          {showArchived && archived.map(e => (
+            <div className="ew-person" key={e.id} style={{ opacity: .72 }}>
+              <div className="ew-avatar">{initials(e.full_name)}</div>
+              <div className="ew-person-body">
+                <div className="ew-name">{e.full_name}</div>
+                <div className="ew-meta"><span className="ew-chip">archived</span></div>
+              </div>
+              <div className="ew-person-actions">
+                <button
+                  type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+                  disabled={busyId === e.id}
+                  onClick={async () => {
+                    setBusyId(e.id)
+                    try { await restoreEmployee(e.id); await reload() } finally { setBusyId(null) }
+                  }}
+                >
+                  Restore
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </>
+  )
+}
+
+// ── Container ───────────────────────────────────────────────────────────────
+
+export default function EmployerWorkspace() {
+  const [employees, setEmployees] = useState([])
+  const [periods, setPeriods] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const reload = useCallback(async () => {
+    setError(null)
+    try {
+      await ensureEmployer()
+      const [emps, rates] = await Promise.all([
+        listEmployees({ includeArchived: true }),
+        listAllRatePeriods(),
+      ])
+      setEmployees(emps || [])
+      setPeriods(rates || [])
+    } catch (e) {
+      setError(e instanceof EmployerError ? e : new EmployerError(String(e)))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { reload() }, [reload])
+
+  const activeCount = employees.filter(e => e.status === 'active').length
+
+  return (
+    <div className="ew">
+      <div className="ew-summary">
+        <div className="ew-stat">
+          <div className="ew-stat-label">On roster</div>
+          <div className="ew-stat-value">{activeCount}</div>
+        </div>
+        <div className="ew-stat">
+          <div className="ew-stat-label">Rates set</div>
+          <div className="ew-stat-value">
+            {employees.filter(e => e.status === 'active' && currentRateFor(periods, e.id)).length}
+          </div>
+        </div>
+      </div>
+
+      <Staff
+        employees={employees}
+        periods={periods}
+        loading={loading}
+        error={error}
+        reload={reload}
+      />
+    </div>
+  )
+}

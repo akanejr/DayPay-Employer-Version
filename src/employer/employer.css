@@ -1,0 +1,266 @@
+/* DayPay Employer Version — employer workspace.
+   Uses the app's existing theme tokens, so it follows Light / Dark / Glass
+   automatically without duplicating any colours. */
+
+.ew {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 40px;
+}
+
+/* ── Section headers ─────────────────────────────────────────────────────── */
+
+.ew-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.ew-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.ew-sub {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+
+.ew-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.ew-card + .ew-card { margin-top: 10px; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.ew-btn {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  padding: 9px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter .15s ease, background .15s ease;
+}
+
+.ew-btn:active { transform: translateY(0.5px); }
+.ew-btn:disabled { opacity: .5; cursor: default; }
+
+.ew-btn-primary { background: var(--daypay-green); color: #fff; }
+.ew-btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+.ew-btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+  border-color: var(--border-strong);
+}
+.ew-btn-ghost:hover:not(:disabled) { background: var(--bg-cell-hover); }
+
+.ew-btn-danger { background: transparent; color: var(--danger); border-color: var(--border-strong); }
+.ew-btn-sm { font-size: 12.5px; padding: 6px 11px; }
+
+/* ── Employee rows ───────────────────────────────────────────────────────── */
+
+.ew-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.ew-person + .ew-person { margin-top: 9px; }
+
+.ew-avatar {
+  flex: 0 0 auto;
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--daypay-green-light);
+  color: var(--daypay-green);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: .02em;
+}
+
+.ew-person-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ew-meta {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.ew-rate {
+  font-weight: 700;
+  color: var(--daypay-green);
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-rate-none { color: var(--amber); font-weight: 700; }
+
+.ew-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2.5px 7px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  border: 1px solid var(--border-light);
+}
+
+.ew-chip-live { background: var(--daypay-green-light); color: var(--daypay-green); border-color: transparent; }
+.ew-chip-warn { background: var(--amber-wash); color: var(--amber); border-color: transparent; }
+
+.ew-person-actions { flex: 0 0 auto; display: flex; gap: 6px; }
+
+/* ── Form ────────────────────────────────────────────────────────────────── */
+
+.ew-form { display: flex; flex-direction: column; gap: 11px; }
+
+.ew-field { display: flex; flex-direction: column; gap: 5px; }
+
+.ew-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.ew-input {
+  font: inherit;
+  font-size: 15px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-sunken);
+  color: var(--text);
+  width: 100%;
+}
+
+.ew-input:focus { outline: 2px solid var(--daypay-green); outline-offset: -1px; background: var(--bg-elevated); }
+
+.ew-hint { font-size: 12px; color: var(--text-4); }
+
+.ew-row { display: flex; gap: 9px; }
+.ew-row > * { flex: 1 1 0; min-width: 0; }
+
+.ew-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 2px; }
+
+/* ── Messages ────────────────────────────────────────────────────────────── */
+
+.ew-msg {
+  border-radius: 11px;
+  padding: 11px 13px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.ew-msg-error { background: #FEE2E2; color: #7F1D1D; border: 1px solid #FCA5A5; }
+.ew-msg-ok    { background: var(--daypay-green-light); color: var(--daypay-green); border: 1px solid #86EFAC; }
+.ew-msg-warn  { background: var(--amber-wash); color: var(--amber); border: 1px solid #FCD34D; }
+.ew-msg-hint { display: block; margin-top: 3px; opacity: .85; font-size: 12.5px; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.ew-empty {
+  text-align: center;
+  padding: 34px 20px;
+  color: var(--text-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  background: var(--bg-sunken);
+}
+
+.ew-empty-title { font-size: 15px; font-weight: 700; color: var(--text-2); margin-bottom: 5px; }
+.ew-empty-body { font-size: 13px; line-height: 1.5; max-width: 34ch; margin: 0 auto; }
+
+.ew-loading { text-align: center; padding: 26px; color: var(--text-3); font-size: 13.5px; }
+
+/* ── Rate history ────────────────────────────────────────────────────────── */
+
+.ew-rates { margin-top: 9px; border-top: 1px solid var(--border-light); padding-top: 9px; }
+
+.ew-rate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 5px 0;
+}
+
+.ew-rate-row + .ew-rate-row { border-top: 1px dashed var(--border-light); }
+.ew-rate-when { color: var(--text-3); }
+.ew-rate-amt { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ── Summary strip ───────────────────────────────────────────────────────── */
+
+.ew-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 9px;
+}
+
+.ew-stat {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 12px;
+}
+
+.ew-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); }
+.ew-stat-value { font-size: 19px; font-weight: 800; color: var(--text); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.ew-stat-money .ew-stat-value { color: var(--daypay-green); }
+
+/* ── Invite code ─────────────────────────────────────────────────────────── */
+
+.ew-invite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: var(--daypay-navy);
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  padding: 8px 11px;
+  user-select: all;
+}

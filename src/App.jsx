@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
+import EmployerWorkspace from './employer/EmployerWorkspace'
 import { sortPeriods, migratePeriods, rateFor as rateForPeriod } from './lib/rates'
 import { normalizeReminder, nextReminder, buildReminderIcs } from './lib/reminders'
 import jsPDF from 'jspdf'
@@ -2082,11 +2083,26 @@ export default function App() {
           <div className="segmented">
             <button className={view==='month'?'active':''} onClick={()=>setView('month')}>Month</button>
             <button className={view==='year'?'active':''} onClick={()=>setView('year')}>Year</button>
+            {user && (
+              <button className={view==='staff'?'active':''} onClick={()=>setView('staff')}>Staff</button>
+            )}
           </div>
         </div>
 
         <div key={view} className="view-wrap">
-        {view==='month' ? (
+        {view==='staff' ? (
+          isSupabaseConfigured && user ? (
+            <EmployerWorkspace />
+          ) : (
+            <div className="ew-empty" style={{ marginTop: 14 }}>
+              <div className="ew-empty-title">Sign in to manage staff</div>
+              <p className="ew-empty-body">
+                The staff roster lives in your account so it stays in sync across
+                your devices.
+              </p>
+            </div>
+          )
+        ) : view==='month' ? (
           <>
             <div className="month-nav">
               <button className="nav-btn" onClick={goPrevMonth} disabled={(() => {
