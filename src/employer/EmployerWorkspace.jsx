@@ -18,9 +18,11 @@ import {
   EmployerError, ensureEmployer, listEmployees, createEmployee, updateEmployee,
   archiveEmployee, restoreEmployee, listAllRatePeriods, addRatePeriod,
   deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
+  issueInviteCode, myRoles,
 } from '../lib/employer'
 import StaffDays from './StaffDays'
 import Summary from './Summary'
+import EmployeeView from './EmployeeView'
 import './employer.css'
 
 // ── Small helpers ───────────────────────────────────────────────────────────
@@ -215,8 +217,11 @@ function AddEmployee({ onCreated, onCancel }) {
 // ── Staff screen ────────────────────────────────────────────────────────────
 
 function Staff({ employees, periods, loading, error, reload }) {
+  const onInviteChanged = reload
   const [adding, setAdding] = useState(false)
   const [rateFor, setRateFor] = useState(null)
+  const [inviteFor, setInviteFor] = useState(null)
+  const [busyInvite, setBusyInvite] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [busyId, setBusyId] = useState(null)
 
@@ -311,6 +316,12 @@ function Staff({ employees, periods, loading, error, reload }) {
               </button>
               <button
                 type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+                onClick={() => { setInviteFor(e.id === inviteFor ? null : e.id); setRateFor(null); setAdding(false) }}
+              >
+                Invite
+              </button>
+              <button
+                type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
                 disabled={busyId === e.id}
                 onClick={async () => {
                   setBusyId(e.id)
@@ -324,6 +335,89 @@ function Staff({ employees, periods, loading, error, reload }) {
           </div>
         )
       })}
+
+      {inviteFor && (() => {
+        const emp = employees.find(x => x.id === inviteFor)
+        if (!emp) return null
+        const linked = !!emp.employee_user_id
+        return (
+          <div className="ew-card">
+            <div className="ew-label">Invite {emp.full_name}</div>
+
+            {linked ? (
+              <>
+                <p className="ew-invite-used" style={{ marginTop: 6 }}>
+                  This account is already linked — they signed in with a code.
+                </p>
+                <p className="ew-hint" style={{ marginTop: 6 }}>
+                  They can see their own days and pay, and nobody else's.
+                </p>
+              </>
+            ) : emp.invite_code ? (
+              <>
+                <div className="ew-invite-row" style={{ marginTop: 7 }}>
+                  <span className="ew-invite-code">{emp.invite_code}</span>
+                  <button
+                    type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+                    disabled={busyInvite}
+                    onClick={async () => {
+                      const text =
+                        `DayPay: sign in with your own email, then enter this code to see your days and pay — ${emp.invite_code}`
+                      try {
+                        if (navigator.share) await navigator.share({ text })
+                        else await navigator.clipboard?.writeText(emp.invite_code)
+                      } catch {
+                        // Sharing cancelled, or clipboard unavailable — the
+                        // code is on screen and selectable either way.
+                      }
+                    }}
+                  >
+                    Share
+                  </button>
+                </div>
+                <p className="ew-hint" style={{ marginTop: 8 }}>
+                  Give them this code. They sign in with their own email, enter
+                  it once, and can then see only their own days and pay. The
+                  code stops working the moment it is used.
+                </p>
+                <div className="ew-actions" style={{ marginTop: 9 }}>
+                  <button
+                    type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+                    disabled={busyInvite}
+                    onClick={async () => {
+                      setBusyInvite(true)
+                      try { await issueInviteCode(emp.id); await onInviteChanged() }
+                      finally { setBusyInvite(false) }
+                    }}
+                  >
+                    Replace code
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="ew-hint" style={{ marginTop: 6 }}>
+                  No invite code yet. Create one to let this person sign in and
+                  see their own days.
+                </p>
+                <div className="ew-actions" style={{ marginTop: 9 }}>
+                  <button
+                    type="button" className="ew-btn ew-btn-primary ew-btn-sm"
+                    disabled={busyInvite}
+                    onClick={async () => {
+                      setBusyInvite(true)
+                      try { await issueInviteCode(emp.id); await onInviteChanged() }
+                      finally { setBusyInvite(false) }
+                    }}
+                  >
+                    {busyInvite ? 'Creating…' : 'Create invite code'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })()}
 
       {rateFor && (() => {
         const emp = employees.find(x => x.id === rateFor)

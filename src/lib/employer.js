@@ -393,3 +393,95 @@ export async function confirmMonth(employeeId, year, monthIndex) {
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 
+
+// ── Roles ───────────────────────────────────────────────────────────────────
+
+/* Who is this account? Either or both can be true — an owner who also works
+   days is both an employer and an employee of their own business. */
+export async function myRoles() {
+  const uid = await currentUserId()
+  const c = client()
+
+  const [asEmployer, asEmployee] = await Promise.all([
+    c.from('employers').select('user_id, business_name').eq('user_id', uid).maybeSingle(),
+    c.from('employees')
+      .select('id, full_name, job_title, employer_id, status')
+      .eq('employee_user_id', uid)
+      .maybeSingle(),
+  ])
+
+  // A missing row is not an error here — it just means "no".
+  if (asEmployer.error && asEmployer.error.code !== 'PGRST116') {
+    throw new EmployerError(describe(asEmployer.error).message, { code: asEmployer.error.code, cause: asEmployer.error })
+  }
+  if (asEmployee.error && asEmployee.error.code !== 'PGRST116') {
+    throw new EmployerError(describe(asEmployee.error).message, { code: asEmployee.error.code, cause: asEmployee.error })
+  }
+
+  return {
+    uid,
+    isEmployer: !!asEmployer.data,
+    businessName: asEmployer.data?.business_name || null,
+    employee: asEmployee.data || null,
+  }
+}
+
+// ── Joining a team ──────────────────────────────────────────────────────────
+
+/* Redeems an invite code. Runs server-side because an employee has no write
+   policy on `employees` — see migration 005 for why that is deliberate.
+
+   Returns the linked roster entry, or throws with a message safe to show. */
+export async function redeemInvite(code) {
+  const cleaned = String(code || '').trim()
+  if (!cleaned) throw new EmployerError('Enter the code from your employer.')
+
+  const { data, error } = await client().rpc('redeem_invite', { code: cleaned })
+  if (error) {
+    const msg = error.message || 'Could not join.'
+    throw new EmployerError(
+      /not recognised/i.test(msg) ? 'That code was not recognised.'
+        : /already been used/i.test(msg) ? 'That code has already been used.'
+          : /archived/i.test(msg) ? 'That roster entry is archived.'
+            : msg,
+      { code: error.code, hint: /not recognised/i.test(msg) ? 'Check it with your employer — codes are case-sensitive to look at but not to type.' : undefined, cause: error },
+    )
+  }
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row) throw new EmployerError('Could not join.', { hint: 'The code was accepted but no roster entry came back.' })
+  return row
+}
+
+/* Unlinks the signed-in account from whatever roster entry it holds. */
+export async function leaveRoster() {
+  const { error } = await client().rpc('leave_roster')
+  if (error) throw new EmployerError(error.message || 'Could not leave.', { code: error.code, cause: error })
+}
+
+/* Issues a fresh invite code for a roster entry — used after someone leaves,
+   or when the original was never shared. The employer writes to their own row
+   through the existing policy, so this needs no server function. */
+export async function issueInviteCode(employeeId) {
+  return run(
+    client().from('employees')
+      .update({ invite_code: makeInviteCode() })
+      .eq('id', employeeId)
+      .select(EMPLOYEE_COLS).single(),
+    'create an invite code',
+  )
+}
+
+// ── The employee's own view ─────────────────────────────────────────────────
+
+/* Their rate history. RLS already scopes this to their own periods, so no
+   employee id is needed — the policy does the filtering. */
+export async function myRatePeriods(employeeId) {
+  return listRatePeriods(employeeId)
+}
+
+/* Their own days for a month. Also RLS-scoped, but the employee_id filter is
+   passed explicitly so the query is index-friendly rather than relying on the
+   planner to combine a policy with a date range. */
+export async function myMonth(employeeId, year, monthIndex) {
+  return listEmployeeMonth(employeeId, year, monthIndex)
+}

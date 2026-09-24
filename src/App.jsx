@@ -5,6 +5,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
 import EmployerWorkspace from './employer/EmployerWorkspace'
+import EmployeeView from './employer/EmployeeView'
+import { myRoles } from './lib/employer'
 import { sortPeriods, migratePeriods, rateFor as rateForPeriod } from './lib/rates'
 import { normalizeReminder, nextReminder, buildReminderIcs } from './lib/reminders'
 import jsPDF from 'jspdf'
@@ -339,6 +341,9 @@ export default function App() {
   const [editingDate, setEditingDate] = useState(null)
 
   const [showHamburgerMenu, setShowHamburgerMenu] = useState(false)
+  // v25 employer: which side of the ledger this account is on. Either, both,
+  // or neither — an owner who also works days is both.
+  const [roles, setRoles] = useState(null)
   const [showThemeMenu, setShowThemeMenu] = useState(false) // v18: "Choose theme" inline picker in the hamburger menu
   const hamburgerMenuRef = useRef(null)
 
@@ -578,6 +583,18 @@ export default function App() {
     })
     return () => listener.subscription.unsubscribe()
   }, [])
+
+  // Employer/employee roles. Only meaningful once signed in, and a failure
+  // here must not break the existing tracker — so errors leave roles as the
+  // "neither" default rather than surfacing.
+  useEffect(() => {
+    let cancelled = false
+    if (!isSupabaseConfigured || !user) { setRoles(null); return }
+    myRoles()
+      .then(r => { if (!cancelled) setRoles(r) })
+      .catch(() => { if (!cancelled) setRoles({ isEmployer: false, employee: null }) })
+    return () => { cancelled = true }
+  }, [user])
 
   // Fetch cloud
   useEffect(() => {
@@ -2084,6 +2101,11 @@ export default function App() {
             <button className={view==='month'?'active':''} onClick={()=>setView('month')}>Month</button>
             <button className={view==='year'?'active':''} onClick={()=>setView('year')}>Year</button>
             {user && (
+              <button className={view==='me'?'active':''} onClick={()=>setView('me')}>
+                {roles?.employee ? 'My work' : 'Join'}
+              </button>
+            )}
+            {user && (
               <button className={view==='staff'?'active':''} onClick={()=>setView('staff')}>Staff</button>
             )}
           </div>
@@ -2099,6 +2121,21 @@ export default function App() {
               <p className="ew-empty-body">
                 The staff roster lives in your account so it stays in sync across
                 your devices.
+              </p>
+            </div>
+          )
+        ) : view==='me' ? (
+          isSupabaseConfigured && user ? (
+            <EmployeeView
+              employee={roles?.employee || null}
+              onChanged={() => myRoles().then(setRoles).catch(() => setRoles({ isEmployer: false, employee: null }))}
+            />
+          ) : (
+            <div className="ew-empty" style={{ marginTop: 14 }}>
+              <div className="ew-empty-title">Sign in to see your work</div>
+              <p className="ew-empty-body">
+                Your days and pay live in your account, so they follow you across
+                devices.
               </p>
             </div>
           )

@@ -537,3 +537,54 @@
 .ew-monthend { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 
 .ew-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+
+/* ── Employee view ───────────────────────────────────────────────────────── */
+
+.ew-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.ew-foldhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-2);
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ew-leave { display: flex; justify-content: center; margin-top: 6px; }
+
+/* ── Invite code in the roster ───────────────────────────────────────────── */
+
+.ew-invite-wrap { margin-top: 9px; border-top: 1px solid var(--border-light); padding-top: 10px; }
+
+.ew-invite-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.ew-invite-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: var(--daypay-navy);
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  padding: 7px 12px;
+  user-select: all;
+}
+
+.ew-invite-used { font-size: 12.5px; color: var(--text-3); }
