@@ -143,20 +143,34 @@ create temp table _rls (
   n int, area text, check_name text,
   expected text, actual text, pass boolean
 );
-grant select, insert on _rls to authenticated;
+-- anon needs insert rights too: the anonymous phase below runs with that role
+-- and must still be able to record its own result row.
+grant select, insert on _rls to authenticated, anon;
 
 
 -- ============================================================================
 -- ACT AS THE EMPLOYER
 -- ============================================================================
--- `set local role` is what makes these checks meaningful: RLS is evaluated
--- against the role AND the claims, so both must be switched. If your editor
--- refuses the role switch, it means the login running the query cannot SET
--- ROLE — the checks below would then be meaningless, and that is itself worth
--- reporting rather than working around.
+-- NOTE ON SYNTAX: `SET LOCAL x = <expr>` is invalid in PostgreSQL — SET only
+-- accepts a literal. Dynamic values therefore go through set_config(), which
+-- does accept an expression. Getting this wrong gives
+-- "42601: syntax error at or near (".
 set local role authenticated;
-set local request.jwt.claims = json_build_object(
-  'sub', (select employer_uid::text from _ids), 'role', 'authenticated')::text;
+do $$
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text from _ids),
+    true
+  );
+end $$;
+
+-- Guard against a silent false pass: if the role switch did not take effect,
+-- every check below would run as the table owner and pass for the wrong
+-- reason. This row makes that failure loud.
+insert into _rls values
+(0, 'PREFLIGHT', 'role switch actually applied (not silently running as owner)',
+ 'authenticated', current_user, current_user = 'authenticated');
 
 insert into _rls (n, area, check_name, expected, actual, pass) values
 (1, 'employer', 'sees both employees on their roster',
@@ -183,8 +197,18 @@ reset role;
 -- ACT AS THE EMPLOYEE — the test that matters
 -- ============================================================================
 set local role authenticated;
-set local request.jwt.claims = json_build_object(
-  'sub', (select employee_uid::text from _ids), 'role', 'authenticated')::text;
+do $$
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text from _ids),
+    true
+  );
+end $$;
+
+insert into _rls values
+(13, 'PREFLIGHT', 'employee role switch applied', 'authenticated', current_user,
+ current_user = 'authenticated');
 
 insert into _rls (n, area, check_name, expected, actual, pass) values
 (4, 'EMPLOYEE ISOLATION', 'sees ONLY their own employee row (not the roster)',
