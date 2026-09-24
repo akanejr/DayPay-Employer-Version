@@ -26,12 +26,19 @@
 begin;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- CONFIG — edit these two lines only
+-- CONFIG
+--
+-- Leave both blank and the harness will automatically use the two most
+-- recently created accounts in this project — which is almost always what you
+-- want right after creating them. The report at the end states exactly which
+-- addresses it used, so you can confirm it picked the right two.
+--
+-- Only fill these in if you want to force a specific assignment.
 -- ────────────────────────────────────────────────────────────────────────────
 create temp table _cfg on commit drop as
 select
-  'employer@example.com'::text as employer_email,   -- owns the roster
-  'employee@example.com'::text as employee_email;   -- a member of staff
+  ''::text as employer_email,   -- blank = auto-pick
+  ''::text as employee_email;   -- blank = auto-pick
 
 grant select on _cfg to authenticated;
 
@@ -39,32 +46,56 @@ grant select on _cfg to authenticated;
 -- ────────────────────────────────────────────────────────────────────────────
 -- Resolve the two accounts
 -- ────────────────────────────────────────────────────────────────────────────
-do $$
-declare
-  a uuid; b uuid;
-begin
-  select id into a from auth.users where email = (select employer_email from _cfg);
-  select id into b from auth.users where email = (select employee_email from _cfg);
-
-  if a is null then
-    raise exception 'No account found for %. Create it under Authentication -> Add user (Auto Confirm on).',
-      (select employer_email from _cfg);
-  end if;
-  if b is null then
-    raise exception 'No account found for %. Create it under Authentication -> Add user (Auto Confirm on).',
-      (select employee_email from _cfg);
-  end if;
-  if a = b then
-    raise exception 'The two emails must be different accounts.';
-  end if;
-end $$;
-
 create temp table _ids on commit drop as
+with recent as (
+  select id, email, created_at,
+         row_number() over (order by created_at desc) as rn
+  from auth.users
+),
+picked as (
+  select
+    coalesce(
+      (select u.id from auth.users u
+        where u.email = (select employer_email from _cfg)
+          and (select employer_email from _cfg) <> ''),
+      (select id from recent where rn = 2)
+    ) as employer_uid,
+    coalesce(
+      (select u.id from auth.users u
+        where u.email = (select employee_email from _cfg)
+          and (select employee_email from _cfg) <> ''),
+      (select id from recent where rn = 1)
+    ) as employee_uid
+)
 select
-  (select id from auth.users where email = (select employer_email from _cfg)) as employer_uid,
-  (select id from auth.users where email = (select employee_email from _cfg)) as employee_uid;
+  p.employer_uid,
+  p.employee_uid,
+  (select email from auth.users where id = p.employer_uid) as employer_email_used,
+  (select email from auth.users where id = p.employee_uid) as employee_email_used,
+  (select count(*) from auth.users) as total_accounts
+from picked;
 
 grant select on _ids to authenticated;
+
+-- Fail early and clearly rather than producing nonsense results.
+do $$
+declare n int; a uuid; b uuid;
+begin
+  select count(*) into n from auth.users;
+  if n < 2 then
+    raise exception
+      'This project has % account(s). The harness needs TWO. Create a second one under Authentication -> Add user (tick Auto Confirm), then run this again.',
+      n;
+  end if;
+
+  select employer_uid, employee_uid into a, b from _ids;
+  if a is null or b is null then
+    raise exception 'Could not resolve two accounts. Check the emails in the CONFIG block.';
+  end if;
+  if a = b then
+    raise exception 'Both roles resolved to the same account. Set the two emails explicitly in the CONFIG block.';
+  end if;
+end $$;
 
 
 -- ────────────────────────────────────────────────────────────────────────────
@@ -247,6 +278,14 @@ reset role;
 -- ============================================================================
 -- REPORT
 -- ============================================================================
+
+-- Which accounts were tested (check these are the two you created)
+select
+  employer_email_used as "employer account",
+  employee_email_used as "employee account",
+  total_accounts      as "accounts in project"
+from _ids;
+
 select
   lpad(n::text, 2) as "#",
   area,
