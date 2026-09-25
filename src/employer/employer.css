@@ -588,3 +588,203 @@
 }
 
 .ew-invite-used { font-size: 12.5px; color: var(--text-3); }
+
+/* ── Dashboard ───────────────────────────────────────────────────────────── */
+
+.ew-dash { display: flex; flex-direction: column; gap: 10px; }
+
+.ew-board-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 9px;
+}
+
+.ew-board-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-3);
+}
+
+.ew-board-date {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text);
+  margin-top: 2px;
+  letter-spacing: -.01em;
+}
+
+.ew-stat-good .ew-stat-value { color: var(--daypay-green); }
+.ew-stat-warn .ew-stat-value { color: var(--amber); }
+
+.ew-dash-money {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 9px;
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.ew-dash-money-label { font-size: 12.5px; color: var(--text-3); }
+.ew-dash-money-value {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--daypay-green);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The missing-by-name list ────────────────────────────────────────────── */
+
+.ew-dash-block { margin-top: 12px; }
+
+.ew-dash-block-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+
+.ew-dash-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--amber-wash);
+  color: var(--amber);
+  font-size: 11.5px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.ew-mini-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 7px;
+}
+
+.ew-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.ew-avatar-sm {
+  width: 26px;
+  height: 26px;
+  font-size: 10.5px;
+  border-radius: 9px;
+}
+
+.ew-mini-body { min-width: 0; flex: 1 1 auto; }
+
+.ew-mini-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ew-mini-sub {
+  font-size: 11.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Notes, chips, footers ───────────────────────────────────────────────── */
+
+.ew-dash-note {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.ew-dash-done { color: var(--daypay-green); font-weight: 600; }
+
+.ew-dash-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.ew-dash-foot {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-4);
+  margin: 11px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* An inline link that reads as part of a sentence, not a button. */
+.ew-linkbtn {
+  margin-left: 5px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--daypay-green);
+  cursor: pointer;
+}
+.ew-linkbtn:hover { text-decoration: underline; }
+
+/* ── Needs attention ─────────────────────────────────────────────────────── */
+
+.ew-card-attention { border-color: var(--border-strong); }
+
+.ew-attention + .ew-attention {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.ew-attention-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 7px;
+}
+
+.ew-attention-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+  margin: 5px 0 0;
+}
+
+@media (max-width: 420px) {
+  .ew-mini-list { grid-template-columns: 1fr; }
+}
+
+/* A one-line explanation at the top of a pane that is not the daily routine. */
+.ew-pane-note {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-4);
+  margin: 0 0 11px;
+  padding: 9px 11px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+/* Four stats in a row is a lopsided 3+1 on a narrow phone. Two by two. */
+@media (max-width: 420px) {
+  .ew-dash .ew-summary { grid-template-columns: repeat(2, 1fr); }
+}

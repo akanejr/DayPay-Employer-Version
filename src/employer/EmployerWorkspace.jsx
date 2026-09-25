@@ -20,6 +20,7 @@ import {
   deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
   issueInviteCode, myRoles,
 } from '../lib/employer'
+import Dashboard from './Dashboard'
 import StaffDays from './StaffDays'
 import Summary from './Summary'
 import EmployeeView from './EmployeeView'
@@ -481,7 +482,7 @@ function Staff({ employees, periods, loading, error, reload }) {
 // ── Container ───────────────────────────────────────────────────────────────
 
 export default function EmployerWorkspace() {
-  const [pane, setPane] = useState('days')
+  const [pane, setPane] = useState('today')
   const [employees, setEmployees] = useState([])
   const [periods, setPeriods] = useState([])
   const [loading, setLoading] = useState(true)
@@ -529,6 +530,13 @@ export default function EmployerWorkspace() {
 
       <div className="ew-subtabs" role="tablist">
         <button
+          type="button" role="tab" aria-selected={pane === 'today'}
+          className={`ew-subtab${pane === 'today' ? ' active' : ''}`}
+          onClick={() => setPane('today')}
+        >
+          Today
+        </button>
+        <button
           type="button" role="tab" aria-selected={pane === 'days'}
           className={`ew-subtab${pane === 'days' ? ' active' : ''}`}
           onClick={() => setPane('days')}
@@ -550,6 +558,14 @@ export default function EmployerWorkspace() {
           Summary
         </button>
       </div>
+
+      {pane === 'today' && (
+        <Dashboard
+          employees={employees}
+          periods={periods}
+          onOpenDays={() => setPane('days')}
+        />
+      )}
 
       {pane === 'days' && <StaffDays employees={employees} />}
 

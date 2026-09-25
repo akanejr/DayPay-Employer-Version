@@ -171,6 +171,7 @@ function defaultRandom() {
 export function summarise(days, employees) {
   const byEmployee = new Map()
   for (const e of employees || []) {
+    if (!e || !e.id) continue // defensive: a null element must not blank the whole summary
     byEmployee.set(e.id, {
       employee: e, days: 0, worked: 0, leave: 0, equivalents: 0,
       total: 0, claimed: 0, confirmed: 0, disputed: 0,
@@ -337,4 +338,99 @@ export function isMissingColumn(error, column) {
   const msg = String(error.message || error.details || '')
   if (!column) return false
   return new RegExp(`column\\b.*\\b${column}\\b.*does not exist`, 'i').test(msg)
+}
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+
+/* The employer's morning question, answered from data already loaded:
+   who did I expect, who came, who is missing, and what does today cost.
+
+   Returns the two lists as objects, not counts, because the names are the
+   actionable part — an employer does not chase "3", they chase James.
+
+   Days belonging to someone off the active roster are collected separately as
+   `offRoster` rather than dropped. Dropping them would make the recorded count
+   disagree with the amount, and a dashboard that contradicts itself is worse
+   than no dashboard. */
+export function dayBoard(days, employees, dateKey) {
+  const active = (employees || []).filter(e => e && e.id && e.status === 'active')
+
+  const onDate = new Map()
+  for (const d of days || []) {
+    if (d && d.work_date === dateKey) onDate.set(d.employee_id, d)
+  }
+
+  const present = []
+  const missing = []
+  const counts = { overtime: 0, holiday: 0, weekend: 0, leave: 0, disputed: 0, unconfirmed: 0 }
+  let recorded = 0
+  let amount = 0
+
+  for (const employee of active) {
+    const day = onDate.get(employee.id)
+    if (!day) { missing.push(employee); continue }
+
+    present.push({ employee, day })
+    recorded += 1
+    amount += Number(day.amount) || 0
+
+    if (day.status === 'disputed') counts.disputed += 1
+    else if (day.status === 'claimed') counts.unconfirmed += 1
+
+    if (day.kind === 'overtime') counts.overtime += 1
+    else if (day.kind === 'holiday') counts.holiday += 1
+    else if (day.kind === 'weekend') counts.weekend += 1
+    else if (day.kind === 'leave') counts.leave += 1
+  }
+
+  const activeIds = new Set(active.map(e => e.id))
+  const offRoster = (days || []).filter(d => d && d.work_date === dateKey && !activeIds.has(d.employee_id))
+
+  return {
+    dateKey,
+    isWeekend: isWeekendKey(dateKey),
+    expected: active.length,
+    recorded,
+    present,
+    missing,
+    offRoster,
+    counts,
+    amount: Math.round(amount * 100) / 100,
+  }
+}
+
+/* Active staff with no rate period covering the date.
+
+   This is not cosmetic. The money trigger raises "No rate period covers
+   <date>" and the day cannot be saved at all — so an employer who discovers
+   this at marking time has a person standing in front of them and no way to
+   record the day. Surfacing it on the dashboard turns a failure into a task:
+   set this person's rate. */
+export function unmetRates(employees, periods, dateKey) {
+  return (employees || [])
+    .filter(e => e && e.id && e.status === 'active')
+    .filter(e => !rateOn((periods || []).filter(p => p && p.employee_id === e.id), dateKey))
+}
+
+/* The month figures the dashboard shows, flattened out of summarise().
+   Deliberately the same source as the Summary pane and the payslip — the
+   dashboard must never compute money a second way. */
+export function monthFigures(days, employees) {
+  const s = summarise(days, employees)
+  let actualDays = 0
+  let equivalents = 0
+  for (const row of s.rows) {
+    actualDays += row.worked
+    equivalents += row.equivalents
+  }
+  return {
+    actualDays,
+    equivalents: Math.round(equivalents * 100) / 100,
+    total: s.total,
+    staffCount: s.staffCount,
+    unconfirmed: s.unconfirmed,
+    disputed: s.disputed,
+    unmatchedDays: s.unmatchedDays,
+    unmatchedTotal: s.unmatchedTotal,
+  }
 }

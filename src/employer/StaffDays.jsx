@@ -256,6 +256,13 @@ export default function StaffDays({ employees }) {
 
   return (
     <>
+      <p className="ew-pane-note">
+        Use this to record a day on someone’s behalf — a correction, a backdated
+        day, or a worker whose phone isn’t to hand. Everyone’s own days are the
+        normal path; treating this page as the daily routine is how a roster gets
+        marked present without anyone checking.
+      </p>
+
       <DateBar value={date} onChange={setDate} busy={bulkBusy} />
 
       <div className="ew-strip">

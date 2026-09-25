@@ -605,3 +605,204 @@ describe('isMissingColumn', () => {
     assert.doesNotThrow(() => isMissingColumn({ message: 42 }, 'kind'))
   })
 })
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+
+import { dayBoard, unmetRates, monthFigures } from '../src/lib/employerLogic.js'
+
+const staff = [
+  { id: 'a', full_name: 'James', job_title: 'Welder', status: 'active' },
+  { id: 'b', full_name: 'Peter', job_title: 'Fitter', status: 'active' },
+  { id: 'c', full_name: 'Grace', job_title: 'Helper', status: 'active' },
+  { id: 'd', full_name: 'Old Timer', status: 'archived' },
+]
+
+describe('dayBoard', () => {
+  test('names the missing, not just the count', () => {
+    const days = [{ employee_id: 'a', work_date: '2026-09-25', kind: 'work', amount: 16000, status: 'claimed' }]
+    const b = dayBoard(days, staff, '2026-09-25')
+    assert.equal(b.expected, 3)          // archived excluded
+    assert.equal(b.recorded, 1)
+    assert.equal(b.missing.length, 2)
+    assert.deepEqual(b.missing.map(e => e.full_name).sort(), ['Grace', 'Peter'])
+    assert.equal(b.amount, 16000)
+  })
+
+  // A dashboard that contradicts itself is worse than no dashboard.
+  test('recorded + missing always equals expected', () => {
+    const days = [
+      { employee_id: 'a', work_date: '2026-09-25', kind: 'work', amount: 100, status: 'claimed' },
+      { employee_id: 'b', work_date: '2026-09-25', kind: 'overtime', amount: 200, status: 'claimed' },
+    ]
+    const b = dayBoard(days, staff, '2026-09-25')
+    assert.equal(b.recorded + b.missing.length, b.expected)
+    assert.equal(b.present.length, b.recorded)
+  })
+
+  test('a day for an archived person is kept, not dropped', () => {
+    const days = [{ employee_id: 'd', work_date: '2026-09-25', kind: 'work', amount: 16000, status: 'claimed' }]
+    const b = dayBoard(days, staff, '2026-09-25')
+    assert.equal(b.offRoster.length, 1)
+    assert.equal(b.recorded, 0)          // they are not on the active roster
+    assert.equal(b.missing.length, 3)
+  })
+
+  test('counts kinds and workflow states separately', () => {
+    const days = [
+      { employee_id: 'a', work_date: '2026-09-25', kind: 'overtime', amount: 32000, status: 'claimed' },
+      { employee_id: 'b', work_date: '2026-09-25', kind: 'holiday', amount: 32000, status: 'disputed' },
+      { employee_id: 'c', work_date: '2026-09-25', kind: 'leave', amount: 0, status: 'confirmed' },
+    ]
+    const b = dayBoard(days, staff, '2026-09-25')
+    assert.equal(b.counts.overtime, 1)
+    assert.equal(b.counts.holiday, 1)
+    assert.equal(b.counts.leave, 1)
+    assert.equal(b.counts.unconfirmed, 1)   // the overtime day
+    assert.equal(b.counts.disputed, 1)
+    assert.equal(b.amount, 64000)           // leave contributes 0
+  })
+
+  test('only the requested date is counted', () => {
+    const days = [
+      { employee_id: 'a', work_date: '2026-09-25', kind: 'work', amount: 16000, status: 'claimed' },
+      { employee_id: 'b', work_date: '2026-09-24', kind: 'work', amount: 16000, status: 'claimed' },
+    ]
+    const b = dayBoard(days, staff, '2026-09-25')
+    assert.equal(b.recorded, 1)
+  })
+
+  test('flags a weekend date, because the multiplier follows the date', () => {
+    assert.equal(dayBoard([], staff, '2026-09-26').isWeekend, true)   // Saturday
+    assert.equal(dayBoard([], staff, '2026-09-25').isWeekend, false)  // Friday
+  })
+
+  test('amounts arriving as strings still sum as numbers', () => {
+    const days = [
+      { employee_id: 'a', work_date: '2026-09-25', kind: 'work', amount: '16000.00', status: 'claimed' },
+      { employee_id: 'b', work_date: '2026-09-25', kind: 'work', amount: '5000.50', status: 'claimed' },
+    ]
+    assert.equal(dayBoard(days, staff, '2026-09-25').amount, 21000.5)
+  })
+
+  test('null and malformed input does not throw', () => {
+    assert.doesNotThrow(() => dayBoard(null, null, '2026-09-25'))
+    assert.doesNotThrow(() => dayBoard([null, undefined], [null], '2026-09-25'))
+    assert.doesNotThrow(() => dayBoard([{}], staff, '2026-09-25'))
+    const b = dayBoard(null, null, '2026-09-25')
+    assert.equal(b.expected, 0)
+    assert.equal(b.recorded, 0)
+    assert.equal(b.amount, 0)
+  })
+
+  test('an empty roster reports a zero day rather than breaking', () => {
+    const b = dayBoard([], [], '2026-09-25')
+    assert.equal(b.expected, 0)
+    assert.equal(b.missing.length, 0)
+  })
+})
+
+describe('unmetRates', () => {
+  const periodsFor = (id, from) => ({
+    id: `${id}-${from}`, employee_id: id, effective_from: from,
+    daily_rate: 16000, weekend_multiplier: 2, holiday_multiplier: 2,
+  })
+
+  test('a rate covering the date satisfies it', () => {
+    const periods = [periodsFor('a', '2026-01-01')]
+    assert.deepEqual(unmetRates(staff, periods, '2026-09-25').map(e => e.id), ['b', 'c'])
+  })
+
+  // The boundary that decides whether a day can be saved at all.
+  test('a rate starting exactly on the date counts as covering it', () => {
+    const periods = [periodsFor('a', '2026-09-25')]
+    assert.equal(unmetRates(staff, periods, '2026-09-25').some(e => e.id === 'a'), false)
+  })
+
+  test('a rate starting after the date does not cover it', () => {
+    const periods = [periodsFor('a', '2026-09-26')]
+    assert.equal(unmetRates(staff, periods, '2026-09-25').some(e => e.id === 'a'), true)
+  })
+
+  /* An earlier period still covers a later date until a new one starts. This
+     is the case that a naive "is there a rate for this date" check gets wrong:
+     a raise dated tomorrow must not make today uncovered. */
+  test('an earlier period keeps covering until a later one begins', () => {
+    const periods = [periodsFor('a', '2026-01-01'), periodsFor('a', '2026-09-26')]
+    assert.equal(unmetRates(staff, periods, '2026-09-25').some(e => e.id === 'a'), false)
+    assert.equal(unmetRates(staff, periods, '2026-09-26').some(e => e.id === 'a'), false)
+    // ...and still before the first one.
+    assert.equal(unmetRates(staff, periods, '2025-12-31').some(e => e.id === 'a'), true)
+  })
+
+  test('another person\'s rate does not satisfy this person', () => {
+    const periods = [periodsFor('b', '2026-01-01')]
+    assert.equal(unmetRates(staff, periods, '2026-09-25').some(e => e.id === 'a'), true)
+  })
+
+  test('archived staff are not reported as gaps', () => {
+    assert.equal(unmetRates(staff, [], '2026-09-25').some(e => e.id === 'd'), false)
+  })
+
+  test('null and malformed input does not throw', () => {
+    assert.doesNotThrow(() => unmetRates(null, null, '2026-09-25'))
+    assert.doesNotThrow(() => unmetRates(staff, [null], '2026-09-25'))
+    assert.equal(unmetRates(staff, [], '2026-09-25').length, 3)
+  })
+})
+
+describe('monthFigures', () => {
+  // The brief's own worked example, end to end through the dashboard path.
+  test('actual days and paid-day equivalents are reported separately', () => {
+    const days = [
+      ...Array.from({ length: 19 }, (_, i) => ({
+        employee_id: 'a', work_date: `2026-09-${String(i + 1).padStart(2, '0')}`,
+        kind: 'work', amount: 16000, multiplier: 1, status: 'claimed',
+      })),
+      { employee_id: 'a', work_date: '2026-09-20', kind: 'weekend', amount: 32000, multiplier: 2, status: 'claimed' },
+      { employee_id: 'a', work_date: '2026-09-21', kind: 'weekend', amount: 32000, multiplier: 2, status: 'claimed' },
+      { employee_id: 'a', work_date: '2026-09-22', kind: 'overtime', amount: 32000, multiplier: 2, status: 'claimed' },
+    ]
+    const f = monthFigures(days, staff)
+    assert.equal(f.actualDays, 22)      // 19 + 2 + 1
+    assert.equal(f.equivalents, 25)     // 19 + 2x2 + 1x2
+    assert.equal(f.total, 400000)       // 25 x 16,000
+  })
+
+  test('leave is excluded from both actual days and equivalents', () => {
+    const days = [
+      { employee_id: 'a', work_date: '2026-09-01', kind: 'work', amount: 16000, multiplier: 1, status: 'claimed' },
+      { employee_id: 'a', work_date: '2026-09-02', kind: 'leave', amount: 16000, multiplier: 1, status: 'claimed' },
+    ]
+    const f = monthFigures(days, staff)
+    assert.equal(f.actualDays, 1)
+    assert.equal(f.equivalents, 1)
+    assert.equal(f.total, 32000)
+  })
+
+  test('surfaces unconfirmed and disputed alongside the money', () => {
+    const days = [
+      { employee_id: 'a', work_date: '2026-09-01', kind: 'work', amount: 16000, multiplier: 1, status: 'claimed' },
+      { employee_id: 'b', work_date: '2026-09-01', kind: 'work', amount: 16000, multiplier: 1, status: 'confirmed' },
+      { employee_id: 'c', work_date: '2026-09-01', kind: 'work', amount: 16000, multiplier: 1, status: 'disputed' },
+    ]
+    const f = monthFigures(days, staff)
+    assert.equal(f.unconfirmed, 1)
+    assert.equal(f.disputed, 1)
+  })
+
+  test('a day for someone off the roster is still counted in the total', () => {
+    const days = [{ employee_id: 'gone', work_date: '2026-09-01', kind: 'work', amount: 16000, multiplier: 1, status: 'claimed' }]
+    const f = monthFigures(days, staff)
+    assert.equal(f.total, 16000)
+    assert.equal(f.unmatchedDays, 1)
+  })
+
+  test('null and malformed input does not throw', () => {
+    assert.doesNotThrow(() => monthFigures(null, null))
+    assert.doesNotThrow(() => monthFigures([null], [null]))
+    const f = monthFigures(null, null)
+    assert.equal(f.total, 0)
+    assert.equal(f.actualDays, 0)
+    assert.equal(f.equivalents, 0)
+  })
+})

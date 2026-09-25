@@ -24,6 +24,7 @@ import {
   makeInviteCode, summarise, parseDateKey, isWeekendKey, shiftDateKey,
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
   buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
+  dayBoard, unmetRates, monthFigures,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -34,6 +35,7 @@ export {
   makeInviteCode, summarise, parseDateKey, isWeekendKey, shiftDateKey,
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
   buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
+  dayBoard, unmetRates, monthFigures,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
