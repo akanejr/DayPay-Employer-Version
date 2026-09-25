@@ -285,3 +285,56 @@ export function monthLabelFor(year, monthIndex) {
     'August', 'September', 'October', 'November', 'December']
   return `${MON[monthIndex]} ${year}`
 }
+
+// ── Roles ───────────────────────────────────────────────────────────────────
+
+/* An `employers` row now carries a `kind`:
+     'business' — a real workforce account: roster, attendance, invoices.
+     'personal' — someone tracking their own days. Under the one-ledger plan
+                  every account gets one of these, and it must NOT unlock the
+                  workforce dashboard.
+   The default below is the whole point of this function: anything missing,
+   unrecognised, or malformed resolves to 'personal'. A null column must never
+   be the reason a personal account sees a staff roster. */
+
+export const PERSONAL = 'personal'
+export const BUSINESS = 'business'
+
+/* Combines the two database rows into the flags the UI branches on. Pure, so
+   the rule above is testable with no database and no network. */
+export function resolveRoles(input = {}) {
+  // `input || {}` rather than a default parameter: a default only applies to
+  // `undefined`, so resolveRoles(null) would destroy itself on destructuring.
+  // Callers pass the result of a fetch that can legitimately be null.
+  const { uid = null, employer = null, employee = null } = input || {}
+
+  const asObject = (v) => (v && typeof v === 'object' ? v : null)
+  const emp = asObject(employer)
+  const isEmployer = !!emp
+  const kind = emp && emp.kind === BUSINESS ? BUSINESS : PERSONAL
+
+  return {
+    uid,
+    isEmployer,
+    kind: isEmployer ? kind : null,
+    // The gate for every workforce surface: Staff tab, roster, dashboard.
+    isBusiness: isEmployer && kind === BUSINESS,
+    businessName: emp?.business_name || null,
+    employee: asObject(employee),
+  }
+}
+
+/* Did this query fail because a column does not exist yet?
+
+   PostgREST reports a missing column as 42703 ("undefined_column"). It matters
+   here because the app is deployed by one person and migrated by hand at a
+   different moment, so there is always a window where the code is newer than
+   the schema. A lookup that hard-requires a new column would take the whole
+   feature down during that window — which is strictly worse than degrading. */
+export function isMissingColumn(error, column) {
+  if (!error) return false
+  if (error.code === '42703') return true
+  const msg = String(error.message || error.details || '')
+  if (!column) return false
+  return new RegExp(`column\\b.*\\b${column}\\b.*does not exist`, 'i').test(msg)
+}

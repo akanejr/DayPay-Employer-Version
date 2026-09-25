@@ -23,7 +23,7 @@ import {
   formatNaira, initials, monthBounds, todayKey, rateOn, multiplierFor,
   makeInviteCode, summarise, parseDateKey, isWeekendKey, shiftDateKey,
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
-  buildMonthCsv, monthLabelFor,
+  buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -33,7 +33,7 @@ export {
   formatNaira, initials, monthBounds, todayKey, rateOn, multiplierFor,
   makeInviteCode, summarise, parseDateKey, isWeekendKey, shiftDateKey,
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
-  buildMonthCsv, monthLabelFor,
+  buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -140,22 +140,61 @@ async function currentUserId() {
 // ── Employer record ─────────────────────────────────────────────────────────
 
 /* Every employer needs one row in `employers`. Created on first use, so the
-   UI never has to care whether this is a brand-new account. */
-export async function ensureEmployer(businessName = null) {
-  const uid = await currentUserId()
-  const existing = await run(
+   UI never has to care whether this is a brand-new account.
+
+   Created as kind 'business' — reaching this function means a workforce action
+   was taken. A personal workspace is created by a different path and is
+   deliberately never granted business powers. */
+/* Reads the employer row, tolerating a database that has not had migration
+   006 applied yet.
+
+   The `kind` column arrives with 006. Between shipping this code and running
+   that SQL there is a window where asking for `kind` by name fails the whole
+   query — which would take out role detection AND roster creation, not just
+   the new flag. So the lookup degrades to the pre-006 query instead.
+
+   Treating a pre-006 row as 'business' is not a guess: before 006 the only way
+   to hold an employers row was to open the Staff tab and act, which is exactly
+   the rule migration 006's backfill applies. */
+async function selectEmployer(uid) {
+  const full = await run(
+    client().from('employers').select('user_id, business_name, kind').eq('user_id', uid).maybeSingle(),
+    'load your business details',
+  )
+  if (full || !kindMissing) return full
+  const bare = await run(
     client().from('employers').select('user_id, business_name').eq('user_id', uid).maybeSingle(),
     'load your business details',
   )
+  return bare ? { ...bare, kind: BUSINESS } : bare
+}
+
+/* Set when a lookup proves the column is absent, so the app stops asking for
+   it for the rest of the session instead of paying a failed round trip every
+   time. Cleared on the next successful role read. */
+let kindMissing = false
+
+export async function ensureEmployer(businessName = null) {
+  const uid = await currentUserId()
+  const existing = await selectEmployer(uid)
   if (existing) return existing
 
-  return run(
-    client().from('employers')
+  const attempt = () => client().from('employers')
+    .insert({ user_id: uid, business_name: businessName, kind: BUSINESS })
+    .select('user_id, business_name, kind')
+    .single()
+
+  let res = await attempt()
+  if (res.error && isMissingColumn(res.error, 'kind')) {
+    kindMissing = true
+    res = await client().from('employers')
       .insert({ user_id: uid, business_name: businessName })
       .select('user_id, business_name')
-      .single(),
-    'create your business record',
-  )
+      .single()
+    if (res.data) res = { ...res, data: { ...res.data, kind: BUSINESS } }
+  }
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data
 }
 
 export async function updateBusinessName(businessName) {
@@ -397,18 +436,35 @@ export async function confirmMonth(employeeId, year, monthIndex) {
 // ── Roles ───────────────────────────────────────────────────────────────────
 
 /* Who is this account? Either or both can be true — an owner who also works
-   days is both an employer and an employee of their own business. */
+   days is both an employer and an employee of their own business.
+
+   The `kind` distinction is what keeps the two halves apart. `isEmployer` is
+   true for a personal account too (under the one-ledger plan everyone gets an
+   employers row); `isBusiness` is the gate for every workforce surface. The
+   decision itself lives in resolveRoles(), which is pure and unit-tested. */
 export async function myRoles() {
   const uid = await currentUserId()
   const c = client()
 
-  const [asEmployer, asEmployee] = await Promise.all([
-    c.from('employers').select('user_id, business_name').eq('user_id', uid).maybeSingle(),
+  const [employerRes, asEmployee] = await Promise.all([
+    kindMissing
+      ? c.from('employers').select('user_id, business_name').eq('user_id', uid).maybeSingle()
+      : c.from('employers').select('user_id, business_name, kind').eq('user_id', uid).maybeSingle(),
     c.from('employees')
       .select('id, full_name, job_title, employer_id, status')
       .eq('employee_user_id', uid)
       .maybeSingle(),
   ])
+
+  // Degrade to the pre-006 shape rather than failing, and remember it.
+  let asEmployer = employerRes
+  if (isMissingColumn(asEmployer.error, 'kind')) {
+    kindMissing = true
+    const bare = await c.from('employers').select('user_id, business_name').eq('user_id', uid).maybeSingle()
+    asEmployer = bare.data ? { ...bare, data: { ...bare.data, kind: BUSINESS } } : bare
+  } else if (!asEmployer.error) {
+    kindMissing = false
+  }
 
   // A missing row is not an error here — it just means "no".
   if (asEmployer.error && asEmployer.error.code !== 'PGRST116') {
@@ -418,12 +474,7 @@ export async function myRoles() {
     throw new EmployerError(describe(asEmployee.error).message, { code: asEmployee.error.code, cause: asEmployee.error })
   }
 
-  return {
-    uid,
-    isEmployer: !!asEmployer.data,
-    businessName: asEmployer.data?.business_name || null,
-    employee: asEmployee.data || null,
-  }
+  return resolveRoles({ uid, employer: asEmployer.data || null, employee: asEmployee.data || null })
 }
 
 // ── Joining a team ──────────────────────────────────────────────────────────

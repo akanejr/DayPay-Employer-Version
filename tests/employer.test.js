@@ -479,3 +479,129 @@ describe('buildMonthCsv', () => {
     assert.match(out, /21000\.5/)
   })
 })
+
+// ── Roles ───────────────────────────────────────────────────────────────────
+
+/* These are the rules that decide whether an account can see a staff roster.
+   They are tested hard because the failure mode is silent over-permission:
+   nothing crashes, a personal user is simply handed other people's records. */
+
+import { resolveRoles, PERSONAL, BUSINESS } from '../src/lib/employerLogic.js'
+
+describe('resolveRoles', () => {
+  test('an account with neither row has no role at all', () => {
+    const r = resolveRoles({ uid: 'u1' })
+    assert.equal(r.isEmployer, false)
+    assert.equal(r.isBusiness, false)
+    assert.equal(r.kind, null)
+    assert.equal(r.businessName, null)
+    assert.equal(r.employee, null)
+    assert.equal(r.uid, 'u1')
+  })
+
+  test('a business account gets the workforce surfaces', () => {
+    const r = resolveRoles({ uid: 'u1', employer: { kind: 'business', business_name: 'Alpha Plant' } })
+    assert.equal(r.isEmployer, true)
+    assert.equal(r.isBusiness, true)
+    assert.equal(r.kind, BUSINESS)
+    assert.equal(r.businessName, 'Alpha Plant')
+  })
+
+  test('a personal account is an employer but NOT a business', () => {
+    const r = resolveRoles({ uid: 'u1', employer: { kind: 'personal', business_name: null } })
+    assert.equal(r.isEmployer, true)
+    assert.equal(r.isBusiness, false)
+    assert.equal(r.kind, PERSONAL)
+  })
+
+  // The one that matters most. A missing, null, misspelled or unexpected kind
+  // must resolve to the answer that grants nothing.
+  test('a missing or unrecognised kind fails safe to personal', () => {
+    for (const kind of [undefined, null, '', 'Business', 'BUSINESS', 'admin', 'owner', 0, 1, {}, []]) {
+      const r = resolveRoles({ uid: 'u1', employer: { kind, business_name: 'X' } })
+      assert.equal(r.isBusiness, false, `kind=${JSON.stringify(kind)} must not grant business access`)
+      assert.equal(r.kind, PERSONAL)
+    }
+  })
+
+  test('an employee linked to someone else is not thereby an employer', () => {
+    const r = resolveRoles({
+      uid: 'u1',
+      employee: { id: 'e1', full_name: 'James', employer_id: 'boss', status: 'active' },
+    })
+    assert.equal(r.isEmployer, false)
+    assert.equal(r.isBusiness, false)
+    assert.equal(r.employee.full_name, 'James')
+  })
+
+  test('an owner who also works their own days holds both', () => {
+    const r = resolveRoles({
+      uid: 'u1',
+      employer: { kind: 'business', business_name: 'Alpha Plant' },
+      employee: { id: 'e1', full_name: 'Owner', employer_id: 'u1', status: 'active' },
+    })
+    assert.equal(r.isBusiness, true)
+    assert.equal(r.employee.id, 'e1')
+  })
+
+  test('null and malformed input does not throw', () => {
+    assert.doesNotThrow(() => resolveRoles())
+    assert.doesNotThrow(() => resolveRoles({}))
+    assert.doesNotThrow(() => resolveRoles({ employer: null, employee: null }))
+    assert.doesNotThrow(() => resolveRoles({ employer: 'business' }))
+    assert.doesNotThrow(() => resolveRoles({ employer: { kind: 'business' }, employee: 'x' }))
+    assert.equal(resolveRoles(null).isBusiness, false)
+  })
+
+  test('a truthy employee value is normalised to an object or null', () => {
+    // Guards the UI, which does `roles.employee ? ... : ...` and then reads
+    // fields off it. A string here would render blank rows instead of failing.
+    assert.equal(resolveRoles({ employee: undefined }).employee, null)
+    assert.equal(resolveRoles({ employee: null }).employee, null)
+    assert.equal(resolveRoles({ employee: 'x' }).employee, null)
+    assert.equal(resolveRoles({ employer: 'business' }).isBusiness, false)
+  })
+})
+
+// ── Pre-migration tolerance ─────────────────────────────────────────────────
+
+/* The app and the database are updated by different people at different
+   moments, so the code must survive being newer than the schema. If asking for
+   a column that does not exist yet took out the whole query, shipping Phase 1
+   before the SQL was run would break roles AND roster creation. */
+
+import { isMissingColumn } from '../src/lib/employerLogic.js'
+
+describe('isMissingColumn', () => {
+  test('recognises the PostgREST undefined_column code', () => {
+    assert.equal(isMissingColumn({ code: '42703', message: 'whatever' }, 'kind'), true)
+  })
+
+  test('recognises the human-readable message', () => {
+    assert.equal(
+      isMissingColumn({ message: "column employers.kind does not exist" }, 'kind'),
+      true,
+    )
+  })
+
+  test('does not fire for an unrelated error', () => {
+    assert.equal(isMissingColumn({ code: '42501', message: 'permission denied for table employers' }, 'kind'), false)
+    assert.equal(isMissingColumn({ code: 'PGRST116', message: 'no rows returned' }, 'kind'), false)
+    assert.equal(isMissingColumn(null, 'kind'), false)
+    assert.equal(isMissingColumn(undefined, 'kind'), false)
+    assert.equal(isMissingColumn({}, 'kind'), false)
+  })
+
+  test('does not fire for a different missing column', () => {
+    assert.equal(
+      isMissingColumn({ message: 'column employers.business_name does not exist' }, 'kind'),
+      false,
+    )
+  })
+
+  test('an error with no message does not throw', () => {
+    assert.doesNotThrow(() => isMissingColumn({}, 'kind'))
+    assert.doesNotThrow(() => isMissingColumn({ message: null }, 'kind'))
+    assert.doesNotThrow(() => isMissingColumn({ message: 42 }, 'kind'))
+  })
+})

@@ -2,7 +2,7 @@
    Copyright © 2026 Akaninyene. All rights reserved.
    Unauthorized copying, modification, or distribution is prohibited. */
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
 import EmployerWorkspace from './employer/EmployerWorkspace'
 import EmployeeView from './employer/EmployeeView'
@@ -585,16 +585,50 @@ export default function App() {
   }, [])
 
   // Employer/employee roles. Only meaningful once signed in, and a failure
-  // here must not break the existing tracker — so errors leave roles as the
-  // "neither" default rather than surfacing.
+  // here must not break the existing tracker.
+  //
+  // The `isBusiness` flag is the gate for every workforce surface, so a failed
+  // lookup must not be read as "not a business" — that would make the roster
+  // vanish for the owner, on a flaky connection, with no explanation. The last
+  // known answer is therefore kept: in memory while the session lives, and in
+  // localStorage across reloads.
   useEffect(() => {
     let cancelled = false
     if (!isSupabaseConfigured || !user) { setRoles(null); return }
     myRoles()
-      .then(r => { if (!cancelled) setRoles(r) })
-      .catch(() => { if (!cancelled) setRoles({ isEmployer: false, employee: null }) })
+      .then(r => {
+        if (cancelled) return
+        setRoles(r)
+        try { localStorage.setItem('dp_is_business', r.isBusiness ? '1' : '0') } catch { /* private mode */ }
+      })
+      .catch(() => {
+        if (cancelled) return
+        let remembered = false
+        try { remembered = localStorage.getItem('dp_is_business') === '1' } catch { /* private mode */ }
+        setRoles(prev => prev || {
+          isEmployer: false, kind: null, isBusiness: remembered,
+          businessName: null, employee: null,
+        })
+      })
     return () => { cancelled = true }
   }, [user])
+
+  /* Re-read roles after an action that can change them (joining a team,
+     leaving one). A failure keeps whatever we already knew. */
+  const refreshRoles = useCallback(() => {
+    myRoles()
+      .then(r => {
+        setRoles(r)
+        try { localStorage.setItem('dp_is_business', r.isBusiness ? '1' : '0') } catch { /* private mode */ }
+      })
+      .catch(() => {})
+  }, [])
+
+  // The Staff tab can disappear when roles resolve. Never leave the view
+  // pointing at a pane that is no longer allowed to render.
+  useEffect(() => {
+    if (view === 'staff' && roles && !roles.isBusiness) setView('month')
+  }, [view, roles])
 
   // Fetch cloud
   useEffect(() => {
@@ -2105,14 +2139,14 @@ export default function App() {
                 {roles?.employee ? 'My work' : 'Join'}
               </button>
             )}
-            {user && (
+            {user && roles?.isBusiness && (
               <button className={view==='staff'?'active':''} onClick={()=>setView('staff')}>Staff</button>
             )}
           </div>
         </div>
 
         <div key={view} className="view-wrap">
-        {view==='staff' ? (
+        {view==='staff' && roles?.isBusiness ? (
           isSupabaseConfigured && user ? (
             <EmployerWorkspace />
           ) : (
@@ -2128,7 +2162,7 @@ export default function App() {
           isSupabaseConfigured && user ? (
             <EmployeeView
               employee={roles?.employee || null}
-              onChanged={() => myRoles().then(setRoles).catch(() => setRoles({ isEmployer: false, employee: null }))}
+              onChanged={refreshRoles}
             />
           ) : (
             <div className="ew-empty" style={{ marginTop: 14 }}>
