@@ -27,9 +27,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   EmployerError, listAllMonth,
   dayBoard, unmetRates, monthFigures,
-  formatNaira, initials, todayKey, prettyDateKey, monthLabelFor, shiftDateKey,
-  KIND_LABELS,
+  groupByContractor, contractorRollup,
+  formatNaira, initials, todayKey, prettyDateKey, monthLabelFor,
 } from '../lib/employer'
+import ContractorView from './ContractorView'
 
 function Stat({ label, value, tone }) {
   return (
@@ -42,11 +43,12 @@ function Stat({ label, value, tone }) {
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 
-export default function Dashboard({ employees, periods, onOpenDays }) {
+export default function Dashboard({ employees, contractors = [], periods, onOpenDays }) {
   const today = todayKey()
   const [days, setDays] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [openContractorId, setOpenContractorId] = useState(null)
 
   const [year, monthIndex] = useMemo(() => {
     const [y, m] = today.split('-').map(Number)
@@ -69,6 +71,7 @@ export default function Dashboard({ employees, periods, onOpenDays }) {
 
   const board = useMemo(() => dayBoard(days, employees, today), [days, employees, today])
   const figures = useMemo(() => monthFigures(days, employees), [days, employees])
+  const groups = useMemo(() => groupByContractor(contractors, employees), [contractors, employees])
 
   /* Anything the employer should deal with before it becomes someone's
      missing pay. Rate gaps come first: those are the ones that make recording
@@ -77,7 +80,26 @@ export default function Dashboard({ employees, periods, onOpenDays }) {
 
   const nothingYet = board.expected > 0 && board.recorded === 0 && board.missing.length === board.expected
 
+  /* A contractor can disappear while its detail view is open — archived on
+     another device, or reloaded away. Deriving the group rather than storing
+     it means a stale id falls through to the list on its own, with no state
+     written during render. */
+  const openGroup = openContractorId
+    ? groups.find(g => (g.contractor?.id || null) === openContractorId) || null
+    : null
+
   if (loading) return <div className="ew-loading">Loading today…</div>
+
+  if (openGroup) {
+    return (
+      <ContractorView
+        contractor={openGroup.contractor}
+        employees={openGroup.workers}
+        days={days}
+        onBack={() => setOpenContractorId(null)}
+      />
+    )
+  }
 
   return (
     <div className="ew-dash">
@@ -193,6 +215,51 @@ export default function Dashboard({ employees, periods, onOpenDays }) {
             Days worked and paid-day equivalents are separate numbers on purpose —
             a weekend or overtime day counts as two of the second kind.
           </p>
+        </section>
+      )}
+
+      {/* ── Contractors ─────────────────────────────────────────────────────
+          Only rendered once there is something to group. With no contractors
+          defined the roster is flat, and an empty section explaining a concept
+          the employer has not adopted yet is noise. */}
+      {contractors.length > 0 && (
+        <section className="ew-card">
+          <div className="ew-board-head">
+            <div>
+              <div className="ew-board-label">Contractors</div>
+              <div className="ew-board-date">Today</div>
+            </div>
+          </div>
+
+          <div className="ew-contractors">
+            {groups.map(group => {
+              const roll = contractorRollup(group.workers, days, today)
+              const id = group.contractor?.id || null
+              return (
+                <button
+                  type="button" className="ew-contractor-row" key={id || 'unassigned'}
+                  onClick={() => setOpenContractorId(id)}
+                >
+                  <div className="ew-contractor-body">
+                    <div className="ew-name">{group.contractor?.name || 'Unassigned'}</div>
+                    <div className="ew-meta">
+                      <span>{roll.expected} worker{roll.expected === 1 ? '' : 's'}</span>
+                      {roll.overtime > 0 && <span className="ew-chip ew-chip-live">{roll.overtime} OT</span>}
+                    </div>
+                  </div>
+
+                  <div className="ew-contractor-nums">
+                    <span className="ew-contractor-present">{roll.present}</span>
+                    <span className="ew-contractor-sep">/</span>
+                    <span className="ew-contractor-expected">{roll.expected}</span>
+                    <span className="ew-contractor-cap">in</span>
+                  </div>
+
+                  <span className="ew-pay-chev">›</span>
+                </button>
+              )
+            })}
+          </div>
         </section>
       )}
 

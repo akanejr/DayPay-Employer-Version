@@ -1,8 +1,14 @@
 -- ============================================================================
--- DayPay Employer Version — RLS verification harness (v3)
+-- DayPay Employer Version — RLS verification harness (v4)
 -- ============================================================================
 -- Proves an employee cannot read another employee's wages.
 -- Seeds test data, runs the checks, then ROLLS BACK. Safe to re-run.
+--
+-- NEW IN v4
+--   * contractor isolation (Phase 3): a worker sees the one contractor that
+--     supplies them and no other, and cannot rename or delete anyone's.
+--     Requires migration 007, which the harness checks for up front rather
+--     than reporting a misleading verdict on an un-migrated project.
 --
 -- FIXES IN v3
 --   * `from picked p` — the CTE had no alias, so p.employer_uid was unresolved
@@ -26,10 +32,12 @@ grant select, insert, update, delete on
   public.employers, public.employees, public.employee_rate_periods,
   public.day_records, public.day_record_events
   to authenticated;
+grant select, insert, update, delete on public.contractors to authenticated;
 grant select on
   public.employers, public.employees, public.employee_rate_periods,
   public.day_records, public.day_record_events
   to anon;
+grant select on public.contractors to anon;
 grant usage, select on sequence public.day_record_events_id_seq to authenticated;
 
 -- ── Results table + recorder ───────────────────────────────────────────────
@@ -104,6 +112,19 @@ begin
   end if;
 end $$;
 
+-- ── Migration preflight ────────────────────────────────────────────────────
+-- Checked before anything else, because a missing table would otherwise
+-- surface as a raw 42P01 halfway down and the report would be unreadable.
+do $$
+begin
+  if not exists (
+    select 1 from pg_tables where schemaname = 'public' and tablename = 'contractors'
+  ) then
+    raise exception
+      'The contractors table does not exist. Run supabase/migrations/007_contractors.sql, then re-run this harness.';
+  end if;
+end $$;
+
 -- ── Seed ───────────────────────────────────────────────────────────────────
 -- Employee 1 is linked to the employee account and earns ₦16,000/day.
 -- Employee 2 is a colleague, NOT linked, and earns ₦99,000/day — the bait.
@@ -130,6 +151,20 @@ insert into public.day_records (employee_id, work_date, kind)
 values
   ('11111111-1111-4111-8111-111111111111', current_date - 2, 'work'),
   ('22222222-2222-4222-8222-222222222222', current_date - 2, 'work');
+
+-- Two contractors. A supplies the linked worker, so the worker is allowed to
+-- resolve its name. B supplies nobody, so no worker has any business seeing it.
+insert into public.contractors (id, employer_id, name)
+select '33333333-3333-4333-8333-333333333333', employer_uid, 'Harness Contractor A'
+from _ids;
+
+insert into public.contractors (id, employer_id, name)
+select '44444444-4444-4444-8444-444444444444', employer_uid, 'Harness Contractor B'
+from _ids;
+
+update public.employees
+   set contractor_id = '33333333-3333-4333-8333-333333333333'
+ where id = '11111111-1111-4111-8111-111111111111';
 
 
 -- ============================================================================
@@ -171,6 +206,18 @@ select public._harness_record(
   '2', (select count(*)::text from public.employee_rate_periods),
   (select count(*) from public.employee_rate_periods) = 2);
 
+select public._harness_record(
+  4, 'CONTRACTORS', 'employer sees their own contractors',
+  '2', (select count(*)::text from public.contractors),
+  (select count(*) from public.contractors) = 2);
+
+select public._harness_record(
+  5, 'CONTRACTORS', 'employer can assign a worker to a contractor',
+  '1', (select count(*)::text from public.employees
+          where contractor_id = '33333333-3333-4333-8333-333333333333'),
+  (select count(*) from public.employees
+     where contractor_id = '33333333-3333-4333-8333-333333333333') = 1);
+
 reset role;
 
 
@@ -189,34 +236,90 @@ begin
 end $$;
 
 select public._harness_record(
-  4, 'PREFLIGHT', 'employee role switch applied',
+  6, 'PREFLIGHT', 'employee role switch applied',
   'authenticated', current_user, current_user = 'authenticated');
 
 select public._harness_record(
-  5, 'EMPLOYEE ISOLATION', 'sees ONLY their own employee row (not the roster)',
+  7, 'EMPLOYEE ISOLATION', 'sees ONLY their own employee row (not the roster)',
   '1', (select count(*)::text from public.employees),
   (select count(*) from public.employees) = 1);
 
 select public._harness_record(
-  6, 'EMPLOYEE ISOLATION', 'sees ONLY their own day records',
+  8, 'EMPLOYEE ISOLATION', 'sees ONLY their own day records',
   '1', (select count(*)::text from public.day_records),
   (select count(*) from public.day_records) = 1);
 
 select public._harness_record(
-  7, 'EMPLOYEE ISOLATION', 'sees ONLY their own rate periods',
+  9, 'EMPLOYEE ISOLATION', 'sees ONLY their own rate periods',
   '1', (select count(*)::text from public.employee_rate_periods),
   (select count(*) from public.employee_rate_periods) = 1);
 
+-- ── Contractors, from the worker's side ───────────────────────────────────
+-- The policy here is SELECT-only and scoped by a SECURITY DEFINER helper. The
+-- dangerous direction is the one where a worker can reach a contractor they
+-- have nothing to do with, so that is what the bait checks below probe.
+
+select public._harness_record(
+  13, 'CONTRACTORS', 'worker sees ONLY the contractor that supplies them',
+  '1', (select count(*)::text from public.contractors),
+  (select count(*) from public.contractors) = 1);
+
+select public._harness_record(
+  14, 'CONTRACTORS', 'CANNOT see the contractor that supplies nobody',
+  '0', (select count(*)::text from public.contractors
+          where name = 'Harness Contractor B'),
+  (select count(*) from public.contractors
+     where name = 'Harness Contractor B') = 0);
+
+-- UPDATE and DELETE do not error when the policy blocks them: they silently
+-- affect zero rows. So the check has to look at the row afterwards, not at the
+-- absence of an exception.
+do $$
+declare n int;
+begin
+  begin
+    update public.contractors set name = 'Hijacked'
+     where id = '44444444-4444-4444-8444-444444444444';
+    select count(*) into n from public.contractors where name = 'Hijacked';
+    perform public._harness_record(
+      15, 'CONTRACTORS', 'CANNOT rename a contractor belonging to someone else',
+      '0 rows changed', n::text || ' rows changed', n = 0);
+  exception when others then
+    -- An exception is also a refusal, so this direction passes too.
+    perform public._harness_record(
+      15, 'CONTRACTORS', 'CANNOT rename a contractor belonging to someone else',
+      '0 rows changed', 'refused: ' || sqlerrm, true);
+  end;
+end $$;
+
+do $$
+declare n int;
+begin
+  begin
+    delete from public.contractors
+     where id = '44444444-4444-4444-8444-444444444444';
+    select count(*) into n from public.employees where id = '11111111-1111-4111-8111-111111111111';
+    perform public._harness_record(
+      16, 'CONTRACTORS', 'CANNOT delete a contractor belonging to someone else',
+      '0 rows changed', case when n = 1 then '0 rows changed' else 'row removed' end,
+      n = 1);
+  exception when others then
+    perform public._harness_record(
+      16, 'CONTRACTORS', 'CANNOT delete a contractor belonging to someone else',
+      '0 rows changed', 'refused: ' || sqlerrm, true);
+  end;
+end $$;
+
 -- The bait: a colleague on ₦99,000/day must be invisible.
 select public._harness_record(
-  8, 'EMPLOYEE ISOLATION', 'CANNOT read the colleague''s 99000 rate',
+  10, 'EMPLOYEE ISOLATION', 'CANNOT read the colleague''s 99000 rate',
   '0', (select count(*)::text from public.employee_rate_periods
           where daily_rate = 99000),
   (select count(*) from public.employee_rate_periods
      where daily_rate = 99000) = 0);
 
 select public._harness_record(
-  9, 'EMPLOYEE ISOLATION', 'CANNOT read the colleague''s day record',
+  11, 'EMPLOYEE ISOLATION', 'CANNOT read the colleague''s day record',
   '0', (select count(*)::text from public.day_records
           where employee_id = '22222222-2222-4222-8222-222222222222'),
   (select count(*) from public.day_records
@@ -239,7 +342,7 @@ begin
     refused := true; state := sqlstate; msg := sqlerrm;
   end;
   perform public._harness_record(
-    10, 'FORGERY', 'employee CANNOT insert a self-confirmed day (expect 42501)',
+    12, 'FORGERY', 'employee CANNOT insert a self-confirmed day (expect 42501)',
     'refused', case when refused then 'refused [' || state || '] ' || msg
                     else 'ALLOWED' end,
     refused);
@@ -254,11 +357,11 @@ begin
   values ('11111111-1111-4111-8111-111111111111', current_date - 6, 'weekend', 1, 1)
   returning amount into paid;
   perform public._harness_record(
-    11, 'FORGERY', 'client-sent amount ignored; server computed 32000',
+    17, 'FORGERY', 'client-sent amount ignored; server computed 32000',
     '32000', paid::text, paid = 32000);
 exception when others then
   perform public._harness_record(
-    11, 'FORGERY', 'client-sent amount ignored; server computed 32000',
+    17, 'FORGERY', 'client-sent amount ignored; server computed 32000',
     '32000', 'ERROR: ' || sqlerrm, false);
 end $$;
 
@@ -272,12 +375,12 @@ set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
 
 select public._harness_record(
-  12, 'ANON', 'signed-out visitor sees zero employees',
+  18, 'ANON', 'signed-out visitor sees zero employees',
   '0', (select count(*)::text from public.employees),
   (select count(*) from public.employees) = 0);
 
 select public._harness_record(
-  13, 'ANON', 'signed-out visitor sees zero day records',
+  19, 'ANON', 'signed-out visitor sees zero day records',
   '0', (select count(*)::text from public.day_records),
   (select count(*) from public.day_records) = 0);
 

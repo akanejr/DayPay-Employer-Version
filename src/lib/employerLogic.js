@@ -434,3 +434,129 @@ export function monthFigures(days, employees) {
     unmatchedTotal: s.unmatchedTotal,
   }
 }
+
+// ── Contractors ─────────────────────────────────────────────────────────────
+
+/* Groups the active roster by contractor.
+
+   Three rules, each of which is a decision rather than an implementation
+   detail:
+
+     1. A contractor with no workers still appears. Otherwise creating one
+        looks like it silently failed.
+
+     2. A worker with no contractor lands in an 'Unassigned' group. That is the
+        correct state for every worker created before contractors existed, so
+        it must be a first-class place to be, not an error.
+
+     3. A worker pointing at a contractor that is not in the list — an archived
+        one, say — ALSO lands in Unassigned. Showing them under a group that is
+        not on screen would hide them entirely, and a worker who cannot be seen
+        is a worker who does not get paid. */
+export function groupByContractor(contractors, employees) {
+  const groups = []
+  const byId = new Map()
+
+  for (const c of contractors || []) {
+    if (!c || !c.id) continue
+    const group = { contractor: c, workers: [] }
+    byId.set(c.id, group)
+    groups.push(group)
+  }
+
+  const unassigned = { contractor: null, workers: [] }
+
+  for (const e of employees || []) {
+    if (!e || !e.id || e.status !== 'active') continue
+    const group = e.contractor_id ? byId.get(e.contractor_id) : null
+    if (group) group.workers.push(e)
+    else unassigned.workers.push(e)
+  }
+
+  // Only shown when it has someone in it — an empty 'Unassigned' on a fully
+  // organised roster is noise.
+  if (unassigned.workers.length) groups.push(unassigned)
+
+  return groups
+}
+
+/* One contractor's day and month, from data already loaded.
+
+   Worker cards carry exactly the brief's three facts — today's status, actual
+   days, paid-day equivalents — and nothing more. The aggregate is computed
+   from the same rows the cards show, so the header can never disagree with the
+   list underneath it. */
+export function contractorRollup(workers, days, dateKey) {
+  const list = (workers || []).filter(w => w && w.id && w.status === 'active')
+  const memberIds = new Set(list.map(w => w.id))
+
+  const todayByWorker = new Map()
+  const monthByWorker = new Map()
+
+  for (const d of days || []) {
+    if (!d || !memberIds.has(d.employee_id)) continue
+    if (d.work_date === dateKey) todayByWorker.set(d.employee_id, d)
+
+    const acc = monthByWorker.get(d.employee_id) || { actualDays: 0, equivalents: 0, total: 0, leave: 0 }
+    if (d.kind === 'leave') acc.leave += 1
+    else {
+      acc.actualDays += 1
+      acc.equivalents += Number(d.multiplier) || 0
+    }
+    acc.total += Number(d.amount) || 0
+    monthByWorker.set(d.employee_id, acc)
+  }
+
+  const rows = list.map(employee => {
+    const today = todayByWorker.get(employee.id) || null
+    const month = monthByWorker.get(employee.id) || { actualDays: 0, equivalents: 0, total: 0, leave: 0 }
+    return {
+      employee,
+      today,
+      present: !!today,
+      actualDays: month.actualDays,
+      equivalents: Math.round(month.equivalents * 100) / 100,
+      leave: month.leave,
+      total: Math.round(month.total * 100) / 100,
+    }
+  })
+
+  let present = 0
+  let overtime = 0
+  let amount = 0
+  let total = 0
+  let equivalents = 0
+
+  for (const r of rows) {
+    if (r.present) {
+      present += 1
+      amount += Number(r.today.amount) || 0
+      if (r.today.kind === 'overtime') overtime += 1
+    }
+    total += r.total
+    equivalents += r.equivalents
+  }
+
+  return {
+    expected: rows.length,
+    present,
+    missing: rows.length - present,
+    overtime,
+    todayAmount: Math.round(amount * 100) / 100,
+    periodTotal: Math.round(total * 100) / 100,
+    equivalents: Math.round(equivalents * 100) / 100,
+    rows,
+  }
+}
+
+/* Did this query fail because the table does not exist yet? PostgREST reports
+   an unknown relation as 42P01. Same reasoning as isMissingColumn: the app and
+   the schema are updated at different moments, so a Phase 3 screen must not be
+   able to break the Phase 2 screens around it. */
+export function isMissingTable(error, table) {
+  if (!error) return false
+  if (error.code === '42P01') return true
+  if (!table) return false
+  const msg = String(error.message || error.details || '')
+  return new RegExp(`relation\\b.*\\b${table}\\b.*does not exist`, 'i').test(msg)
+}

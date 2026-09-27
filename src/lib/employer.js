@@ -25,6 +25,7 @@ import {
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
   buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
   dayBoard, unmetRates, monthFigures,
+  groupByContractor, contractorRollup, isMissingTable,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -36,6 +37,7 @@ export {
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
   buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
   dayBoard, unmetRates, monthFigures,
+  groupByContractor, contractorRollup, isMissingTable,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -210,12 +212,36 @@ export async function updateBusinessName(businessName) {
 
 // ── Roster ──────────────────────────────────────────────────────────────────
 
-const EMPLOYEE_COLS = 'id, full_name, job_title, email, employee_user_id, invite_code, status, created_at'
+const EMPLOYEE_COLS_BASE = 'id, full_name, job_title, email, employee_user_id, invite_code, status, created_at'
+
+/* `contractor_id` arrives with migration 007, and the code that reads it can
+   ship before the SQL is run. If asking for it by name failed the whole query,
+   the roster would disappear — not just the new grouping. So the column list
+   adapts, and the flag means we only pay one failed round trip per session. */
+let contractorColumnMissing = false
+
+function employeeCols() {
+  return contractorColumnMissing ? EMPLOYEE_COLS_BASE : `${EMPLOYEE_COLS_BASE}, contractor_id`
+}
+
+/* Retries an employee query without `contractor_id` if the column is absent. */
+async function withEmployeeCols(build) {
+  let res = await build(employeeCols())
+  if (isMissingColumn(res.error, 'contractor_id')) {
+    contractorColumnMissing = true
+    res = await build(EMPLOYEE_COLS_BASE)
+  }
+  return res
+}
 
 export async function listEmployees({ includeArchived = false } = {}) {
-  let q = client().from('employees').select(EMPLOYEE_COLS).order('full_name', { ascending: true })
-  if (!includeArchived) q = q.eq('status', 'active')
-  return run(q, 'load your staff list')
+  const res = await withEmployeeCols(cols => {
+    let q = client().from('employees').select(cols).order('full_name', { ascending: true })
+    if (!includeArchived) q = q.eq('status', 'active')
+    return q
+  })
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data
 }
 
 export async function createEmployee({ fullName, jobTitle = null, email = null, withInvite = true }) {
@@ -230,7 +256,7 @@ export async function createEmployee({ fullName, jobTitle = null, email = null, 
       job_title: jobTitle?.trim() || null,
       email: email?.trim() || null,
       invite_code: withInvite ? makeInviteCode() : null,
-    }).select(EMPLOYEE_COLS).single(),
+    }).select(employeeCols()).single(),
     'add this employee',
   )
 }
@@ -241,10 +267,20 @@ export async function updateEmployee(id, patch) {
   if ('jobTitle' in patch) clean.job_title = patch.jobTitle?.trim() || null
   if ('email' in patch) clean.email = patch.email?.trim() || null
   if ('status' in patch) clean.status = patch.status
-  return run(
-    client().from('employees').update(clean).eq('id', id).select(EMPLOYEE_COLS).single(),
-    'update this employee',
+  if ('contractorId' in patch) clean.contractor_id = patch.contractorId || null
+  const res = await withEmployeeCols(cols =>
+    client().from('employees').update(clean).eq('id', id).select(cols).single(),
   )
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data
+}
+
+/* Moves a worker to a contractor, or to none at all (contractorId = null,
+   which puts them back on 'Unassigned'). Passing an empty string is treated as
+   'none' rather than as a contractor named '' — the UI sends '' for the
+   unassigned option. */
+export async function setEmployeeContractor(employeeId, contractorId) {
+  return updateEmployee(employeeId, { contractorId: contractorId || null })
 }
 
 export async function archiveEmployee(id) {
@@ -258,11 +294,11 @@ export async function restoreEmployee(id) {
 /* Detaches the signed-in employee from a roster entry. Used if someone leaves
    and their account should stop seeing this business's records. */
 export async function unlinkEmployeeAccount(id) {
-  return run(
-    client().from('employees').update({ employee_user_id: null }).eq('id', id)
-      .select(EMPLOYEE_COLS).single(),
-    'unlink this account',
+  const res = await withEmployeeCols(cols =>
+    client().from('employees').update({ employee_user_id: null }).eq('id', id).select(cols).single(),
   )
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data
 }
 
 // ── Rates ───────────────────────────────────────────────────────────────────
@@ -515,13 +551,14 @@ export async function leaveRoster() {
    or when the original was never shared. The employer writes to their own row
    through the existing policy, so this needs no server function. */
 export async function issueInviteCode(employeeId) {
-  return run(
+  const res = await withEmployeeCols(cols =>
     client().from('employees')
       .update({ invite_code: makeInviteCode() })
       .eq('id', employeeId)
-      .select(EMPLOYEE_COLS).single(),
-    'create an invite code',
+      .select(cols).single(),
   )
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data
 }
 
 // ── The employee's own view ─────────────────────────────────────────────────
@@ -537,4 +574,74 @@ export async function myRatePeriods(employeeId) {
    planner to combine a policy with a date range. */
 export async function myMonth(employeeId, year, monthIndex) {
   return listEmployeeMonth(employeeId, year, monthIndex)
+}
+
+// ── Contractors ─────────────────────────────────────────────────────────────
+
+/* The middle of EMPLOYER → CONTRACTOR → WORKER.
+
+   Every function here tolerates the contractors table not existing yet, for
+   the same reason the employee columns do: this code can be live before
+   migration 007 is run, and a Phase 3 screen must never be able to break the
+   Phase 2 screens around it. `listContractors` returning [] in that window
+   means the roster simply stays flat, which is exactly how it behaved before. */
+
+const CONTRACTOR_COLS = 'id, name, note, status, created_at'
+
+/* Set once the database has told us the table is absent. */
+let contractorsMissing = false
+
+export function contractorsAvailable() {
+  return !contractorsMissing
+}
+
+export async function listContractors({ includeArchived = false } = {}) {
+  if (contractorsMissing) return []
+  let q = client().from('contractors').select(CONTRACTOR_COLS).order('name', { ascending: true })
+  if (!includeArchived) q = q.eq('status', 'active')
+
+  const res = await q
+  if (isMissingTable(res.error, 'contractors')) {
+    contractorsMissing = true
+    return []
+  }
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data
+}
+
+export async function createContractor(name, { note = null } = {}) {
+  const uid = await currentUserId()
+  const clean = (name || '').trim()
+  if (!clean) {
+    throw new EmployerError('Give the contractor a name.', {
+      hint: 'A name is required — it is what appears on the invoice.',
+    })
+  }
+  return run(
+    client().from('contractors')
+      .insert({ employer_id: uid, name: clean, note: note?.trim() || null })
+      .select(CONTRACTOR_COLS).single(),
+    'add this contractor',
+  )
+}
+
+export async function updateContractor(id, patch) {
+  const clean = {}
+  if ('name' in patch) clean.name = patch.name?.trim()
+  if ('note' in patch) clean.note = patch.note?.trim() || null
+  if ('status' in patch) clean.status = patch.status
+  return run(
+    client().from('contractors').update(clean).eq('id', id).select(CONTRACTOR_COLS).single(),
+    'update this contractor',
+  )
+}
+
+/* Archiving, never deleting. A contractor is a label on real historical days;
+   removing it would leave the days with nothing to explain them. */
+export async function archiveContractor(id) {
+  return updateContractor(id, { status: 'archived' })
+}
+
+export async function restoreContractor(id) {
+  return updateContractor(id, { status: 'active' })
 }

@@ -18,9 +18,10 @@ import {
   EmployerError, ensureEmployer, listEmployees, createEmployee, updateEmployee,
   archiveEmployee, restoreEmployee, listAllRatePeriods, addRatePeriod,
   deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
-  issueInviteCode, myRoles,
+  issueInviteCode, myRoles, listContractors, setEmployeeContractor,
 } from '../lib/employer'
 import Dashboard from './Dashboard'
+import ContractorEditor from './ContractorEditor'
 import StaffDays from './StaffDays'
 import Summary from './Summary'
 import EmployeeView from './EmployeeView'
@@ -217,7 +218,7 @@ function AddEmployee({ onCreated, onCancel }) {
 
 // ── Staff screen ────────────────────────────────────────────────────────────
 
-function Staff({ employees, periods, loading, error, reload }) {
+function Staff({ employees, contractors = [], periods, loading, error, reload }) {
   const onInviteChanged = reload
   const [adding, setAdding] = useState(false)
   const [rateFor, setRateFor] = useState(null)
@@ -225,6 +226,11 @@ function Staff({ employees, periods, loading, error, reload }) {
   const [busyInvite, setBusyInvite] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [busyId, setBusyId] = useState(null)
+
+  const contractorName = useCallback(
+    (id) => contractors.find(c => c.id === id)?.name || null,
+    [contractors],
+  )
 
   const active = employees.filter(e => e.status === 'active')
   const archived = employees.filter(e => e.status !== 'active')
@@ -306,9 +312,30 @@ function Staff({ employees, periods, loading, error, reload }) {
                   ? <span className="ew-rate">{formatNaira(rate.daily_rate)}/day</span>
                   : <span className="ew-rate-none">No rate set</span>}
                 {e.employee_user_id && <span className="ew-chip ew-chip-live">linked</span>}
+                {contractorName(e.contractor_id) && (
+                  <span className="ew-chip">{contractorName(e.contractor_id)}</span>
+                )}
               </div>
             </div>
             <div className="ew-person-actions">
+              {contractors.filter(c => c.status === 'active').length > 0 && (
+                <select
+                  className="ew-select ew-select-sm"
+                  aria-label={`Contractor for ${e.full_name}`}
+                  value={e.contractor_id || ''}
+                  disabled={busyId === e.id}
+                  onChange={async (ev) => {
+                    setBusyId(e.id)
+                    try { await setEmployeeContractor(e.id, ev.target.value); await reload() }
+                    finally { setBusyId(null) }
+                  }}
+                >
+                  <option value="">No contractor</option>
+                  {contractors.filter(c => c.status === 'active').map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
               <button
                 type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
                 onClick={() => { setRateFor(e.id); setAdding(false) }}
@@ -475,6 +502,17 @@ function Staff({ employees, periods, loading, error, reload }) {
           ))}
         </>
       )}
+
+      {/* Contractor management sits at the FOOT of the roster, not in its own
+          tab. Organising workers is a roster act, and the brief is explicit
+          about not overcrowding the navigation. */}
+      {rateFor === null && !adding && (
+        <ContractorEditor
+          contractors={contractors}
+          employees={employees}
+          onChanged={reload}
+        />
+      )}
     </>
   )
 }
@@ -485,6 +523,7 @@ export default function EmployerWorkspace() {
   const [pane, setPane] = useState('today')
   const [employees, setEmployees] = useState([])
   const [periods, setPeriods] = useState([])
+  const [contractors, setContractors] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -492,12 +531,14 @@ export default function EmployerWorkspace() {
     setError(null)
     try {
       await ensureEmployer()
-      const [emps, rates] = await Promise.all([
+      const [emps, rates, cons] = await Promise.all([
         listEmployees({ includeArchived: true }),
         listAllRatePeriods(),
+        listContractors({ includeArchived: true }),
       ])
       setEmployees(emps || [])
       setPeriods(rates || [])
+      setContractors(cons || [])
     } catch (e) {
       setError(e instanceof EmployerError ? e : new EmployerError(String(e)))
     } finally {
@@ -562,6 +603,7 @@ export default function EmployerWorkspace() {
       {pane === 'today' && (
         <Dashboard
           employees={employees}
+          contractors={contractors}
           periods={periods}
           onOpenDays={() => setPane('days')}
         />
@@ -574,6 +616,7 @@ export default function EmployerWorkspace() {
       {pane === 'roster' && (
         <Staff
           employees={employees}
+          contractors={contractors}
           periods={periods}
           loading={false}
           error={error}

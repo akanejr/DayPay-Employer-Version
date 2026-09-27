@@ -806,3 +806,188 @@ describe('monthFigures', () => {
     assert.equal(f.equivalents, 0)
   })
 })
+
+// ── Contractors ─────────────────────────────────────────────────────────────
+
+import { groupByContractor, contractorRollup, isMissingTable } from '../src/lib/employerLogic.js'
+
+const contractor = (id, name) => ({ id, name, status: 'active' })
+
+const workforce = [
+  { id: 'w1', full_name: 'Worker A', job_title: 'Fitter', status: 'active', contractor_id: 'c1' },
+  { id: 'w2', full_name: 'Worker B', job_title: 'Rigger', status: 'active', contractor_id: 'c1' },
+  { id: 'w3', full_name: 'Worker C', job_title: 'Welder', status: 'active', contractor_id: 'c2' },
+  { id: 'w4', full_name: 'Worker D', status: 'active', contractor_id: null },
+  { id: 'w5', full_name: 'Archived One', status: 'archived', contractor_id: 'c1' },
+]
+
+describe('groupByContractor', () => {
+  test('groups workers under their contractor', () => {
+    const g = groupByContractor([contractor('c1', 'Alpha'), contractor('c2', 'Beta')], workforce)
+    assert.equal(g.length, 3)                       // c1, c2, unassigned
+    assert.deepEqual(g[0].workers.map(w => w.id), ['w1', 'w2'])
+    assert.deepEqual(g[1].workers.map(w => w.id), ['w3'])
+    assert.equal(g[2].contractor, null)
+    assert.deepEqual(g[2].workers.map(w => w.id), ['w4'])
+  })
+
+  // Otherwise creating one looks like it silently failed.
+  test('a contractor with no workers still appears', () => {
+    const g = groupByContractor([contractor('c9', 'Gamma')], workforce)
+    const gamma = g.find(x => x.contractor?.id === 'c9')
+    assert.ok(gamma, 'Gamma must be on screen')
+    assert.equal(gamma.workers.length, 0)
+  })
+
+  // The dangerous one. A worker under an archived contractor is still owed
+  // money, so they must never vanish from the screen.
+  test('a worker whose contractor is not listed falls into Unassigned', () => {
+    const g = groupByContractor([contractor('c2', 'Beta')], workforce)
+    const unassigned = g.find(x => x.contractor === null)
+    assert.ok(unassigned)
+    assert.deepEqual(unassigned.workers.map(w => w.id).sort(), ['w1', 'w2', 'w4'])
+  })
+
+  test('archived workers are not grouped at all', () => {
+    const g = groupByContractor([contractor('c1', 'Alpha')], workforce)
+    const all = g.flatMap(x => x.workers.map(w => w.id))
+    assert.equal(all.includes('w5'), false)
+  })
+
+  test('an entirely unassigned roster produces one group, not none', () => {
+    const flat = workforce.filter(w => !w.contractor_id)
+    const g = groupByContractor([], flat)
+    assert.equal(g.length, 1)
+    assert.equal(g[0].contractor, null)
+    assert.equal(g[0].workers.length, 1)
+  })
+
+  test('no unassigned group is shown when everyone is assigned', () => {
+    const all = workforce.filter(w => w.contractor_id).map(w => ({ ...w, contractor_id: 'c1' }))
+    const g = groupByContractor([contractor('c1', 'Alpha')], all)
+    assert.equal(g.length, 1)
+    assert.equal(g.some(x => x.contractor === null), false)
+  })
+
+  test('no worker is ever lost across the groups', () => {
+    const before = workforce.filter(w => w.status === 'active').map(w => w.id).sort()
+    const g = groupByContractor([contractor('c1', 'Alpha')], workforce)
+    const after = g.flatMap(x => x.workers.map(w => w.id)).sort()
+    assert.deepEqual(after, before)
+  })
+
+  test('null and malformed input does not throw', () => {
+    assert.doesNotThrow(() => groupByContractor(null, null))
+    assert.doesNotThrow(() => groupByContractor([null, {}], [null, {}]))
+    assert.deepEqual(groupByContractor(null, null), [])
+  })
+})
+
+describe('contractorRollup', () => {
+  const days = [
+    // Today
+    { employee_id: 'w1', work_date: '2026-09-25', kind: 'work', amount: 16000, multiplier: 1, status: 'claimed' },
+    { employee_id: 'w2', work_date: '2026-09-25', kind: 'overtime', amount: 32000, multiplier: 2, status: 'claimed' },
+    // Earlier in the month
+    { employee_id: 'w1', work_date: '2026-09-01', kind: 'weekend', amount: 32000, multiplier: 2, status: 'claimed' },
+    { employee_id: 'w2', work_date: '2026-09-02', kind: 'work', amount: 16000, multiplier: 1, status: 'claimed' },
+    // Another contractor's day must not leak in
+    { employee_id: 'w3', work_date: '2026-09-25', kind: 'work', amount: 99999, multiplier: 1, status: 'claimed' },
+  ]
+  const alpha = workforce.filter(w => w.contractor_id === 'c1' && w.status === 'active')
+
+  test('counts today\'s attendance for this contractor only', () => {
+    const r = contractorRollup(alpha, days, '2026-09-25')
+    assert.equal(r.expected, 2)
+    assert.equal(r.present, 2)
+    assert.equal(r.missing, 0)
+    assert.equal(r.overtime, 1)
+    assert.equal(r.todayAmount, 48000)      // 16,000 + 32,000, not 147,999
+  })
+
+  // The brief's own worker-card example.
+  test('a worker card carries actual days and paid-day equivalents', () => {
+    const r = contractorRollup(alpha, days, '2026-09-25')
+    const a = r.rows.find(x => x.employee.id === 'w1')
+    assert.equal(a.present, true)
+    assert.equal(a.actualDays, 2)
+    assert.equal(a.equivalents, 3)          // 1 regular + 1 weekend at 2x
+    assert.equal(a.total, 48000)
+  })
+
+  test('a worker with no day today is counted as missing, and still has month figures', () => {
+    const r = contractorRollup(alpha, days, '2026-09-26')
+    assert.equal(r.present, 0)
+    assert.equal(r.missing, 2)
+    const a = r.rows.find(x => x.employee.id === 'w1')
+    assert.equal(a.present, false)
+    assert.equal(a.today, null)
+    assert.equal(a.actualDays, 2)           // the month still shows
+  })
+
+  test('the header cannot disagree with the rows underneath it', () => {
+    const r = contractorRollup(alpha, days, '2026-09-25')
+    assert.equal(r.present + r.missing, r.expected)
+    assert.equal(r.rows.length, r.expected)
+    assert.equal(r.rows.filter(x => x.present).length, r.present)
+  })
+
+  test('leave is excluded from actual days but still counted in the money', () => {
+    const withLeave = [
+      ...days,
+      { employee_id: 'w1', work_date: '2026-09-08', kind: 'leave', amount: 16000, multiplier: 1, status: 'claimed' },
+    ]
+    const r = contractorRollup(alpha, withLeave, '2026-09-25')
+    const a = r.rows.find(x => x.employee.id === 'w1')
+    assert.equal(a.actualDays, 2)           // the leave day is not "worked"
+    assert.equal(a.leave, 1)
+    assert.equal(a.equivalents, 3)
+    assert.equal(a.total, 64000)
+  })
+
+  test('the period total matches the sum of the worker cards', () => {
+    const r = contractorRollup(alpha, days, '2026-09-25')
+    const summed = r.rows.reduce((s, x) => s + x.total, 0)
+    assert.equal(r.periodTotal, summed)
+  })
+
+  test('an empty contractor reports zero rather than breaking', () => {
+    const r = contractorRollup([], days, '2026-09-25')
+    assert.equal(r.expected, 0)
+    assert.equal(r.present, 0)
+    assert.equal(r.periodTotal, 0)
+    assert.deepEqual(r.rows, [])
+  })
+
+  test('archived workers are excluded from the contractor', () => {
+    const r = contractorRollup(workforce.filter(w => w.contractor_id === 'c1'), days, '2026-09-25')
+    assert.equal(r.expected, 2)
+  })
+
+  test('null and malformed input does not throw', () => {
+    assert.doesNotThrow(() => contractorRollup(null, null, '2026-09-25'))
+    assert.doesNotThrow(() => contractorRollup([null], [null], '2026-09-25'))
+    const r = contractorRollup(null, null, '2026-09-25')
+    assert.equal(r.expected, 0)
+    assert.equal(r.periodTotal, 0)
+  })
+})
+
+describe('isMissingTable', () => {
+  test('recognises the PostgREST undefined_table code', () => {
+    assert.equal(isMissingTable({ code: '42P01', message: 'x' }, 'contractors'), true)
+  })
+  test('recognises the human-readable message', () => {
+    assert.equal(isMissingTable({ message: 'relation "public.contractors" does not exist' }, 'contractors'), true)
+  })
+  test('does not fire for an unrelated error', () => {
+    assert.equal(isMissingTable({ code: '42501', message: 'permission denied' }, 'contractors'), false)
+    assert.equal(isMissingTable(null, 'contractors'), false)
+    assert.equal(isMissingTable({}, 'contractors'), false)
+    assert.equal(isMissingTable({ message: 'relation "public.employees" does not exist' }, 'contractors'), false)
+  })
+  test('an error with no message does not throw', () => {
+    assert.doesNotThrow(() => isMissingTable({}, 'contractors'))
+    assert.doesNotThrow(() => isMissingTable({ message: null }, 'contractors'))
+  })
+})
