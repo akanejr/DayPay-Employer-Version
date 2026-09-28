@@ -19,7 +19,7 @@ import {
   archiveContractor, restoreContractor,
 } from '../lib/employer'
 
-export default function ContractorEditor({ contractors, employees = [], onChanged }) {
+export default function ContractorEditor({ contractors, employees = [], available = true, onChanged }) {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState(null)
@@ -41,6 +41,40 @@ export default function ContractorEditor({ contractors, employees = [], onChange
     try { await fn(); await onChanged() }
     catch (e) { setError(e instanceof EmployerError ? e : new EmployerError(String(e))) }
     finally { setBusyId(null) }
+  }
+
+  /* The database has not had migration 007 run against it. Saying so is much
+     better than rendering a working-looking form whose every button fails: the
+     employer has no way to tell a missing table from a bad name, and would
+     reasonably conclude the app is broken. */
+  if (!available) {
+    return (
+      <div className="ew-card">
+        <div className="ew-board-label">Contractors</div>
+        <p className="ew-dash-note" style={{ marginTop: 8 }}>
+          Contractors aren’t switched on for this database yet, so this section
+          is empty on purpose. Your roster works exactly as before — workers
+          just aren’t grouped.
+        </p>
+        <p className="ew-dash-note" style={{ marginTop: 7 }}>
+          To turn them on, run <code className="ew-code-inline">supabase/migrations/007_contractors.sql</code>{' '}
+          in the Supabase SQL Editor, then refresh this page.
+        </p>
+        <button
+          type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+          style={{ marginTop: 11 }}
+          disabled={busyId === 'recheck'}
+          onClick={() => run(async () => {}, 'recheck')}
+        >
+          {busyId === 'recheck' ? 'Checking…' : 'Check again'}
+        </button>
+        {error && (
+          <div className="ew-msg ew-msg-error" style={{ marginTop: 10 }}>
+            {error.message}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (

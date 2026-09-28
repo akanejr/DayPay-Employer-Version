@@ -595,6 +595,20 @@ export function contractorsAvailable() {
   return !contractorsMissing
 }
 
+/* Clears both "this part of the schema is absent" flags so the next query
+   probes again.
+
+   Both are sticky on purpose — they stop the app paying a failed round trip on
+   every render. But sticky with no way out is a trap: if migration 007 is run
+   while the app is open, the app would go on believing the table is missing
+   for the life of the page, and the only cure would be a full reload — not
+   something a user can be expected to guess. Every user-initiated refresh calls
+   this, so running the migration and hitting refresh is enough. */
+export function resetSchemaProbes() {
+  contractorColumnMissing = false
+  contractorsMissing = false
+}
+
 export async function listContractors({ includeArchived = false } = {}) {
   if (contractorsMissing) return []
   let q = client().from('contractors').select(CONTRACTOR_COLS).order('name', { ascending: true })

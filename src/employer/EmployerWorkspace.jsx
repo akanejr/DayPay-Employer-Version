@@ -19,6 +19,7 @@ import {
   archiveEmployee, restoreEmployee, listAllRatePeriods, addRatePeriod,
   deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
   issueInviteCode, myRoles, listContractors, setEmployeeContractor,
+  resetSchemaProbes, contractorsAvailable,
 } from '../lib/employer'
 import Dashboard from './Dashboard'
 import ContractorEditor from './ContractorEditor'
@@ -510,6 +511,7 @@ function Staff({ employees, contractors = [], periods, loading, error, reload })
         <ContractorEditor
           contractors={contractors}
           employees={employees}
+          available={contractorsOk}
           onChanged={reload}
         />
       )}
@@ -524,11 +526,16 @@ export default function EmployerWorkspace() {
   const [employees, setEmployees] = useState([])
   const [periods, setPeriods] = useState([])
   const [contractors, setContractors] = useState([])
+  const [contractorsOk, setContractorsOk] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const reload = useCallback(async () => {
     setError(null)
+    /* Re-probe rather than trusting the last answer. Running a migration while
+       the app is open is a normal thing to do, and the app must notice on the
+       next refresh instead of needing a full page reload. */
+    resetSchemaProbes()
     try {
       await ensureEmployer()
       const [emps, rates, cons] = await Promise.all([
@@ -539,6 +546,7 @@ export default function EmployerWorkspace() {
       setEmployees(emps || [])
       setPeriods(rates || [])
       setContractors(cons || [])
+      setContractorsOk(contractorsAvailable())
     } catch (e) {
       setError(e instanceof EmployerError ? e : new EmployerError(String(e)))
     } finally {
