@@ -31,6 +31,7 @@ import {
   formatNaira, initials, todayKey, prettyDateKey, monthLabelFor,
 } from '../lib/employer'
 import ContractorView from './ContractorView'
+import AttendancePanel from './AttendancePanel'
 
 function Stat({ label, value, tone }) {
   return (
@@ -109,6 +110,11 @@ export default function Dashboard({ employees, contractors = [], periods, onOpen
           <button type="button" onClick={load}>Retry</button>
         </div>
       )}
+
+      {/* The employer's half of the daily code. Sits above Today because
+          opening attendance is the first act of the day, and because the
+          recorded figures below only fill up once it is open. */}
+      <AttendancePanel contractors={contractors} onChanged={load} />
 
       {/* ── Today ───────────────────────────────────────────────────────── */}
       <section className="ew-card">

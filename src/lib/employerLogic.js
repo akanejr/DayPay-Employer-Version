@@ -560,3 +560,98 @@ export function isMissingTable(error, table) {
   const msg = String(error.message || error.details || '')
   return new RegExp(`relation\\b.*\\b${table}\\b.*does not exist`, 'i').test(msg)
 }
+
+// ── Attendance sessions ─────────────────────────────────────────────────────
+
+/* The end of the employer's own local day, as an instant.
+
+   This is the whole reason session validity is a timestamp and not a date. The
+   database runs in UTC; an employer in Lagos opening attendance at 00:30 is
+   still on the previous UTC day, so a rule like "valid while work_date =
+   current_date" would hand out the wrong session to everyone who arrives
+   early. An absolute instant needs no timezone guess: the code stops working
+   when the employer's day ends, wherever they are. */
+export function endOfLocalDay(date = new Date(), hour = 23, minute = 59) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute, 59, 999)
+  return d
+}
+
+/* What state a session is in right now. The database re-checks all of this on
+   every check-in; this is only so the screen can be honest before anyone taps. */
+export function sessionState(session, now = new Date()) {
+  if (!session) return 'none'
+  if (session.status === 'closed') return 'closed'
+  const expiry = session.expires_at ? new Date(session.expires_at) : null
+  if (!expiry || Number.isNaN(expiry.getTime())) return 'unknown'
+  return now.getTime() >= expiry.getTime() ? 'expired' : 'open'
+}
+
+export function sessionIsLive(session, now = new Date()) {
+  return sessionState(session, now) === 'open'
+}
+
+/* A four-digit code. Checked in the browser so a typo does not cost one of the
+   five attempts the server allows. */
+export function isValidCodeShape(code) {
+  return /^[0-9]{4}$/.test(String(code ?? '').trim())
+}
+
+/* How long is left, in words an employer can act on. Deliberately coarse: the
+   difference between 3h 12m and 3h 14m changes nothing. */
+export function timeLeftLabel(expiresAt, now = new Date()) {
+  const end = expiresAt ? new Date(expiresAt) : null
+  if (!end || Number.isNaN(end.getTime())) return ''
+  const ms = end.getTime() - now.getTime()
+  if (ms <= 0) return 'expired'
+  const mins = Math.floor(ms / 60000)
+  if (mins < 1) return 'ends in under a minute'
+  if (mins < 60) return `ends in ${mins}m`
+  const hours = Math.floor(mins / 60)
+  const rem = mins % 60
+  return rem === 0 ? `ends in ${hours}h` : `ends in ${hours}h ${rem}m`
+}
+
+/* What the worker's screen should say, from my_attendance_status().
+   Kept as a function so the wording is in one place and can be tested — the
+   difference between "not open yet" and "already closed" is the difference
+   between waiting and asking somebody. */
+export function attendancePrompt(status) {
+  if (!status) {
+    return { tone: 'idle', title: 'Attendance', body: 'Checking whether attendance is open…' }
+  }
+  if (status.is_open) {
+    return {
+      tone: 'open',
+      title: 'Attendance is open',
+      body: status.contractor_name
+        ? `Did you come to work today? Enter today's code for ${status.contractor_name}.`
+        : 'Did you come to work today? Enter today’s workplace code.',
+    }
+  }
+  if (status.last_ended) {
+    return {
+      tone: 'closed',
+      title: 'Attendance has closed',
+      body: 'Today’s session has ended. If you worked and missed it, ask your employer to record the day for you.',
+    }
+  }
+  return {
+    tone: 'idle',
+    title: 'Attendance is not open',
+    body: 'Your employer has not opened attendance yet. Try again once they have.',
+  }
+}
+
+/* Turn a raw failure from check_in_with_code into something worth showing.
+   The database already sends human-readable messages — this only catches the
+   cases where nothing useful arrives at all. */
+export function checkInError(error) {
+  const raw = String(error?.message || '').trim()
+  if (!raw) return 'Could not record your attendance. Try again.'
+  // Both spellings: PostgreSQL writes "row-level security", other layers write
+  // "row level security". Matching only one let the raw policy text through.
+  if (/row[- ]level security|permission denied/i.test(raw)) {
+    return 'Attendance could not be recorded. Ask your employer to open attendance.'
+  }
+  return raw
+}

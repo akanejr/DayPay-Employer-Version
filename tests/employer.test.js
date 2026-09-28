@@ -991,3 +991,162 @@ describe('isMissingTable', () => {
     assert.doesNotThrow(() => isMissingTable({ message: null }, 'contractors'))
   })
 })
+
+// ── Attendance sessions ─────────────────────────────────────────────────────
+
+import {
+  endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
+  timeLeftLabel, attendancePrompt, checkInError,
+} from '../src/lib/employerLogic.js'
+
+describe('endOfLocalDay', () => {
+  /* The reason session validity is a timestamp at all. The database runs in
+     UTC; a session opened just after midnight in Lagos is still the previous
+     UTC day, so any rule phrased as "work_date = current_date" would be wrong
+     for exactly the workers who arrive first. */
+  test('ends on the same local calendar day it was given', () => {
+    const d = endOfLocalDay(new Date(2026, 8, 25, 0, 30))   // 00:30 on the 25th
+    assert.equal(d.getFullYear(), 2026)
+    assert.equal(d.getMonth(), 8)
+    assert.equal(d.getDate(), 25)
+    assert.equal(d.getHours(), 23)
+    assert.equal(d.getMinutes(), 59)
+  })
+
+  test('is strictly after the moment it was computed from', () => {
+    const morning = new Date(2026, 8, 25, 6, 0)
+    assert.ok(endOfLocalDay(morning).getTime() > morning.getTime())
+  })
+
+  test('a moment just before midnight still expires that same day', () => {
+    const late = new Date(2026, 8, 25, 23, 58, 30)
+    const end = endOfLocalDay(late)
+    assert.equal(end.getDate(), 25)
+    assert.ok(end.getTime() > late.getTime())
+  })
+})
+
+describe('sessionState', () => {
+  const now = new Date(2026, 8, 25, 12, 0)
+
+  test('open while the window is running', () => {
+    const s = { status: 'open', expires_at: new Date(2026, 8, 25, 18, 0).toISOString() }
+    assert.equal(sessionState(s, now), 'open')
+    assert.equal(sessionIsLive(s, now), true)
+  })
+
+  test('expired once the moment passes — even if nobody closed it', () => {
+    const s = { status: 'open', expires_at: new Date(2026, 8, 25, 11, 59).toISOString() }
+    assert.equal(sessionState(s, now), 'expired')
+    assert.equal(sessionIsLive(s, now), false)
+  })
+
+  test('closed beats a window that has not run out yet', () => {
+    const s = { status: 'closed', expires_at: new Date(2026, 8, 25, 23, 59).toISOString() }
+    assert.equal(sessionState(s, now), 'closed')
+  })
+
+  // Yesterday's code must not work today. This is the client's mirror of the
+  // server rule, and the comparison is on the instant, not the date string.
+  test('a session expiring at midnight is dead one second later', () => {
+    const s = { status: 'open', expires_at: new Date(2026, 8, 25, 23, 59, 59).toISOString() }
+    assert.equal(sessionState(s, new Date(2026, 8, 25, 23, 59, 58)), 'open')
+    assert.equal(sessionState(s, new Date(2026, 8, 26, 0, 0, 0)), 'expired')
+  })
+
+  test('no session, and malformed input, do not throw', () => {
+    assert.equal(sessionState(null, now), 'none')
+    assert.equal(sessionState(undefined, now), 'none')
+    assert.equal(sessionState({}, now), 'unknown')
+    assert.equal(sessionState({ status: 'open', expires_at: 'not a date' }, now), 'unknown')
+    assert.equal(sessionState({ status: 'open' }, now), 'unknown')
+  })
+})
+
+describe('isValidCodeShape', () => {
+  test('accepts exactly four digits', () => {
+    assert.equal(isValidCodeShape('7429'), true)
+    assert.equal(isValidCodeShape('0000'), true)
+    assert.equal(isValidCodeShape(' 7429 '), true)
+    assert.equal(isValidCodeShape(7429), true)
+  })
+
+  test('rejects anything else', () => {
+    for (const bad of ['742', '74299', 'abcd', '74a9', '', null, undefined, '7 429', '-7429', '74.9']) {
+      assert.equal(isValidCodeShape(bad), false, `${JSON.stringify(bad)} must be rejected`)
+    }
+  })
+})
+
+describe('timeLeftLabel', () => {
+  const now = new Date(2026, 8, 25, 12, 0, 0)
+
+  test('counts down in the coarsest useful unit', () => {
+    assert.equal(timeLeftLabel(new Date(2026, 8, 25, 15, 20).toISOString(), now), 'ends in 3h 20m')
+    assert.equal(timeLeftLabel(new Date(2026, 8, 25, 15, 0).toISOString(), now), 'ends in 3h')
+    assert.equal(timeLeftLabel(new Date(2026, 8, 25, 12, 45).toISOString(), now), 'ends in 45m')
+    assert.equal(timeLeftLabel(new Date(2026, 8, 25, 12, 0, 30).toISOString(), now), 'ends in under a minute')
+  })
+
+  test('says expired rather than counting backwards', () => {
+    assert.equal(timeLeftLabel(new Date(2026, 8, 25, 11, 0).toISOString(), now), 'expired')
+  })
+
+  test('malformed input returns empty rather than throwing', () => {
+    assert.equal(timeLeftLabel(null, now), '')
+    assert.equal(timeLeftLabel('nonsense', now), '')
+  })
+})
+
+describe('attendancePrompt', () => {
+  test('open, with a contractor named', () => {
+    const p = attendancePrompt({ is_open: true, contractor_name: 'Alpha Services' })
+    assert.equal(p.tone, 'open')
+    assert.match(p.body, /Alpha Services/)
+  })
+
+  test('open, site-wide, still phrased as a question', () => {
+    const p = attendancePrompt({ is_open: true, contractor_name: null })
+    assert.equal(p.tone, 'open')
+    assert.match(p.body, /Did you come to work today/)
+  })
+
+  /* One means wait, the other means ask somebody — so they must not read the
+     same. */
+  test('never open yet and already closed are different messages', () => {
+    const notYet = attendancePrompt({ is_open: false, last_ended: false })
+    const closed = attendancePrompt({ is_open: false, last_ended: true })
+    assert.equal(notYet.tone, 'idle')
+    assert.equal(closed.tone, 'closed')
+    assert.notEqual(notYet.body, closed.body)
+    assert.match(closed.body, /ask your employer/i)
+  })
+
+  test('null input does not throw', () => {
+    assert.doesNotThrow(() => attendancePrompt(null))
+    assert.equal(attendancePrompt(null).tone, 'idle')
+  })
+})
+
+describe('checkInError', () => {
+  test('passes the database message through — it is written for the worker', () => {
+    assert.equal(
+      checkInError({ message: 'That code is not the one for today. Check it and try again.' }),
+      'That code is not the one for today. Check it and try again.',
+    )
+  })
+
+  // A policy refusal would otherwise surface as "new row violates row-level
+  // security policy", which tells a worker nothing and blames them for it.
+  test('replaces a raw policy refusal with something actionable', () => {
+    const msg = checkInError({ message: 'new row violates row-level security policy for table "day_records"' })
+    assert.match(msg, /ask your employer/i)
+    assert.doesNotMatch(msg, /row-level security/)
+  })
+
+  test('says something useful when there is no message at all', () => {
+    assert.ok(checkInError({}).length > 10)
+    assert.ok(checkInError(null).length > 10)
+    assert.ok(checkInError(undefined).length > 10)
+  })
+})

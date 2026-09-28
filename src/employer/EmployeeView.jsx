@@ -17,6 +17,7 @@ import {
   formatNaira, monthLabelFor, monthBounds, rateOn, todayKey,
   prettyDateKey, KIND_LABELS,
 } from '../lib/employer'
+import CheckIn from './CheckIn'
 
 const STATUS_LABEL = {
   claimed: { text: 'Awaiting confirmation', cls: 'ew-chip ew-chip-warn' },
@@ -267,6 +268,7 @@ export default function EmployeeView({ employee, onChanged }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [confirmLeave, setConfirmLeave] = useState(false)
+  const [monthBump, setMonthBump] = useState(0)
 
   useEffect(() => { setLinked(employee) }, [employee])
 
@@ -308,7 +310,13 @@ export default function EmployeeView({ employee, onChanged }) {
         </div>
       </div>
 
-      <MyMonth employee={linked} />
+      {/* Check in first, then what the month looks like. Recording a day
+          changes the month, so MyMonth is keyed off a counter that bumps when
+          one lands — otherwise the figures underneath would be stale until
+          the next reload. */}
+      <CheckIn employee={linked} onRecorded={() => setMonthBump(n => n + 1)} />
+
+      <MyMonth key={monthBump} employee={linked} />
 
       {error && (
         <div className="ew-msg ew-msg-error">

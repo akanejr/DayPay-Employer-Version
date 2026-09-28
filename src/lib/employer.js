@@ -26,6 +26,8 @@ import {
   buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
   dayBoard, unmetRates, monthFigures,
   groupByContractor, contractorRollup, isMissingTable,
+  endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
+  timeLeftLabel, attendancePrompt, checkInError,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -38,6 +40,8 @@ export {
   buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
   dayBoard, unmetRates, monthFigures,
   groupByContractor, contractorRollup, isMissingTable,
+  endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
+  timeLeftLabel, attendancePrompt, checkInError,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -658,4 +662,107 @@ export async function archiveContractor(id) {
 
 export async function restoreContractor(id) {
   return updateContractor(id, { status: 'active' })
+}
+
+// ── Attendance sessions ─────────────────────────────────────────────────────
+
+/* The employer's side of the daily code.
+ *
+ * The worker's side is a single call — checkIn(code) — and the deliberate
+ * asymmetry is the point: the employer can read a session, and a worker cannot
+ * read one at all. `attendance_sessions` has no policy for them, so their own
+ * query returns nothing. They learn that attendance is open through
+ * myAttendanceStatus(), which returns a boolean and a contractor name and
+ * never the code.
+ */
+
+const SESSION_COLS = 'id, contractor_id, work_date, code, status, opens_at, expires_at, closed_at'
+
+/* Today's session for one contractor, or the site-wide one when contractorId is
+   null. Returns null when nothing has been opened — not an error. */
+export async function todaysSession(contractorId = null, workDate = todayKey()) {
+  let q = client().from('attendance_sessions')
+    .select(SESSION_COLS)
+    .eq('work_date', workDate)
+
+  q = contractorId
+    ? q.eq('contractor_id', contractorId)
+    : q.is('contractor_id', null)
+
+  const res = await q.maybeSingle()
+  if (res.error && res.error.code !== 'PGRST116') {
+    if (isMissingTable(res.error, 'attendance_sessions')) return null
+    throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  }
+  return res.data || null
+}
+
+export async function listSessionsForDate(workDate = todayKey()) {
+  const res = await client().from('attendance_sessions')
+    .select(SESSION_COLS)
+    .eq('work_date', workDate)
+
+  if (res.error) {
+    if (isMissingTable(res.error, 'attendance_sessions')) return []
+    throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  }
+  return res.data || []
+}
+
+/* Opens attendance, or reopens a closed one with a fresh code.
+ *
+ * `expiresAt` comes from the browser as the end of the employer's own local
+ * day, because the database has no idea which timezone they are in. Reopening
+ * rotates the code — the old one dies for good. */
+export async function openAttendance(contractorId = null, workDate = todayKey(), expiresAt = null) {
+  const expiry = expiresAt || endOfLocalDay(new Date()).toISOString()
+
+  const { data, error } = await client().rpc('open_attendance', {
+    p_contractor_id: contractorId,
+    p_work_date: workDate,
+    p_expires_at: expiry,
+  })
+  if (error) throw new EmployerError(describe(error).message, { code: error.code, cause: error })
+  return Array.isArray(data) ? data[0] : data
+}
+
+export async function closeAttendance(sessionId) {
+  const { data, error } = await client().rpc('close_attendance', { p_session_id: sessionId })
+  if (error) throw new EmployerError(describe(error).message, { code: error.code, cause: error })
+  return Array.isArray(data) ? data[0] : data
+}
+
+// ── The worker's side ───────────────────────────────────────────────────────
+
+/* Whether attendance is open for the signed-in worker, and for which
+   contractor. Never returns the code. */
+export async function myAttendanceStatus() {
+  const { data, error } = await client().rpc('my_attendance_status')
+  if (error) {
+    if (isMissingTable(error, 'attendance_sessions')) return null
+    throw new EmployerError(describe(error).message, { code: error.code, cause: error })
+  }
+  const row = Array.isArray(data) ? data[0] : data
+  return row || null
+}
+
+/* Records today's attendance from a workplace code.
+ *
+ * Returns { ok: true, day, already } or { ok: false, message } — a refusal is
+ * an expected outcome here, not an exception, because "wrong code" is a thing
+ * that happens every day on a real site and must not read as a crash. */
+export async function checkIn(code) {
+  const cleaned = String(code ?? '').trim()
+
+  if (!isValidCodeShape(cleaned)) {
+    return { ok: false, message: 'Enter the four-digit code from your workplace.' }
+  }
+
+  const { data, error } = await client().rpc('check_in_with_code', { p_code: cleaned })
+  if (error) return { ok: false, message: checkInError(error) }
+
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row) return { ok: false, message: 'Attendance was not recorded. Try again.' }
+
+  return { ok: true, day: row, already: !!row.already }
 }

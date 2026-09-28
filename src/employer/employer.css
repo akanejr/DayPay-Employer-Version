@@ -940,3 +940,157 @@
   color: var(--text-2);
   word-break: break-all;
 }
+
+/* ── Attendance: the employer's daily code ───────────────────────────────── */
+
+.ew-btn-secondary {
+  background: var(--bg-cell-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.ew-btn-secondary:hover:not(:disabled) { filter: brightness(.97); }
+
+.ew-att-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* The code exists to be read out loud across a site or copied onto a board.
+   It is the one place in this app where big and plain is the whole design. */
+.ew-codebox {
+  margin-top: 12px;
+  padding: 15px 13px;
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: 13px;
+  text-align: center;
+}
+
+.ew-code-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-3);
+}
+
+.ew-code-big {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  line-height: 1.15;
+  color: var(--daypay-green);
+  margin: 7px 0 5px;
+  font-variant-numeric: tabular-nums;
+  /* The letter-spacing pushes the last digit off-centre; nudge it back. */
+  text-indent: .18em;
+}
+
+.ew-code-sub {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-4);
+  max-width: 32ch;
+  margin: 0 auto;
+}
+
+.ew-att-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+/* ── Attendance: the worker checking in ──────────────────────────────────── */
+
+.ew-checkin-q {
+  font-size: 16.5px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -.01em;
+}
+
+.ew-checkin-sub {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.ew-code-entry {
+  display: flex;
+  gap: 8px;
+  margin-top: 13px;
+  align-items: stretch;
+}
+
+.ew-code-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 11px 12px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  text-align: center;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ew-code-input::placeholder { color: var(--text-4); letter-spacing: .22em; }
+.ew-code-input:focus { outline: 2px solid var(--daypay-green); outline-offset: -1px; }
+.ew-code-input:disabled { opacity: .6; }
+
+/* A wrong code is an ordinary event, not a crash. It reads as a sentence. */
+.ew-checkin-refusal {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 11px;
+  padding: 9px 11px;
+  background: var(--amber-wash);
+  border: 1px solid var(--amber);
+  border-radius: 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.ew-checkin-x { color: var(--amber); font-weight: 800; flex: 0 0 auto; }
+
+/* ── Attendance: success ─────────────────────────────────────────────────── */
+
+.ew-checkin-done { text-align: center; }
+
+.ew-checkin-tick {
+  width: 44px;
+  height: 44px;
+  margin: 2px auto 9px;
+  border-radius: 50%;
+  background: var(--daypay-green-light);
+  color: var(--daypay-green);
+  font-size: 23px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ew-checkin-title { font-size: 17px; font-weight: 800; color: var(--text); }
+.ew-checkin-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-4);
+  margin: 7px 0 0;
+}
+
+@media (max-width: 420px) {
+  .ew-code-big { font-size: 36px; }
+  .ew-code-entry { flex-direction: column; }
+  .ew-code-entry .ew-btn { width: 100%; }
+}
