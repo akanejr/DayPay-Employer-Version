@@ -642,6 +642,99 @@ export function attendancePrompt(status) {
   }
 }
 
+// ── Phase 5: the workplace record as the employee's own view ────────────────
+
+/* One ledger row (public.day_records) → the record shape the calendar and the
+   payslip have always used.
+
+   This is the whole of the "view mode" trick: the employee's Month, Year,
+   payslip and Yearly Share read the employer's verified rows through the same
+   shapes they already understood, so no screen needs a second calculation and
+   the two sides cannot drift apart.
+
+   `amount`, `rate` and `multiplier` are taken AS STORED. They are frozen at the
+   moment the day was recorded (the DB computes and then refuses to change
+   them), so re-deriving them from today's settings would quietly restate
+   history — the one thing a pay record must never do. */
+export function ledgerToRecord(d) {
+  if (!d || !d.work_date) return null
+  const kind = String(d.kind || 'work')
+  const num = (v) => (v === null || v === undefined || v === '' ? undefined : Number(v))
+  return {
+    date: d.work_date,
+    amount: Number(d.amount) || 0,
+    rate: num(d.rate),
+    multiplier: num(d.multiplier),
+    isWeekend: kind === 'weekend',
+    isOvertime: kind === 'overtime',
+    isHoliday: kind === 'holiday',
+    isLeave: kind === 'leave',
+    leaveType: d.leave_type || undefined,
+    // Provenance, kept so a day can say where it came from and whether the
+    // employer has confirmed it yet. The calendar shows this; the maths
+    // ignores it.
+    status: d.status || undefined,
+    source: d.source || undefined,
+  }
+}
+
+/* A list of ledger rows → the date-keyed map the calendar indexes by. */
+export function recordsByDate(rows) {
+  const out = {}
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const rec = ledgerToRecord(row)
+    if (rec) out[rec.date] = rec
+  }
+  return out
+}
+
+/* How many days are still waiting on the employer, and how many are settled.
+   The employee's screen says this out loud: "awaiting confirmation" is the
+   difference between a day being written down and a day being agreed, and
+   someone who has just checked in deserves to know which one they have. */
+export function ledgerTotals(rows) {
+  const out = { days: 0, claimed: 0, confirmed: 0, disputed: 0, amount: 0 }
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || !row.work_date) continue
+    out.days += 1
+    out.amount += Number(row.amount) || 0
+    if (row.status === 'confirmed') out.confirmed += 1
+    else if (row.status === 'disputed') out.disputed += 1
+    else out.claimed += 1
+  }
+  return out
+}
+
+/* Where a day came from, in words, for the cell's tooltip. The point is that a
+   worker can always answer "who put this here?" — the code they typed, their
+   employer, or a correction. */
+export function ledgerSourceLabel(source) {
+  if (source === 'check_in') return 'Recorded with the work code'
+  if (source === 'correction') return 'Corrected by your employer'
+  return 'Recorded by your employer'
+}
+
+/* The personal notebook, summarised for one month — or null when it holds
+   nothing for that month.
+
+   Only used to tell a linked employee that their old personal days still
+   exist. When someone joins a workplace their calendar switches to the
+   workplace record, and a screen that silently hides weeks of their own
+   entries would look exactly like data loss. */
+export function notebookMonthNote(notebook, year, monthIndex) {
+  const prefix = `${year}-${String((Number(monthIndex) || 0) + 1).padStart(2, '0')}-`
+  let days = 0
+  let total = 0
+  for (const key in notebook || {}) {
+    if (!key.startsWith(prefix)) continue
+    const rec = notebook[key]
+    if (!rec) continue
+    days += 1
+    total += Number(rec.amount) || 0
+  }
+  return days > 0 ? { days, total } : null
+}
+
 /* Turn a raw failure from check_in_with_code into something worth showing.
    The database already sends human-readable messages — this only catches the
    cases where nothing useful arrives at all. */

@@ -6,7 +6,10 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
 import EmployerWorkspace from './employer/EmployerWorkspace'
 import EmployeeView from './employer/EmployeeView'
-import { myRoles } from './lib/employer'
+import {
+  myRoles, myYear, recordsByDate, notebookMonthNote, ledgerTotals,
+  ledgerSourceLabel, EmployerError,
+} from './lib/employer'
 import { sortPeriods, migratePeriods, rateFor as rateForPeriod } from './lib/rates'
 import { normalizeReminder, nextReminder, buildReminderIcs } from './lib/reminders'
 import jsPDF from 'jspdf'
@@ -14,6 +17,9 @@ import { payslipModel, breakdownRows, attendanceRows, calcLines, explainerKind, 
 import { registerPayslipFonts } from './lib/payslipFonts'
 
 const STORAGE_KEY = 'work_tracker_v1'
+// One shared empty map: a linked worker's record before the fetch lands must
+// not be a fresh {} on every render, or every memo that depends on it reruns.
+const EMPTY_RECORDS = Object.freeze({})
 // v19-D: splash version — the splash is an occasion (first run + version
 // updates), not a toll. Bump together with sw.js CACHE_NAME on every release.
 const APP_VERSION = 'daypay-v24'
@@ -281,7 +287,13 @@ function time12(t) {
 export default function App() {
   const [currentDate, setCurrentDate] = useState(() => new Date())
   const [view, setView] = useState('month')
-  const [attendance, setAttendance] = useState({})
+  // The PERSONAL tracker's days. Renamed from `attendance` in Phase 5: for a
+  // worker linked to a workplace this is no longer what the app shows or pays
+  // from, and a variable called `attendance` holding data that is not the
+  // attendance record is how two sources of truth start. The view source is
+  // derived below and keeps the name, so every existing calculation is
+  // untouched.
+  const [notebook, setNotebook] = useState({})
   const [settings, setSettings] = useState({ dailyRate: 16000, weekendMultiplier: 2, holidayMultiplier: 2, salaryGoal: 500000, paydayDay: 0, ratePeriods: [], reminder: null })
   const [startMonthKey, setStartMonthKey] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -344,6 +356,11 @@ export default function App() {
   // v25 employer: which side of the ledger this account is on. Either, both,
   // or neither — an owner who also works days is both.
   const [roles, setRoles] = useState(null)
+  // The workplace record (public.day_records) for the signed-in worker, keyed
+  // by date. null = not fetched yet, {} = fetched and empty: the difference is
+  // what stops a slow connection looking like a wiped calendar.
+  const [workRecords, setWorkRecords] = useState(null)
+  const [workErr, setWorkErr] = useState(null)
   const [showThemeMenu, setShowThemeMenu] = useState(false) // v18: "Choose theme" inline picker in the hamburger menu
   const hamburgerMenuRef = useRef(null)
 
@@ -492,7 +509,7 @@ export default function App() {
   useEffect(() => {
     if (showSettings) {
       const s = { dailyRate: settings.dailyRate, weekendMultiplier: settings.weekendMultiplier, holidayMultiplier: settings.holidayMultiplier }
-      const earliest = Object.keys(attendance).sort()[0]
+      const earliest = Object.keys(notebook).sort()[0]
       const now = new Date()
       const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
       setRateDraft(migratePeriods(settings.ratePeriods, s, earliest, monthStart))
@@ -514,7 +531,7 @@ export default function App() {
       let loadedAttendance = {}
       if (raw) {
         const parsed = JSON.parse(raw)
-        if (parsed.attendance) { loadedAttendance = parsed.attendance; setAttendance(parsed.attendance) }
+        if (parsed.attendance) { loadedAttendance = parsed.attendance; setNotebook(parsed.attendance) }
         if (parsed.settings) {
           const ls = {
             dailyRate: parsed.settings.dailyRate ?? 16000,
@@ -561,10 +578,10 @@ export default function App() {
   useEffect(() => {
     if (!loaded) return
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ attendance, settings }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ attendance: notebook, settings }))
       if (startMonthKey) localStorage.setItem(START_KEY, startMonthKey)
     } catch {}
-  }, [attendance, settings, startMonthKey, loaded])
+  }, [notebook, settings, startMonthKey, loaded])
 
   // Auth init
   useEffect(() => {
@@ -630,6 +647,65 @@ export default function App() {
     if (view === 'staff' && roles && !roles.isBusiness) setView('month')
   }, [view, roles])
 
+  /* ── PHASE 5: which record this account's calendar shows ──────────────────
+     A worker who has joined a workplace keeps everything: their notebook, the
+     settings, the reminders, the leave types. Nothing is deleted, and nothing
+     is rewritten. What changes is where the CALENDAR gets its days.
+
+     For a linked worker the days come from the employer's ledger
+     (public.day_records) — the same rows the employer sees, already verified
+     by the work code, RLS-limited to their own. Two consequences, and both are
+     the point:
+
+       * the worker and the employer can never disagree about a day;
+       * tapping a square can no longer invent one. Attendance is created with
+         the work code, which is the only thing standing between "I was at
+         work" and a fabricated paid day.
+
+     An account with no workplace (the personal tracker, and everyone who used
+     DayPay before this existed) is untouched: `attendance` is the notebook and
+     every tap still works exactly as it always did. */
+  const linked = !!roles?.employee
+  const linkedId = roles?.employee?.id || null
+
+  const loadWork = useCallback(() => {
+    if (!isSupabaseConfigured || !user || !linkedId) { setWorkRecords(null); setWorkErr(null); return }
+    setWorkErr(null)
+    myYear(linkedId, year)
+      .then(rows => setWorkRecords(recordsByDate(rows)))
+      .catch(e => {
+        // Keep `null`, not {}. An empty calendar that is really a failed fetch
+        // is the worst possible answer for a pay record.
+        setWorkRecords(null)
+        setWorkErr(e instanceof EmployerError ? e : new EmployerError(String(e)))
+      })
+  }, [user, linkedId, year])
+
+  useEffect(() => {
+    if (!linked) { setWorkRecords(null); setWorkErr(null); return }
+    // Fetched for the panes that display it, and refetched whenever the worker
+    // returns to one — so a day checked in from My work shows up here without
+    // anyone pressing refresh.
+    if (view !== 'month' && view !== 'year') return
+    loadWork()
+  }, [linked, view, loadWork])
+
+  /* The map every existing calculation reads. Keeping the name `attendance`
+     is deliberate: month stats, year stats, both payslips, the payday
+     projection and the CSV all follow the source without being edited. */
+  const attendance = linked ? (workRecords || EMPTY_RECORDS) : notebook
+  const workPending = linked && !workRecords && !workErr
+
+  /* What the worker's own days add up to, in words they can act on. */
+  const workTotals = useMemo(
+    () => ledgerTotals(Object.values(attendance).map(r => ({ ...r, work_date: r.date }))),
+    [attendance],
+  )
+  const notebookNote = useMemo(
+    () => (linked ? notebookMonthNote(notebook, year, month) : null),
+    [linked, notebook, year, month],
+  )
+
   // Fetch cloud
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return
@@ -645,8 +721,8 @@ export default function App() {
           if (cloudSettings.startMonthKey && !startMonthKey) setStartMonthKey(cloudSettings.startMonthKey)
           const mergedAttendance = { ...cloudAttendance }
           let hasOfflineNew = false
-          for (const k in attendance) { if (!mergedAttendance[k]) { mergedAttendance[k] = attendance[k]; hasOfflineNew = true } }
-          setAttendance(mergedAttendance)
+          for (const k in notebook) { if (!mergedAttendance[k]) { mergedAttendance[k] = notebook[k]; hasOfflineNew = true } }
+          setNotebook(mergedAttendance)
           const mergedSettings = { ...cloudSettings }
           if (startMonthKey && !mergedSettings.startMonthKey) mergedSettings.startMonthKey = startMonthKey
           if (mergedSettings.startMonthKey) setStartMonthKey(mergedSettings.startMonthKey)
@@ -676,7 +752,7 @@ export default function App() {
           }
         } else {
           const settingsToSave = { ...settings, startMonthKey: startMonthKey || monthKey(new Date().getFullYear(), new Date().getMonth()) }
-          await supabase.from('user_data').upsert({ user_id: user.id, attendance, settings: settingsToSave, updated_at: new Date().toISOString() })
+          await supabase.from('user_data').upsert({ user_id: user.id, attendance: notebook, settings: settingsToSave, updated_at: new Date().toISOString() })
           if (!startMonthKey) setStartMonthKey(settingsToSave.startMonthKey)
         }
         setSyncStatus('synced'); setTimeout(()=>setSyncStatus('idle'),2000)
@@ -695,13 +771,13 @@ export default function App() {
     syncTimeoutRef.current = setTimeout(async () => {
       try {
         const settingsToSave = { ...settings, startMonthKey }
-        const { error } = await supabase.from('user_data').upsert({ user_id: user.id, attendance, settings: settingsToSave, updated_at: new Date().toISOString() })
+        const { error } = await supabase.from('user_data').upsert({ user_id: user.id, attendance: notebook, settings: settingsToSave, updated_at: new Date().toISOString() })
         if (error) throw error
         setSyncStatus('synced'); setTimeout(()=>setSyncStatus('idle'),2000)
       } catch (e) { setCloudError(e.message || 'Sync failed'); setSyncStatus('error') }
     }, 800)
     return () => { if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current) }
-  }, [attendance, settings, startMonthKey, user, loaded])
+  }, [notebook, settings, startMonthKey, user, loaded])
 
   function getMonthStatus(y, m) {
     if (!startMonthKey) return 'active'
@@ -717,6 +793,11 @@ export default function App() {
 
   const monthStatus = getMonthStatus(year, month)
   const isEditable = monthStatus === 'active'
+  /* A linked worker never edits here, whatever the month's lock state says:
+     the month status is the personal tracker's own concept, and honouring it
+     would leave the current month editable — which is exactly the hole Phase 5
+     exists to close. */
+  const canEdit = isEditable && !linked
 
   const calendarData = useMemo(() => {
     const firstDay = new Date(year, month, 1)
@@ -935,14 +1016,14 @@ export default function App() {
     if (isSupabaseConfigured && user) return // signed in = backed up
     if (isSupabaseConfigured && syncStatus === 'syncing') return // sync may satisfy it
     try { if (localStorage.getItem('dp_backup_nudge') === 'done') return } catch {}
-    if (Object.keys(attendance).length < 7) return // not real data at risk yet
+    if (Object.keys(notebook).length < 7) return // not real data at risk yet
     const t = setTimeout(() => {
       dpBackupShownRef.current = true
       try { localStorage.setItem('dp_backup_nudge', 'done') } catch {}
       setDpBackupNudge(true)
     }, 1200)
     return () => clearTimeout(t)
-  }, [loaded, showSplash, authLoading, dpToast, user, syncStatus, attendance, isSupabaseConfigured]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, showSplash, authLoading, dpToast, user, syncStatus, notebook, isSupabaseConfigured]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!dpBackupNudge) return
     if ((isSupabaseConfigured && user) || showSettings || showAuth) { setDpBackupNudge(false); return }
@@ -1088,17 +1169,23 @@ export default function App() {
 
   function handleCellClick(dateObj) {
     if (!dateObj) return
-    if (!isEditable) return
+    if (linked) {
+      // Say why, rather than swallowing the tap: a button that does nothing
+      // reads as a broken app, and this one is refusing on purpose.
+      dpShowToast({ variant: 'month', title: 'Recorded with the work code', sub: 'Open My work and enter today’s code.' })
+      return
+    }
+    if (!canEdit) return
     const key = formatDateKey(dateObj)
-    const record = attendance[key]
+    const record = notebook[key]
     const isWeekend = isWeekendDay(dateObj)
     const holiday = isHolidayDay(dateObj)
 
     if (isWeekend) {
       const r = rateForDate(key)
-      const wasRecorded = !!attendance[key]
+      const wasRecorded = !!notebook[key]
       const wkndAmount = r.dailyRate * r.weekendMultiplier
-      setAttendance(prev => {
+      setNotebook(prev => {
         const next = { ...prev }
         if (next[key]) delete next[key]
         else {
@@ -1112,9 +1199,9 @@ export default function App() {
     } else if (holiday) {
       // Holiday - toggle with holiday rate
       const r = rateForDate(key)
-      const wasHolRecorded = !!attendance[key]
+      const wasHolRecorded = !!notebook[key]
       const holAmount = r.dailyRate * r.holidayMultiplier
-      setAttendance(prev => {
+      setNotebook(prev => {
         const next = { ...prev }
         if (next[key]) delete next[key]
         else {
@@ -1127,7 +1214,7 @@ export default function App() {
     } else {
       if (!record) {
         const r = rateForDate(key)
-        setAttendance(prev => ({
+        setNotebook(prev => ({
           ...prev,
           [key]: { date: key, amount: r.dailyRate, isWeekend: false, isOvertime: false, isHoliday: false, rate: r.dailyRate, multiplier: 1 }
         }))
@@ -1141,7 +1228,11 @@ export default function App() {
 
   function handleEditButtonClick(e, dateObj) {
     e.stopPropagation()
-    if (!isEditable) return
+    if (linked) {
+      dpShowToast({ variant: 'month', title: 'Your employer records the day', sub: 'Overtime and corrections come from them.' })
+      return
+    }
+    if (!canEdit) return
     const key = formatDateKey(dateObj)
     setEditingKey(key)
     setEditingDate(dateObj)
@@ -1149,20 +1240,21 @@ export default function App() {
 
   function handleOvertimeAction(action) {
     if (!editingKey) return
+    if (linked) return // unreachable while linked; belt and braces
     const key = editingKey
     if (action === 'remove') {
-      setAttendance(prev => { const next = { ...prev }; delete next[key]; return next })
+      setNotebook(prev => { const next = { ...prev }; delete next[key]; return next })
     } else if (action === 'regular') {
       const r = rateForDate(key)
-      setAttendance(prev => {
+      setNotebook(prev => {
         const rec = prev[key]
         if (!rec) return prev
         return { ...prev, [key]: { ...rec, isOvertime: false, isWeekend: false, isHoliday: false, isLeave: false, leaveType: undefined, amount: r.dailyRate, multiplier: 1, holidayName: undefined } }
       })
     } else if (action === 'overtime') {
       const r = rateForDate(key)
-      const oldRec = attendance[key]
-      setAttendance(prev => {
+      const oldRec = notebook[key]
+      setNotebook(prev => {
         const rec = prev[key]
         if (!rec) return prev
         const mult = r.weekendMultiplier
@@ -1175,8 +1267,8 @@ export default function App() {
       }
     } else if (action === 'holiday') {
       const r = rateForDate(key)
-      const oldHol = attendance[key]
-      setAttendance(prev => {
+      const oldHol = notebook[key]
+      setNotebook(prev => {
         const rec = prev[key]
         if (!rec) return prev
         const mult = r.holidayMultiplier
@@ -1191,7 +1283,7 @@ export default function App() {
       const leaveType = action.slice(6)
       const lt = ltById(leaveType)
       const lvAmount = leavePayFor(lt, r.dailyRate)
-      setAttendance(prev => {
+      setNotebook(prev => {
         const rec = prev[key]
         if (!rec) return prev
         const amount = leavePayFor(lt, r.dailyRate)
@@ -1205,9 +1297,13 @@ export default function App() {
   }
 
   function handleExportJson() {
-    triggerDownload(`DayPay-backup-${fileDateStamp()}.json`, buildDayPayBackup(attendance, settings, leaveTypes), 'application/json')
+    triggerDownload(`DayPay-backup-${fileDateStamp()}.json`, buildDayPayBackup(notebook, settings, leaveTypes), 'application/json')
   }
   function handleExportCsv() {
+    // CSV follows what the screen is showing: for a linked worker that is the
+    // workplace record, because a file of one-row-per-day that disagreed with
+    // the calendar beside it would be worse than no file. The JSON backup above
+    // stays the personal notebook, because it is the restore format.
     triggerDownload(`DayPay-earnings-${fileDateStamp()}.csv`, buildDayPayCsv(attendance), 'text/csv')
   }
 
@@ -1386,7 +1482,12 @@ export default function App() {
     const GRAY = [100, 116, 139], FAINT = [148, 163, 184]
     const FILL = [241, 245, 249], HAIR = [226, 232, 240]
     const locked = monthStatus === 'locked'
-    const statusText = locked ? 'LOCKED · FINAL' : 'IN PROGRESS'
+    // Provenance on the document itself. A payslip whose days came from an
+    // employer's ledger is a different artefact from a personal tally, and the
+    // two must never be mistakable for one another once printed or shared.
+    const statusText = linked
+      ? (locked ? 'WORKPLACE · FINAL' : 'WORKPLACE RECORD')
+      : (locked ? 'LOCKED · FINAL' : 'IN PROGRESS')
     const { recs, model: M } = monthSlip()
     const monthTitle = `${getMonthName(month)} ${year}`
     const F = (style, size) => { doc.setFont('DayPayInter', style); doc.setFontSize(size) }
@@ -1571,6 +1672,7 @@ export default function App() {
   function buildPayslipText() {
     const lines = [
       `📊 DayPay Payslip — ${getMonthName(month)} ${year}`,
+      ...(linked ? [`From your workplace record — the daily work code`] : []),
       ``,
       `Total: ${formatNaira(monthlyStats.total)}`,
       `${monthlyStats.days} days worked · ${monthSlip().model.totalEquiv} paid-day equivalents`,
@@ -1880,7 +1982,7 @@ export default function App() {
     before_start: { label: 'Before start', desc: 'Tracking started later', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>, color: '#cbd5e1' },
   }
 
-  const editingRecord = editingKey ? attendance[editingKey] : null
+  const editingRecord = editingKey ? notebook[editingKey] : null
   // The rate in force on the day being edited — matches what its buttons will pay
   const editingRate = editingRecord ? rateForDate(editingRecord.date) : null
 
@@ -1889,9 +1991,9 @@ export default function App() {
     const pm = new Date(realYear, realMonth - 1, 1)
     const prefix = `${pm.getFullYear()}-${String(pm.getMonth() + 1).padStart(2, '0')}-`
     let t = 0
-    for (const k in attendance) if (k.startsWith(prefix)) t += attendance[k].amount
+    for (const k in notebook) if (k.startsWith(prefix)) t += notebook[k].amount
     return t
-  }, [attendance, realYear, realMonth])
+  }, [notebook, realYear, realMonth])
 
   // Salary goal progress
   const goalProgress = settings.salaryGoal > 0 ? Math.min(100, Math.round((monthlyStats.total / settings.salaryGoal) * 100)) : 0
@@ -1968,7 +2070,7 @@ export default function App() {
         <div className="dp-backup-nudge" role="status" onClick={()=>setDpBackupNudge(false)}>
           <span className="dp-nudge-dot" aria-hidden="true" />
           <p className="dp-nudge-text">
-            <b>Your {Object.keys(attendance).length} logged day{Object.keys(attendance).length!==1?'s':''} live only on this phone.</b>{' '}
+            <b>Your {Object.keys(notebook).length} logged day{Object.keys(notebook).length!==1?'s':''} live only on this phone.</b>{' '}
             {isSupabaseConfigured ? 'Sign in to back them up.' : 'Back them up as a file you own.'}
           </p>
           <button type="button" className="dp-nudge-btn" onClick={e=>{e.stopPropagation(); setDpBackupNudge(false); if (isSupabaseConfigured) { setShowAuth(true); setAuthMode('signin') } else handleExportJson()}}>Back up now</button>
@@ -2203,6 +2305,44 @@ export default function App() {
               )}
             </div>
 
+            {linked && (
+              <div className="wp-banner">
+                <div className="wp-banner-top">
+                  <span className="wp-banner-dot" aria-hidden="true" />
+                  <span className="wp-banner-title">Your workplace record</span>
+                  {workErr ? (
+                    <span className="wp-banner-chip wp-banner-chip-err">could not load</span>
+                  ) : workPending ? (
+                    <span className="wp-banner-chip">loading…</span>
+                  ) : (
+                    <span className="wp-banner-chip">{workTotals.days} day{workTotals.days === 1 ? '' : 's'} this year</span>
+                  )}
+                </div>
+                <p className="wp-banner-body">
+                  Days are recorded when you enter the work code — they cannot be
+                  added or edited here. That is what makes them count.
+                </p>
+                <div className="wp-banner-actions">
+                  <button type="button" className="wp-banner-btn" onClick={() => setView('me')}>
+                    Open My work to check in
+                  </button>
+                  {workTotals.claimed > 0 && (
+                    <span className="wp-banner-note">
+                      {workTotals.claimed} awaiting confirmation
+                    </span>
+                  )}
+                </div>
+                {notebookNote && (
+                  <p className="wp-banner-kept">
+                    Your personal DayPay record also holds {notebookNote.days} day
+                    {notebookNote.days === 1 ? '' : 's'} for this month
+                    ({formatNaira(notebookNote.total)}). They are kept and left
+                    untouched — export them any time from Settings → Export my data.
+                  </p>
+                )}
+              </div>
+            )}
+
             {monthStatus==='locked' && monthlyStats.days>0 && (
               <div className="final-salary-banner">
                 <div className="fsb-label">Final salary for {getMonthName(month)} {year}</div>
@@ -2219,7 +2359,21 @@ export default function App() {
               <div className="info-banner">Tracking started in {startMonthKey ? (()=>{const {year, month}=parseMonthKey(startMonthKey); return `${getMonthName(month)} ${year}`})() : 'current month'}. No records before that.</div>
             )}
 
-            {isEditable || monthStatus==='locked' ? (
+            {linked && workErr ? (
+              <div className="wp-fail" role="alert">
+                <div className="wp-fail-title">We could not load your workplace record</div>
+                <p className="wp-fail-body">{workErr.message}</p>
+                <p className="wp-fail-body">
+                  Your days are safe — they live with your employer, not on this
+                  phone. Nothing here has been changed.
+                </p>
+                <button type="button" className="wp-banner-btn" onClick={loadWork}>Try again</button>
+              </div>
+            ) : linked && workPending ? (
+              <div className="wp-fail wp-fail-quiet">
+                <div className="wp-fail-title">Loading your workplace record…</div>
+              </div>
+            ) : isEditable || monthStatus==='locked' || linked ? (
             <>
             <div className="weekdays">
               {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((w,idx)=><div key={w} className={idx>=5?'weekend-label':''}>{w}</div>)}
@@ -2236,8 +2390,14 @@ export default function App() {
                 const worked=!!record
                 const isOvertime = record?.isOvertime
                 const isHol = record?.isHoliday || holiday
+                // A linked worker's cell says who put the day there and
+                // whether it is agreed yet — the two questions a pay record
+                // has to answer about every single day.
+                const wpTitle = linked && record
+                  ? `${ledgerSourceLabel(record.source)} · ${record.status === 'confirmed' ? 'Confirmed' : record.status === 'disputed' ? 'Disputed' : 'Awaiting confirmation'}`
+                  : null
                 return (
-                  <button key={key} className={`cell ${worked?'worked':''} ${isWeekend?'is-weekend':''} ${isToday?'is-today':''} ${!isEditable?'locked-cell':''} ${isOvertime?'is-overtime':''} ${isHol?'is-holiday':''} ${record?.isLeave?'is-leave':''} ${record?.isLeave && record.amount===0?'is-leave-unpaid':''} ${dpJust && dpJust.key===key ? 'dp-just' : ''}`} onClick={()=>handleCellClick(dateObj)} disabled={!isEditable && !worked} title={record?.isLeave ? `${leaveLabel(record.leaveType)} — ${record.amount>0 ? 'Paid leave' : 'Unpaid leave'}` : holiday ? `${holiday.name} — ${isWeekend ? 'Weekend' : 'Holiday'} 2×` : isWeekend ? 'Weekend 2×' : 'Weekday'}>
+                  <button key={key} className={`cell ${worked?'worked':''} ${isWeekend?'is-weekend':''} ${isToday?'is-today':''} ${!canEdit?'locked-cell':''} ${isOvertime?'is-overtime':''} ${isHol?'is-holiday':''} ${record?.isLeave?'is-leave':''} ${record?.isLeave && record.amount===0?'is-leave-unpaid':''} ${linked && record?.status==='claimed' ? 'is-unconfirmed' : ''} ${dpJust && dpJust.key===key ? 'dp-just' : ''}`} onClick={()=>handleCellClick(dateObj)} disabled={!linked && !isEditable && !worked} title={wpTitle || (record?.isLeave ? `${leaveLabel(record.leaveType)} — ${record.amount>0 ? 'Paid leave' : 'Unpaid leave'}` : holiday ? `${holiday.name} — ${isWeekend ? 'Weekend' : 'Holiday'} 2×` : isWeekend ? 'Weekend 2×' : 'Weekday')}>
                     <span className="date-num">{dateObj.getDate()}</span>
                     {holiday && !worked && <span className="holiday-dot" title={holiday.name}></span>}
                     {worked && (
@@ -2247,7 +2407,7 @@ export default function App() {
                     )}
                     {isToday && !worked && <span className="today-dot" />}
                     {!isEditable && worked && <span className="locked-overlay"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                    {worked && !isWeekend && !record.isHoliday && isEditable && (
+                    {worked && !isWeekend && !record.isHoliday && canEdit && (
                       <span className="edit-corner" onClick={(e)=>handleEditButtonClick(e, dateObj)} title="Edit to overtime">
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                       </span>
@@ -2257,7 +2417,7 @@ export default function App() {
               })}
             </div>
 
-            {isEditable && futureDays.length > 0 && (
+            {canEdit && futureDays.length > 0 && (
               !showFutureDays ? (
                 <button className="future-log-btn" onClick={()=>setShowFutureDays(true)}>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="18" height="17" rx="2.5"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M12 14v4M10 16h4"/></svg>
@@ -2420,12 +2580,19 @@ export default function App() {
                 )}
               </div>
 
-              {isEditable && (
+              {linked ? (
+                <div className="empty-hint">
+                  Read-only. {workTotals.confirmed > 0 ? `${workTotals.confirmed} confirmed` : 'Nothing confirmed yet'}
+                  {workTotals.claimed > 0 ? ` · ${workTotals.claimed} awaiting confirmation` : ''}
+                  {workTotals.disputed > 0 ? ` · ${workTotals.disputed} disputed` : ''}
+                  {' '}· days come from the work code, not from here.
+                </div>
+              ) : canEdit ? (
                 <div className="empty-hint">
                   Tap weekday to log OK, edit icon to OT. Weekends auto 2×. Holidays auto HOL 2×. Current month editable.
                 </div>
-              )}
-              {!isEditable && <div className="empty-hint locked-hint" style={{display:'flex', alignItems:'center', justifyContent:'center', gap:6}}>
+              ) : null}
+              {!linked && !isEditable && <div className="empty-hint locked-hint" style={{display:'flex', alignItems:'center', justifyContent:'center', gap:6}}>
                 {monthStatus==='locked' ? (
                   <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Locked read-only. Final salary includes OT + holidays.</>
                 ) : monthStatus==='future' ? (
@@ -2444,6 +2611,14 @@ export default function App() {
               <div className="month-title"><span className="month-name">{year}</span><span className="year-name">Year view · {year===realYear ? 'Current year' : year < realYear ? 'Historical' : 'Future'} {startMonthKey && year===parseMonthKey(startMonthKey).year ? `· Started ${getMonthName(parseMonthKey(startMonthKey).month)}` : ''}</span></div>
               <button className="nav-btn" onClick={goNextYear}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
             </div>
+
+            {linked && (
+              <div className="info-banner">
+                These are your workplace days. They are recorded with the work
+                code from My work — the personal tracker’s year view is not used
+                while you are on a workplace.
+              </div>
+            )}
 
             <div className="year-totals">
               <div className="yt-main">

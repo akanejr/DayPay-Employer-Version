@@ -1883,3 +1883,66 @@ button:not(#dp-press-skip):active:not(:disabled) { transform: scale(0.96); }
 .dp-rem-cta { height: 46px; border-radius: 13px; font-weight: 700; }
 .dp-rem-note { font-size: var(--fs-2xs); color: var(--text-4); line-height: 1.5; margin-top: var(--sp-2); }
 .dp-rem-dont { margin-top: 2px; font-size: var(--fs-xs); color: var(--text-4); text-align: center; }
+
+/* ============================================================
+   PHASE 5 — the worker's workplace record (read-only view mode)
+   ------------------------------------------------------------
+   The banner is the honest version of a locked door: the calendar
+   for a linked worker shows the employer's verified days and cannot
+   be tapped into, so the reason is stated where the tapping would
+   have happened rather than discovered by a dead button.
+   ============================================================ */
+.wp-banner {
+  margin: var(--sp-4) var(--sp-4) 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--daypay-green);
+  border-radius: var(--radius);
+  background: var(--green-wash);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.wp-banner-top { display: flex; align-items: center; gap: var(--sp-2); }
+.wp-banner-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--daypay-green); flex: none; }
+.wp-banner-title { font-size: var(--fs-sm); font-weight: 800; color: var(--text); letter-spacing: -0.01em; }
+.wp-banner-chip {
+  margin-left: auto; flex: none;
+  font-size: var(--fs-2xs); font-weight: 700; color: var(--green-ink);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 999px; padding: 2px var(--sp-2);
+}
+.wp-banner-chip-err { color: var(--danger); }
+.wp-banner-body { margin: 0; font-size: var(--fs-xs); font-weight: 500; color: var(--text-2); line-height: 1.5; }
+.wp-banner-actions { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.wp-banner-btn {
+  border: 0; border-radius: 9px; padding: var(--sp-2) var(--sp-3);
+  font-family: 'Manrope', -apple-system, sans-serif; font-weight: 700;
+  font-size: var(--fs-xs); background: var(--green-ink); color: var(--bg); cursor: pointer;
+  transition: filter 0.13s ease;
+}
+.wp-banner-btn:hover { filter: brightness(1.08); }
+.wp-banner-note { font-size: var(--fs-2xs); font-weight: 700; color: var(--amber); }
+.wp-banner-kept {
+  margin: 0; padding-top: var(--sp-2);
+  border-top: 1px dashed var(--border);
+  font-size: var(--fs-2xs); font-weight: 500; color: var(--text-3); line-height: 1.5;
+}
+
+/* A record that could not be loaded is not an empty record. It gets a card
+   that says which, and a way to try again. */
+.wp-fail {
+  margin: var(--sp-4) var(--sp-4) 0;
+  padding: var(--sp-4);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--bg-elevated-2);
+  display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start;
+}
+.wp-fail-quiet { align-items: center; text-align: center; }
+.wp-fail-title { font-size: var(--fs-sm); font-weight: 800; color: var(--text); }
+.wp-fail-body { margin: 0; font-size: var(--fs-xs); font-weight: 500; color: var(--text-3); line-height: 1.5; }
+
+/* A day the worker has recorded but the employer has not yet confirmed: the
+   difference between "written down" and "agreed", visible without opening
+   anything. */
+.cell.is-unconfirmed { box-shadow: inset 0 0 0 1px var(--amber); }
+
+[data-glass="on"] .wp-banner { -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); }

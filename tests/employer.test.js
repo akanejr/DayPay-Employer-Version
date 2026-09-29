@@ -12,7 +12,9 @@ import assert from 'node:assert/strict'
 import {
   formatNaira, initials, monthBounds, todayKey,
   rateOn, multiplierFor, makeInviteCode, CODE_ALPHABET, summarise,
+  ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote,
 } from '../src/lib/employerLogic.js'
+import { payslipModel } from '../src/lib/payslip.js'
 
 const emp = (id, name) => ({ id, full_name: name, status: 'active' })
 
@@ -1148,5 +1150,182 @@ describe('checkInError', () => {
     assert.ok(checkInError({}).length > 10)
     assert.ok(checkInError(null).length > 10)
     assert.ok(checkInError(undefined).length > 10)
+  })
+})
+
+// ── Phase 5: the workplace record as the employee's own view ────────────────
+// The point of these is not the mapping itself but its CONSEQUENCE: a worker's
+// payslip, built from the employer's ledger rows, must land on exactly the
+// figures the employer's side shows. One record, two views, same money.
+
+describe('ledgerToRecord', () => {
+  const row = (over = {}) => ({
+    work_date: '2026-09-29', kind: 'work', amount: '16000', rate: '16000',
+    multiplier: '1', status: 'confirmed', source: 'check_in', leave_type: null, ...over,
+  })
+
+  test('carries the date, amount, rate and multiplier across unchanged', () => {
+    const r = ledgerToRecord(row())
+    assert.equal(r.date, '2026-09-29')
+    assert.equal(r.amount, 16000)
+    assert.equal(r.rate, 16000)
+    assert.equal(r.multiplier, 1)
+  })
+
+  test('reads the stored money, never today\'s rate — history stays history', () => {
+    // A day paid at an old rate keeps that rate even though the settings have
+    // moved on since. Recomputing here would silently restate a paid day.
+    const r = ledgerToRecord(row({ rate: '12000', amount: '24000', multiplier: '2', kind: 'weekend' }))
+    assert.equal(r.rate, 12000)
+    assert.equal(r.amount, 24000)
+    assert.equal(r.isWeekend, true)
+  })
+
+  test('maps every kind the database can store', () => {
+    const flags = (k, over = {}) => {
+      const r = ledgerToRecord(row({ kind: k, ...over }))
+      return [r.isWeekend, r.isOvertime, r.isHoliday, r.isLeave]
+    }
+    // A plain workday is deliberately none of the four: it is the base case,
+    // paid at 1×, and flagging it as anything else would double it.
+    assert.deepEqual(flags('work'), [false, false, false, false])
+    assert.deepEqual(flags('weekend'), [true, false, false, false])
+    assert.deepEqual(flags('overtime'), [false, true, false, false])
+    assert.deepEqual(flags('holiday'), [false, false, true, false])
+
+    const leave = ledgerToRecord(row({ kind: 'leave', leave_type: 'sick', amount: '0' }))
+    assert.deepEqual([leave.isWeekend, leave.isOvertime, leave.isHoliday, leave.isLeave], [false, false, false, true])
+    assert.equal(leave.leaveType, 'sick')
+  })
+
+  test('refuses a row with no date instead of inventing one', () => {
+    assert.equal(ledgerToRecord(null), null)
+    assert.equal(ledgerToRecord({}), null)
+    assert.equal(ledgerToRecord({ work_date: '' }), null)
+  })
+
+  test('keeps provenance for the screen, and no status is read as money', () => {
+    const r = ledgerToRecord(row({ source: 'employer', status: 'claimed' }))
+    assert.equal(r.source, 'employer')
+    assert.equal(r.status, 'claimed')
+  })
+})
+
+describe('recordsByDate', () => {
+  test('keys by date and skips rows it cannot use', () => {
+    const map = recordsByDate([
+      { work_date: '2026-09-01', amount: 16000 },
+      { work_date: '2026-09-02', amount: 32000, kind: 'overtime' },
+      null,
+      { amount: 999 },
+    ])
+    assert.deepEqual(Object.keys(map).sort(), ['2026-09-01', '2026-09-02'])
+    assert.equal(map['2026-09-02'].isOvertime, true)
+  })
+
+  test('tolerates not being given an array at all', () => {
+    assert.deepEqual(recordsByDate(null), {})
+    assert.deepEqual(recordsByDate(undefined), {})
+    assert.deepEqual(recordsByDate('nonsense'), {})
+  })
+})
+
+describe('ledgerTotals', () => {
+  test('separates written down from agreed', () => {
+    const t = ledgerTotals([
+      { work_date: '2026-09-01', amount: 16000, status: 'confirmed' },
+      { work_date: '2026-09-02', amount: 16000, status: 'claimed' },
+      { work_date: '2026-09-03', amount: 32000, status: 'claimed' },
+      { work_date: '2026-09-04', amount: 16000, status: 'disputed' },
+    ])
+    assert.equal(t.days, 4)
+    assert.equal(t.confirmed, 1)
+    assert.equal(t.claimed, 2)
+    assert.equal(t.disputed, 1)
+    assert.equal(t.amount, 80000)
+  })
+
+  test('an empty record is all zeroes, not NaN', () => {
+    assert.deepEqual(ledgerTotals([]), { days: 0, claimed: 0, confirmed: 0, disputed: 0, amount: 0 })
+    assert.deepEqual(ledgerTotals(null), { days: 0, claimed: 0, confirmed: 0, disputed: 0, amount: 0 })
+  })
+})
+
+describe('ledgerSourceLabel', () => {
+  test('says who put the day there', () => {
+    assert.match(ledgerSourceLabel('check_in'), /work code/i)
+    assert.match(ledgerSourceLabel('correction'), /corrected/i)
+    assert.match(ledgerSourceLabel('employer'), /employer/i)
+    assert.match(ledgerSourceLabel(undefined), /employer/i)
+  })
+})
+
+describe('notebookMonthNote', () => {
+  const book = {
+    '2026-09-02': { amount: 16000 },
+    '2026-09-03': { amount: 32000 },
+    '2026-08-31': { amount: 16000 },
+  }
+
+  test('counts only the month asked for', () => {
+    assert.deepEqual(notebookMonthNote(book, 2026, 8), { days: 2, total: 48000 })
+    assert.deepEqual(notebookMonthNote(book, 2026, 7), { days: 1, total: 16000 })
+  })
+
+  test('a quiet month says nothing at all, so it cannot nag', () => {
+    assert.equal(notebookMonthNote(book, 2026, 0), null)
+    assert.equal(notebookMonthNote({}, 2026, 8), null)
+    assert.equal(notebookMonthNote(null, 2026, 8), null)
+  })
+
+  test('December and January do not bleed into each other', () => {
+    const b = { '2026-12-31': { amount: 1000 }, '2027-01-01': { amount: 2000 } }
+    assert.deepEqual(notebookMonthNote(b, 2026, 11), { days: 1, total: 1000 })
+    assert.deepEqual(notebookMonthNote(b, 2027, 0), { days: 1, total: 2000 })
+  })
+})
+
+describe('the worker\'s payslip from the employer\'s ledger', () => {
+  /* The brief's own worked example: 19 regular + 2 weekend + 1 overtime at
+     ₦16,000 → 22 actual days, 25 paid-day equivalents, ₦400,000. Here the
+     six days are LEDGER ROWS (what the employer's side stores) and the
+     assertion is made on the payslip model the worker's screen renders. If
+     the two sides ever drift, this is where it shows. */
+  const rows = [
+    ...Array.from({ length: 19 }, (_, i) => ({
+      work_date: `2026-09-${String(i + 1).padStart(2, '0')}`,
+      kind: 'work', amount: '16000', rate: '16000', multiplier: '1',
+      status: 'confirmed', source: 'employer',
+    })),
+    ...['2026-09-20', '2026-09-21'].map(d => ({
+      work_date: d, kind: 'weekend', amount: '32000', rate: '16000', multiplier: '2',
+      status: 'confirmed', source: 'check_in',
+    })),
+    {
+      work_date: '2026-09-22', kind: 'overtime', amount: '32000', rate: '16000', multiplier: '2',
+      status: 'claimed', source: 'check_in',
+    },
+  ]
+
+  const model = payslipModel(Object.values(recordsByDate(rows)).sort((a, b) => (a.date < b.date ? -1 : 1)))
+
+  test('22 actual days', () => assert.equal(model.actualDays, 22))
+  test('25 paid-day equivalents', () => assert.equal(model.totalEquiv, 25))
+  test('₦400,000 total', () => assert.equal(model.total, 400000))
+  test('one rate, so the simple equation reconciles', () => {
+    assert.equal(model.singleRate, 16000)
+    assert.equal(model.reconciles, true)
+  })
+  test('the groups are the ones the employer sees', () => {
+    const g = Object.fromEntries(model.groups.map(x => [x.key, x.actual]))
+    assert.deepEqual(g, { regular: 19, weekend: 2, overtime: 1, holiday: 0 })
+  })
+  test('an unconfirmed day still counts — the employer simply has not agreed it yet', () => {
+    // Day 22 is `claimed`. It is money owed the moment it is recorded, which is
+    // why the screen also shows how many days are still awaiting confirmation
+    // rather than hiding them.
+    assert.equal(model.actualDays, 22)
+    assert.equal(ledgerTotals(rows).claimed, 1)
+    assert.equal(ledgerTotals(rows).confirmed, 21)
   })
 })

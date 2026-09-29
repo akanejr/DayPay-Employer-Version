@@ -1,8 +1,21 @@
 -- ============================================================================
--- DayPay Employer Version — RLS verification harness (v7)
+-- DayPay Employer Version — RLS verification harness (v8)
 -- ============================================================================
 -- Proves an employee cannot read another employee's wages.
 -- Seeds test data, runs the checks, then ROLLS BACK. Safe to re-run.
+--
+-- NEW IN v8
+--   * what a worker may NOT do to their own record (checks 40-41). Phase 5
+--     makes the worker's screens read-only; these two prove the database
+--     agrees. A day the employer has CONFIRMED cannot be deleted by the worker
+--     it belongs to, and a claim they made themselves — still unresolved — can
+--     still be withdrawn, because "I tapped the wrong day" has to stay fixable.
+--   * `grant select on _ids to authenticated, anon` (see below). Without it
+--     every check in this file failed with "permission denied for table _ids":
+--     a temporary table created by the owner is not readable by a role
+--     switched with SET ROLE, and the role-switched blocks read _ids to learn
+--     which account they are acting as. Found by running the harness against a
+--     real PostgreSQL instead of trusting it.
 --
 -- NEW IN v7
 --   * installed-migration state (checks 37-39). Reads the live function bodies
@@ -90,6 +103,15 @@ end $$;
 
 grant execute on function public._harness_record(int, text, text, text, text, boolean)
   to authenticated, anon;
+
+/* _ids and _rls live in the TEMP schema, and a temporary table created by the
+   owner is NOT readable by a role switched with SET ROLE. Every phase below
+   reads _ids to find out which account it is acting as, so without this the
+   whole run dies on its first check with "permission denied for table _ids" —
+   which is exactly what happened the first time this file was executed against
+   a real PostgreSQL. */
+grant select on _ids to authenticated, anon;
+grant select on _rls to authenticated, anon;
 
 -- ── Which two accounts to test ─────────────────────────────────────────────
 -- Blank = auto-pick the two most recently created accounts.
@@ -763,6 +785,106 @@ from (
                     in pg_get_functiondef(p.oid)) > 0
   ) then 'installed' else 'MISSING - apply 010' end as state
 ) d;
+
+
+-- ============================================================================
+-- PHASE 4 — WHAT A WORKER MAY NOT DO TO THEIR OWN RECORD
+-- ============================================================================
+-- Phase 5 made the worker's screens read-only. Read-only in the UI is a
+-- courtesy; this is the part that holds when someone opens the browser console.
+-- The two rules that matter:
+--
+--   1. a day the employer has CONFIRMED cannot be deleted by the worker it
+--      belongs to — settled money is not removable by the party it is owed to;
+--   2. a claim the worker made themselves, still unresolved, CAN be withdrawn.
+--      That is not a hole, it is the feature: "I tapped the wrong day" has to
+--      be fixable without the employer, as long as nobody has agreed to it yet.
+
+set local role authenticated;
+do $$
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+end $$;
+
+do $$
+declare
+  n int;
+  before_count int;
+  after_count int;
+begin
+  -- Settle one day, as the employer. The worker is watching: everything below
+  -- happens as them, on their own row.
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+  update public.day_records set status = 'confirmed'
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and work_date = current_date - 2;
+
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select count(*) into before_count from public.day_records
+   where employee_id = '11111111-1111-4111-8111-111111111111' and status = 'confirmed';
+
+  delete from public.day_records
+   where employee_id = '11111111-1111-4111-8111-111111111111' and status = 'confirmed';
+  get diagnostics n = row_count;
+
+  select count(*) into after_count from public.day_records
+   where employee_id = '11111111-1111-4111-8111-111111111111' and status = 'confirmed';
+
+  perform public._harness_record(
+    40, 'EMPLOYEE', 'worker CANNOT delete a day the employer confirmed',
+    '0 deleted, the row still there',
+    n || ' deleted, ' || before_count || ' -> ' || after_count || ' confirmed row(s)',
+    n = 0 and before_count = 1 and after_count = 1);
+exception when others then
+  perform public._harness_record(
+    40, 'EMPLOYEE', 'worker CANNOT delete a day the employer confirmed',
+    '0 deleted, the row still there', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+do $$
+declare n int;
+begin
+  select count(*) into n from public.day_records
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and work_date = current_date and status = 'claimed';
+
+  if n = 0 then
+    perform public._harness_record(
+      41, 'EMPLOYEE', 'worker CAN withdraw their own unconfirmed day',
+      '1 withdrawn', 'no unconfirmed day to withdraw (nothing to test)', false);
+  else
+    delete from public.day_records
+     where employee_id = '11111111-1111-4111-8111-111111111111'
+       and work_date = current_date and status = 'claimed';
+    get diagnostics n = row_count;
+    perform public._harness_record(
+      41, 'EMPLOYEE', 'worker CAN withdraw their own unconfirmed day',
+      '1 withdrawn', n || ' withdrawn', n = 1);
+  end if;
+exception when others then
+  perform public._harness_record(
+    41, 'EMPLOYEE', 'worker CAN withdraw their own unconfirmed day',
+    '1 withdrawn', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+reset role;
 
 
 -- ============================================================================

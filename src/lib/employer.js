@@ -28,6 +28,7 @@ import {
   groupByContractor, contractorRollup, isMissingTable,
   endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
   timeLeftLabel, attendancePrompt, checkInError,
+  ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -42,6 +43,7 @@ export {
   groupByContractor, contractorRollup, isMissingTable,
   endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
   timeLeftLabel, attendancePrompt, checkInError,
+  ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -578,6 +580,32 @@ export async function myRatePeriods(employeeId) {
    planner to combine a policy with a date range. */
 export async function myMonth(employeeId, year, monthIndex) {
   return listEmployeeMonth(employeeId, year, monthIndex)
+}
+
+/* Their own days for a whole year — what the employee's calendar, payslip and
+   Yearly Share are built from.
+
+   One query for the year rather than twelve for the months: the Year view needs
+   all twelve at once anyway, and the Month view is a filter over the same rows,
+   so switching tabs costs nothing. RLS already limits this to rows belonging to
+   the signed-in worker; the employee_id filter is passed explicitly so the
+   query is index-friendly instead of leaving the planner to combine a policy
+   with a date range. */
+export async function myYear(employeeId, year) {
+  const y = Number(year)
+  if (!employeeId || !isFinite(y)) return []
+  const res = await client().from('day_records')
+    .select(DAY_COLS)
+    .eq('employee_id', employeeId)
+    .gte('work_date', `${y}-01-01`)
+    .lte('work_date', `${y}-12-31`)
+    .order('work_date', { ascending: true })
+
+  if (res.error) {
+    if (isMissingTable(res.error, 'day_records')) return []
+    throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  }
+  return res.data || []
 }
 
 // ── Contractors ─────────────────────────────────────────────────────────────
