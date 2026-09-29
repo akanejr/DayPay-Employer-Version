@@ -550,9 +550,13 @@ commit;
 --
 --   select policyname, cmd from pg_policies
 --    where tablename in ('invoices','invoice_lines') order by tablename, policyname;
---     -> invoices_employer_all | ALL
---        invoice_lines_employer_all | ALL
---        and NO delete policy anywhere
+--     -> invoice_lines_employer_select | SELECT
+--        invoices_employer_select      | SELECT
+--        and NOTHING else — no insert, update, delete or ALL policy anywhere
+--
+--   select grantee, privilege_type from information_schema.role_table_grants
+--    where table_name in ('invoices','invoice_lines') and grantee = 'authenticated';
+--     -> SELECT only. If UPDATE or DELETE appears here, stop and tell me.
 --
 -- Then bill a period in the app and check the arithmetic against the ledger:
 --   select i.number, i.contractor_name, i.period_from, i.period_to, i.status,
