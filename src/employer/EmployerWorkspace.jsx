@@ -23,6 +23,7 @@ import {
 } from '../lib/employer'
 import Dashboard from './Dashboard'
 import ContractorEditor from './ContractorEditor'
+import PaneErrorBoundary from './PaneErrorBoundary'
 import StaffDays from './StaffDays'
 import Summary from './Summary'
 import EmployeeView from './EmployeeView'
@@ -219,7 +220,7 @@ function AddEmployee({ onCreated, onCancel }) {
 
 // ── Staff screen ────────────────────────────────────────────────────────────
 
-function Staff({ employees, contractors = [], periods, loading, error, reload }) {
+function Staff({ employees, contractors = [], contractorsOk = true, periods, loading, error, reload }) {
   const onInviteChanged = reload
   const [adding, setAdding] = useState(false)
   const [rateFor, setRateFor] = useState(null)
@@ -608,29 +609,35 @@ export default function EmployerWorkspace() {
         </button>
       </div>
 
-      {pane === 'today' && (
-        <Dashboard
-          employees={employees}
-          contractors={contractors}
-          periods={periods}
-          onOpenDays={() => setPane('days')}
-        />
-      )}
+      {/* One crash must not take the whole screen with it. `key={pane}` also
+          clears a caught error when the employer switches panes, so a broken
+          pane does not poison the rest of the workspace. */}
+      <PaneErrorBoundary key={pane} onReset={reload}>
+        {pane === 'today' && (
+          <Dashboard
+            employees={employees}
+            contractors={contractors}
+            periods={periods}
+            onOpenDays={() => setPane('days')}
+          />
+        )}
 
-      {pane === 'days' && <StaffDays employees={employees} />}
+        {pane === 'days' && <StaffDays employees={employees} />}
 
-      {pane === 'summary' && <Summary employees={employees} />}
+        {pane === 'summary' && <Summary employees={employees} />}
 
-      {pane === 'roster' && (
-        <Staff
-          employees={employees}
-          contractors={contractors}
-          periods={periods}
-          loading={false}
-          error={error}
-          reload={reload}
-        />
-      )}
+        {pane === 'roster' && (
+          <Staff
+            employees={employees}
+            contractors={contractors}
+            contractorsOk={contractorsOk}
+            periods={periods}
+            loading={false}
+            error={error}
+            reload={reload}
+          />
+        )}
+      </PaneErrorBoundary>
     </div>
   )
 }

@@ -1094,3 +1094,44 @@
   .ew-code-entry { flex-direction: column; }
   .ew-code-entry .ew-btn { width: 100%; }
 }
+
+/* ── Crash screen ────────────────────────────────────────────────────────── */
+
+/* Shown when one pane throws during render. Blank would be worse: the
+   employer cannot tell a crash from a network problem from a broken login. */
+
+.ew-crash { border-color: var(--danger); }
+
+.ew-crash-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ew-crash-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+  margin: 6px 0 0;
+}
+
+.ew-crash-detail {
+  margin: 11px 0 0;
+  padding: 9px 11px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ew-crash-hint {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-4);
+  margin: 11px 0 0;
+}
