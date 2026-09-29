@@ -3178,6 +3178,7 @@ export default function App() {
                         <button type="button" className="sp-export-btn ghost" onClick={handleExportCsv}>⬇ CSV · one row per day</button>
                       </div>
                       <p className="sp-hint">One row per worked day — rate is that day's own rate, amount is what it actually paid, even after rate changes. JSON carries every record and setting for a full restore.</p>
+                      {linked && <p className="sp-hint">You are linked to a workplace, so the CSV follows your workplace record — the days your employer entered or you checked in. JSON still backs up this device's personal notebook and settings.</p>}
                     </div>
 
                     <div className="sp-section-label">Your data</div>
