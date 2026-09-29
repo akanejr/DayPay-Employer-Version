@@ -228,9 +228,50 @@ export default function Billing({ employees, contractors }) {
   const liveFor = row => liveInvoiceFor(invoices, row.contractorId, from, to)
   const unbilled = billable.filter(r => !liveFor(r))
   const outstanding = unbilled.reduce((a, r) => a + figure(r.total), 0)
-  const billedTotal = invoices
-    .filter(i => i.status === 'issued')
-    .reduce((a, i) => a + figure(i.total), 0)
+  const liveInvoices = invoices.filter(i => i.status === 'issued')
+  const billedTotal = liveInvoices.reduce((a, i) => a + figure(i.total), 0)
+
+  /* The headline has to be TRUE in every state, not just the common one.
+     It used to read "Not yet billed · ₦0" over a line saying everything had
+     been billed, which is a sentence that contradicts itself and makes the
+     reader suspect the number. So the label and the figure always describe the
+     same fact, and the biggest fact wins:
+
+       something left to bill  ->  what is still owed, and how many to bill
+       nothing left to bill    ->  what the period came to instead
+       nothing recorded at all ->  nothing to bill yet, and why
+
+     Nothing vanishes in the middle state: the money did not disappear, it
+     moved from "ready to bill" into a document, and the documents are listed
+     directly underneath. */
+
+  const headline = (() => {
+    if (unbilled.length > 0) {
+      return {
+        label: `Not yet billed · ${period}`,
+        figure: outstanding,
+        sub: `${unbilled.length} ${unbilled.length === 1 ? 'contractor' : 'contractors'} to bill`
+          + (billedTotal > 0 ? ` · ${formatNaira(billedTotal)} already billed` : ''),
+      }
+    }
+    if (billedTotal > 0) {
+      const n = liveInvoices.length
+      return {
+        label: `Billed for ${period}`,
+        figure: billedTotal,
+        sub: billable.length === 0
+          ? 'No days are recorded for this period now'
+          : (n === 1
+            ? 'Every recorded day for this period is on an invoice'
+            : `Every recorded day for this period is on one of ${n} invoices`),
+      }
+    }
+    return {
+      label: `Nothing to bill yet · ${period}`,
+      figure: 0,
+      sub: 'No days have been recorded for this period',
+    }
+  })()
 
   function stepMonth(delta) {
     const d = new Date(year, month + delta, 1)
@@ -333,16 +374,9 @@ export default function Billing({ employees, contractors }) {
       ) : (
         <>
           <div className="ew-owe">
-            <div className="ew-owe-label">Not yet billed · {period}</div>
-            <div className="ew-owe-figure">{formatNaira(outstanding)}</div>
-            <div className="ew-owe-sub">
-              {unbilled.length === 0
-                ? (billable.length === 0
-                  ? 'No days recorded for this period yet'
-                  : 'Everything recorded for this period has been billed')
-                : `${unbilled.length} ${unbilled.length === 1 ? 'contractor' : 'contractors'} to bill`}
-              {billedTotal > 0 && ` · ${formatNaira(billedTotal)} already billed`}
-            </div>
+            <div className="ew-owe-label">{headline.label}</div>
+            <div className="ew-owe-figure">{formatNaira(headline.figure)}</div>
+            <div className="ew-owe-sub">{headline.sub}</div>
           </div>
 
           {unbilled.length > 0 && (

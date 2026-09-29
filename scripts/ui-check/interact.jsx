@@ -198,3 +198,43 @@ async function mount(el) {
 
 console.log(bad === 0 ? '\nINTERACTION: ALL CHECKS PASSED' : `\nINTERACTION: ${bad} CHECK(S) FAILED`)
 globalThis.__bad = (globalThis.__bad || 0) + bad
+
+// ── a period that is completely billed must say so, not "Not yet billed ₦0" ──
+// The card used to read "Not yet billed · ₦0" above "everything has been
+// billed": two labels, opposite meanings, one card. Whatever is left to do is
+// what the card leads with, so here it leads with the money already billed.
+{
+  const Billing = (await import('../../src/employer/Billing.jsx')).default
+  const mock = await import('./mock-employer.js')
+
+  const issued = (id, contractorId, name, total) => ({
+    id, employer_id: 'o1', contractor_id: contractorId, contractor_name: name,
+    number: `INV-000${id.slice(1)}`, period_from: '2026-09-01', period_to: '2026-09-30',
+    status: 'issued', note: null, void_reason: null,
+    issued_at: '2026-09-30T18:00:00Z', voided_at: null,
+    worker_count: 1, actual_days: 2, leave_days: 0, equivalents: 3, total,
+    confirmed_days: 1, claimed_days: 1, disputed_days: 0,
+  })
+  mock.setInvoiceFixtures([
+    issued('i7', 'c1', 'Contractor A', 48000),
+    issued('i8', 'c2', 'Contractor B', 42000),
+  ])
+
+  const { host, root } = await mount(
+    <Billing employees={mock.billingFixtures.employees} contractors={mock.billingFixtures.contractors} />,
+  )
+  const html = host.innerHTML
+  const card = host.querySelector('.ew-owe')
+  ok('a fully billed period leads with what was billed, not with ₦0',
+    !!card && card.textContent.includes('Billed for') && card.textContent.includes('₦90,000'),
+    card ? card.textContent.replace(/\s+/g, ' ').slice(0, 110) : 'no card')
+  ok('and it no longer says "Not yet billed" over a figure of zero',
+    !html.includes('Not yet billed'))
+  ok('every recorded day is accounted for, in words',
+    !!card && /Every recorded day/.test(card.textContent))
+  ok('both documents are still listed underneath', !!byText(host, '.ew-inv', 'INV-0007')
+    && !!byText(host, '.ew-inv', 'INV-0008'))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}

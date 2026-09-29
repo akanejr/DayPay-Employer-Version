@@ -202,3 +202,12 @@ export const voidInvoice = async (id, reason) => {
   if (row) { row.status = 'void'; row.void_reason = reason; row.voided_at = '2026-09-30T20:00:00Z' }
   return row || {}
 }
+
+/* The check swaps the fixtures to reproduce one particular state — a period
+   where everything recorded has already been billed. Without this there is no
+   way to exercise the all-billed card, which is the state that used to print a
+   self-contradicting headline. */
+export function setInvoiceFixtures(next) {
+  INVOICES.length = 0
+  for (const row of next || []) INVOICES.push(row)
+}
