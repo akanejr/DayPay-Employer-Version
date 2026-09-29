@@ -5,6 +5,11 @@
 -- Seeds test data, runs the checks, then ROLLS BACK. Safe to re-run.
 --
 -- NEW IN v9
+--   * billing (checks 48-57). Phase 7 freezes a period into an invoice. The
+--     figures must be the ledger's own (48-49), a document must not be
+--     double-issued, hand-written or deleted (50-53, 55-56), and a worker must
+--     not be able to read one at all (54, 57).
+--
 --   * corrections (checks 42-47). Phase 5 made a worker's month read-only; the
 --     brief still requires them to be able to raise a correction. Both are true
 --     only if a worker can ASK and cannot APPLY. These six checks prove the
@@ -1135,6 +1140,376 @@ exception when others then
     47, 'CORRECTIONS', 'an answered request does not block a new one',
     'a second request exists', 'ERROR: ' || sqlerrm, false);
 end $$;
+
+-- ============================================================================
+-- PHASE 7 — WHAT MAY BE BILLED, AND WHAT A DOCUMENT MAY NOT DO (checks 48-57)
+-- ============================================================================
+-- Phase 7 adds an invoice: a period, frozen into a document the employer can
+-- hand to a contractor. Three things have to be true at once, and these checks
+-- are those sentences executed:
+--
+--   1. The figures on it are the ledger's own. The database counts and sums the
+--      stored days; it never re-values one. Check 48 compares the document with
+--      an independent sum of the same rows, so a second calculation engine
+--      cannot creep in unnoticed.
+--   2. It cannot be double-issued, hand-written, or deleted. Only voided — a
+--      wrong invoice stays on file, because the fact that it was sent matters.
+--   3. A worker may not read one. A line only means something beside everyone
+--      else's pay on the same document, and it is not the worker's business.
+--
+-- The day values here come from earlier checks (46 made current_date - 2 an
+-- approved overtime day), so nothing is hardcoded: the expected total is
+-- computed from the ledger at the moment the check runs.
+
+-- ── 48. The employer can bill a period, and the total is the ledger's own ──
+do $$
+declare v_inv public.invoices%rowtype; v_ledger numeric;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select * into v_inv
+    from public.issue_invoice(
+      '33333333-3333-4333-8333-333333333333', current_date - 6, current_date, 'Harness');
+
+  select coalesce(sum(d.amount), 0) into v_ledger
+    from public.day_records d
+    join public.employees e on e.id = d.employee_id
+   where e.contractor_id = '33333333-3333-4333-8333-333333333333'
+     and d.work_date between current_date - 6 and current_date;
+
+  perform public._harness_record(
+    48, 'BILLING', 'the employer can bill a period, and the total is the ledger sum',
+    'issued, total = sum of stored amounts',
+    coalesce(v_inv.number, 'no document') || ' · ' || coalesce(v_inv.total::text, '?')
+      || ' vs ledger ' || v_ledger,
+    v_inv.id is not null
+      and v_inv.status = 'issued'
+      and v_inv.total = v_ledger
+      and v_inv.worker_count >= 1
+      and v_inv.actual_days >= 1);
+exception when others then
+  perform public._harness_record(
+    48, 'BILLING', 'the employer can bill a period, and the total is the ledger sum',
+    'issued, total = sum of stored amounts', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 49. The document adds up to its own lines ─────────────────────────────
+-- The invariant that makes an invoice worth anything. If this ever fails, the
+-- document and its detail disagree and nobody can tell which figure to trust.
+do $$
+declare v_total numeric; v_sum numeric; v_lines int;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select total into v_total from public.invoices
+   where contractor_id = '33333333-3333-4333-8333-333333333333' and status = 'issued'
+   order by issued_at desc limit 1;
+
+  select coalesce(sum(amount), 0), count(*) into v_sum, v_lines
+    from public.invoice_lines
+   where invoice_id = (select id from public.invoices
+                        where contractor_id = '33333333-3333-4333-8333-333333333333'
+                          and status = 'issued'
+                        order by issued_at desc limit 1);
+
+  perform public._harness_record(
+    49, 'BILLING', 'the document total is exactly the sum of its lines',
+    'total = sum(lines.amount)', v_total || ' vs ' || v_sum || ' over ' || v_lines || ' line(s)',
+    v_lines >= 1 and v_total = v_sum);
+exception when others then
+  perform public._harness_record(
+    49, 'BILLING', 'the document total is exactly the sum of its lines',
+    'total = sum(lines.amount)', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 50. The same period cannot be billed twice ────────────────────────────
+-- Enforced by a partial unique index, not by a disabled button: two devices, or
+-- a double tap, must not produce two invoices for the same work.
+do $$
+declare v_msg text := 'no error — a second invoice was allowed';
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  begin
+    perform public.issue_invoice(
+      '33333333-3333-4333-8333-333333333333', current_date - 6, current_date);
+  exception when others then
+    v_msg := sqlerrm;
+  end;
+
+  perform public._harness_record(
+    50, 'BILLING', 'billing the same period twice is refused by the database',
+    'a refusal naming the existing invoice',
+    left(v_msg, 90),
+    position('already been billed' in v_msg) > 0);
+exception when others then
+  perform public._harness_record(
+    50, 'BILLING', 'billing the same period twice is refused by the database',
+    'a refusal naming the existing invoice', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 51. A period with no days cannot be billed, and leaves nothing behind ──
+do $$
+declare v_msg text := 'no error — an empty period was billed'; v_left int;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  begin
+    perform public.issue_invoice(
+      '33333333-3333-4333-8333-333333333333', current_date - 400, current_date - 390);
+  exception when others then
+    v_msg := sqlerrm;
+  end;
+
+  select count(*) into v_left from public.invoices
+   where period_from = current_date - 400;
+
+  perform public._harness_record(
+    51, 'BILLING', 'a period with no recorded days is refused, and leaves no document',
+    'refused, 0 documents on that period',
+    left(v_msg, 70) || ' · ' || v_left || ' document(s) left',
+    position('nothing to bill' in v_msg) > 0 and v_left = 0);
+exception when others then
+  perform public._harness_record(
+    51, 'BILLING', 'a period with no recorded days is refused, and leaves no document',
+    'refused, 0 documents on that period', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 52. A wrong invoice is voided, kept, and replaced ─────────────────────
+do $$
+declare v_old public.invoices%rowtype; v_new public.invoices%rowtype;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select * into v_old from public.invoices
+   where contractor_id = '33333333-3333-4333-8333-333333333333' and status = 'issued'
+   order by issued_at desc limit 1;
+
+  perform public.void_invoice(v_old.id, 'Wrong period.');
+
+  select * into v_new
+    from public.issue_invoice(
+      '33333333-3333-4333-8333-333333333333', v_old.period_from, v_old.period_to);
+
+  select * into v_old from public.invoices where id = v_old.id;
+
+  perform public._harness_record(
+    52, 'BILLING', 'a voided invoice is kept and reissuing gets a new number',
+    'old = void with its figures, new = issued, different number',
+    coalesce(v_old.number, '?') || '/' || coalesce(v_old.status, '?')
+      || ' → ' || coalesce(v_new.number, '?') || '/' || coalesce(v_new.status, '?'),
+    v_old.status = 'void'
+      and v_old.void_reason = 'Wrong period.'
+      and v_old.total = v_new.total
+      and v_new.status = 'issued'
+      and v_new.number <> v_old.number
+      and v_new.id <> v_old.id);
+exception when others then
+  perform public._harness_record(
+    52, 'BILLING', 'a voided invoice is kept and reissuing gets a new number',
+    'old = void with its figures, new = issued, different number',
+    'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 53. The unassigned workers are billable in their own right ────────────
+-- The colleague has no contractor. Those days are still owed, so "no
+-- contractor" is a bill of its own — and a NULL contractor id must not defeat
+-- the double-billing guard.
+do $$
+declare v_inv public.invoices%rowtype; v_msg text := 'no error — billed twice';
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select * into v_inv from public.issue_invoice(null, current_date - 6, current_date);
+
+  begin
+    perform public.issue_invoice(null, current_date - 6, current_date);
+  exception when others then
+    v_msg := sqlerrm;
+  end;
+
+  perform public._harness_record(
+    53, 'BILLING', 'the unassigned workers can be billed, and only once',
+    'a document named for them, then a refusal',
+    coalesce(v_inv.contractor_name, '?') || ' · ' || coalesce(v_inv.worker_count::text, '?')
+      || ' worker(s) · ' || left(v_msg, 50),
+    v_inv.id is not null
+      and v_inv.contractor_name = 'Unassigned workers'
+      and v_inv.worker_count >= 1
+      and position('already been billed' in v_msg) > 0);
+exception when others then
+  perform public._harness_record(
+    53, 'BILLING', 'the unassigned workers can be billed, and only once',
+    'a document named for them, then a refusal', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 54. The worker may not read any invoice ───────────────────────────────
+do $$
+declare n int; l int;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select count(*) into n from public.invoices;
+  select count(*) into l from public.invoice_lines;
+
+  perform public._harness_record(
+    54, 'BILLING', 'a worker cannot read an invoice, not even their own line',
+    '0 documents, 0 lines', n || ' document(s), ' || l || ' line(s)', n = 0 and l = 0);
+exception when others then
+  perform public._harness_record(
+    54, 'BILLING', 'a worker cannot read an invoice, not even their own line',
+    '0 documents, 0 lines', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 55. ...and may not issue one, nor hand-write one ──────────────────────
+do $$
+declare v_issue text := 'no error — the worker billed a period';
+declare v_write text := 'no error — the worker wrote a document';
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  begin
+    perform public.issue_invoice('33333333-3333-4333-8333-333333333333',
+                                 current_date - 300, current_date - 290);
+  exception when others then
+    v_issue := sqlerrm;
+  end;
+
+  begin
+    insert into public.invoices (employer_id, contractor_name, number, period_from, period_to, total)
+    values ((select employer_uid from _ids), 'Made Up', 'INV-9999',
+            current_date - 300, current_date - 290, 999999);
+  exception when others then
+    v_write := sqlerrm;
+  end;
+
+  perform public._harness_record(
+    55, 'BILLING', 'a worker can neither issue a document nor write one by hand',
+    'both refused', left(v_issue, 40) || ' / ' || left(v_write, 40),
+    position('not yours' in v_issue) > 0
+      or position('permission denied' in v_issue) > 0
+      or position('permission denied' in v_write) > 0);
+exception when others then
+  perform public._harness_record(
+    55, 'BILLING', 'a worker can neither issue a document nor write one by hand',
+    'both refused', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 56. Even the employer cannot edit one, nor delete it ──────────────────
+do $$
+declare v_upd text := 'no error — the employer edited a frozen figure';
+declare v_del text := 'no error — the employer deleted a document';
+declare v_id uuid;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select id into v_id from public.invoices order by issued_at desc limit 1;
+
+  begin
+    update public.invoices set total = 1 where id = v_id;
+  exception when others then
+    v_upd := sqlerrm;
+  end;
+
+  begin
+    delete from public.invoices where id = v_id;
+  exception when others then
+    v_del := sqlerrm;
+  end;
+
+  perform public._harness_record(
+    56, 'BILLING', 'a frozen figure cannot be edited, and a document cannot be deleted',
+    'both refused', left(v_upd, 40) || ' / ' || left(v_del, 40),
+    position('permission denied' in v_upd) > 0
+      and position('permission denied' in v_del) > 0);
+exception when others then
+  perform public._harness_record(
+    56, 'BILLING', 'a frozen figure cannot be edited, and a document cannot be deleted',
+    'both refused', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 57. Another employer sees none of it ──────────────────────────────────
+-- The harness has two accounts; the second is a worker, not an employer, so
+-- this is the strongest neighbouring case available here: a signed-in account
+-- that owns nothing sees nothing.
+do $$
+declare n int; l int;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select count(*) into n from public.invoices where employer_id <> auth.uid();
+  select count(*) into l from public.invoice_lines
+   where invoice_id in (select id from public.invoices);
+
+  perform public._harness_record(
+    57, 'BILLING', 'documents never leak to an account that does not own them',
+    '0 foreign documents, 0 lines', n || ' / ' || l, n = 0 and l = 0);
+exception when others then
+  perform public._harness_record(
+    57, 'BILLING', 'documents never leak to an account that does not own them',
+    '0 foreign documents, 0 lines', 'ERROR: ' || sqlerrm, false);
+end $$;
+
 
 reset role;
 

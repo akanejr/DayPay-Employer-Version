@@ -930,3 +930,123 @@ export function workerMonthTotals(rows = []) {
   }
   return { worked, overtime, leave, total, equivalents, awaiting, days: (rows || []).length }
 }
+
+// ── Billing: the period, and what the bill will say ─────────────────────────
+
+/* A period written the way a person would say it: "1–30 Sep 2026" inside one
+   month, "28 Aug – 27 Sep 2026" across two. Built from the parsed keys rather
+   than Date(locale), so the label cannot change with the device's language. */
+export function periodLabel(from, to) {
+  const a = parseDateKey(from)
+  const b = parseDateKey(to)
+  if (!a || !b) return ''
+  if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()) {
+    return `${a.getDate()}–${b.getDate()} ${MON3[b.getMonth()]} ${b.getFullYear()}`
+  }
+  if (a.getFullYear() === b.getFullYear()) {
+    return `${a.getDate()} ${MON3[a.getMonth()]} – ${b.getDate()} ${MON3[b.getMonth()]} ${b.getFullYear()}`
+  }
+  return `${a.getDate()} ${MON3[a.getMonth()]} ${a.getFullYear()} – ${b.getDate()} ${MON3[b.getMonth()]} ${b.getFullYear()}`
+}
+
+/* What could be billed for a period, one row per contractor (plus the
+   unassigned), before anything is issued.
+
+   The figures come from `summarise` — the same function the Summary pane and
+   the payslip bridge already use — so the preview cannot invent a total. The
+   issued document is a second aggregation of the same stored days in SQL, and
+   the two are meant to agree exactly.
+
+   One deliberate difference from `groupByContractor`: this groups EVERY worker,
+   archived ones included. Somebody who left last week is still owed for the
+   days they worked, so dropping them would quietly understate the bill. The SQL
+   does not filter on status either. */
+export function billingRows(contractors, employees, days, from, to) {
+  const inPeriod = (days || []).filter(d => d && d.work_date >= from && d.work_date <= to)
+
+  const groups = new Map()
+  for (const c of contractors || []) {
+    if (!c || !c.id) continue
+    groups.set(c.id, { contractorId: c.id, name: c.name, workers: [] })
+  }
+
+  const unassigned = { contractorId: null, name: 'Unassigned workers', workers: [] }
+  for (const e of employees || []) {
+    if (!e || !e.id) continue
+    const g = e.contractor_id ? groups.get(e.contractor_id) : null
+    if (g) g.workers.push(e)
+    else if (e.contractor_id) {
+      // Days exist against a contractor no longer on the roster: still theirs
+      // to pay, so the row is kept rather than silently merged into anything.
+      let orphan = groups.get('unknown:' + e.contractor_id)
+      if (!orphan) {
+        orphan = { contractorId: e.contractor_id, name: 'Former contractor', workers: [] }
+        groups.set('unknown:' + e.contractor_id, orphan)
+      }
+      orphan.workers.push(e)
+    } else {
+      unassigned.workers.push(e)
+    }
+  }
+
+  const rows = []
+  const build = (g, isUnassigned) => {
+    const ids = new Set(g.workers.map(w => w.id))
+    const groupDays = inPeriod.filter(d => ids.has(d.employee_id))
+    const s = summarise(groupDays, g.workers)
+    let worked = 0, leave = 0, equivalents = 0
+    for (const r of s.rows) {
+      worked += r.worked
+      leave += r.leave
+      equivalents += r.equivalents
+    }
+    rows.push({
+      key: isUnassigned ? 'unassigned' : String(g.contractorId),
+      contractorId: g.contractorId,
+      name: g.name || 'Unnamed contractor',
+      isUnassigned,
+      hasRecords: s.rows.length > 0,
+      workers: s.rows,               // only those with days in the period
+      workerCount: s.rows.length,
+      days: groupDays.length,
+      worked,
+      leave,
+      equivalents: Math.round(equivalents * 100) / 100,
+      total: s.total,
+      claimed: s.unconfirmed,
+      disputed: s.disputed,
+    })
+  }
+
+  for (const g of groups.values()) build(g, false)
+  build(unassigned, true)
+
+  // Billable rows first, biggest first; then the rest by name. Unassigned sits
+  // last on purpose — it is the leftovers, not a contractor.
+  return rows.sort((a, b) => {
+    if (a.hasRecords !== b.hasRecords) return a.hasRecords ? -1 : 1
+    if (a.hasRecords && b.hasRecords && b.total !== a.total) return b.total - a.total
+    if (a.isUnassigned !== b.isUnassigned) return a.isUnassigned ? 1 : -1
+    return String(a.name).localeCompare(String(b.name))
+  })
+}
+
+/* Nothing recorded means nothing to bill. The database refuses an empty invoice
+   too, so the button and the rule agree. */
+export function isBillable(row) {
+  return !!(row && row.hasRecords && row.days > 0)
+}
+
+/* A live (issued) invoice for exactly this contractor and period, if there is
+   one. Voided documents are history: they no longer block the period. */
+export function liveInvoiceFor(invoices, contractorId, from, to) {
+  const same = (a, b) => (a || null) === (b || null)
+  return (invoices || []).find(inv => inv && inv.status === 'issued'
+    && inv.period_from === from && inv.period_to === to
+    && same(inv.contractor_id, contractorId)) || null
+}
+
+export function invoiceStatusLabel(status) {
+  if (status === 'void') return 'Voided'
+  return 'Issued'
+}

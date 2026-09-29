@@ -26,6 +26,7 @@ import ContractorEditor from './ContractorEditor'
 import PaneErrorBoundary from './PaneErrorBoundary'
 import StaffDays from './StaffDays'
 import Summary from './Summary'
+import Billing from './Billing'
 import EmployeeView from './EmployeeView'
 import './employer.css'
 
@@ -607,6 +608,13 @@ export default function EmployerWorkspace() {
         >
           Summary
         </button>
+        <button
+          type="button" role="tab" aria-selected={pane === 'billing'}
+          className={`ew-subtab${pane === 'billing' ? ' active' : ''}`}
+          onClick={() => setPane('billing')}
+        >
+          Billing
+        </button>
       </div>
 
       {/* One crash must not take the whole screen with it. `key={pane}` also
@@ -625,6 +633,12 @@ export default function EmployerWorkspace() {
         {pane === 'days' && <StaffDays employees={employees} />}
 
         {pane === 'summary' && <Summary employees={employees} />}
+
+        {/* Billing is its own tab rather than a corner of Summary: "what do I
+            owe" and "what have I billed" are different jobs, and a document
+            that has been sent must not be editable from the screen that
+            calculates next month's figure. */}
+        {pane === 'billing' && <Billing employees={employees} contractors={contractors} />}
 
         {pane === 'roster' && (
           <Staff

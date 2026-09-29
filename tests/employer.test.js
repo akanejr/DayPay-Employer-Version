@@ -16,8 +16,13 @@ import {
   CORRECTION_CHOICES, CORRECTION_LABELS, CORRECTION_STATUS,
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
+  periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
 } from '../src/lib/employerLogic.js'
 import { payslipModel } from '../src/lib/payslip.js'
+import {
+  invoiceModel, invoiceTitle, invoicePeriodText, invoiceFilename,
+  invoiceLineCaption, invoiceStatusNote,
+} from '../src/lib/invoice.js'
 
 const emp = (id, name) => ({ id, full_name: name, status: 'active' })
 
@@ -1530,5 +1535,208 @@ describe('workerMonthTotals', () => {
     assert.deepEqual(workerMonthTotals([]),
       { worked: 0, overtime: 0, leave: 0, total: 0, equivalents: 0, awaiting: 0, days: 0 })
     assert.equal(workerMonthTotals([null, {}]).days, 2)
+  })
+})
+
+// ── Phase 7 — billing ───────────────────────────────────────────────────────
+
+describe('periodLabel', () => {
+  test('a period inside one month reads as one range', () => {
+    assert.equal(periodLabel('2026-09-01', '2026-09-30'), '1–30 Sep 2026')
+    assert.equal(periodLabel('2026-01-01', '2026-01-31'), '1–31 Jan 2026')
+  })
+
+  test('a period across two months names both, and across a year both years', () => {
+    assert.equal(periodLabel('2026-08-28', '2026-09-27'), '28 Aug – 27 Sep 2026')
+    assert.equal(periodLabel('2026-12-28', '2027-01-27'), '28 Dec 2026 – 27 Jan 2027')
+  })
+
+  test('unusable dates produce nothing rather than "Invalid Date"', () => {
+    assert.equal(periodLabel('', ''), '')
+    assert.equal(periodLabel(null, '2026-09-30'), '')
+    assert.equal(periodLabel('2026-09-01', 'nonsense'), '')
+  })
+})
+
+describe('billingRows', () => {
+  const contractors = [{ id: 'c1', name: 'Eddimore' }, { id: 'c2', name: 'Obot' }]
+  const employees = [
+    { id: 'e1', full_name: 'James', contractor_id: 'c1', status: 'active' },
+    { id: 'e2', full_name: 'Timothy', contractor_id: 'c1', status: 'active' },
+    { id: 'e3', full_name: 'Grace', contractor_id: null, status: 'active' },
+    { id: 'e4', full_name: 'Left Last Week', contractor_id: 'c1', status: 'archived' },
+  ]
+  const day = (employee_id, work_date, amount, multiplier, status = 'claimed', kind = 'work') =>
+    ({ employee_id, work_date, amount, multiplier, status, kind })
+
+  const days = [
+    day('e1', '2026-09-02', 16000, 1),
+    day('e1', '2026-09-03', 32000, 2, 'confirmed', 'weekend'),
+    day('e2', '2026-09-04', 12000, 1),
+    day('e3', '2026-09-05', 10000, 1),
+    day('e4', '2026-09-06', 16000, 1, 'confirmed'),
+    day('e1', '2026-08-31', 16000, 1),   // outside the period
+  ]
+
+  const rows = billingRows(contractors, employees, days, '2026-09-01', '2026-09-30')
+  const byName = n => rows.find(r => r.name === n)
+
+  test('one row per contractor, plus the unassigned, and nothing else', () => {
+    assert.deepEqual(rows.map(r => r.name).sort(), ['Eddimore', 'Obot', 'Unassigned workers'])
+  })
+
+  test('the figures are the same ones the Summary screen would show', () => {
+    const e = byName('Eddimore')
+    assert.equal(e.days, 4)                       // the August day is not in the period
+    assert.equal(e.workerCount, 3)
+    assert.equal(e.equivalents, 5)                // 1 + 2 + 1 + 1
+    assert.equal(e.total, 76000)
+    assert.equal(e.claimed, 2)
+    assert.equal(e.disputed, 0)
+  })
+
+  test('a worker who has left is still paid for the days they worked', () => {
+    const e = byName('Eddimore')
+    assert.ok(e.workers.some(w => w.employee.full_name === 'Left Last Week'),
+      'an archived worker with days in the period must appear on the bill')
+  })
+
+  test('workers with no days in the period are not on the bill', () => {
+    assert.ok(!byName('Obot').hasRecords)
+    assert.equal(byName('Obot').workerCount, 0)
+    assert.equal(byName('Obot').total, 0)
+  })
+
+  test('the unassigned are their own row, with a null id to bill against', () => {
+    const u = byName('Unassigned workers')
+    assert.equal(u.contractorId, null)
+    assert.equal(u.isUnassigned, true)
+    assert.equal(u.total, 10000)
+  })
+
+  test('billable rows come first, biggest first, and the unassigned sit last', () => {
+    assert.deepEqual(rows.map(r => r.name), ['Eddimore', 'Unassigned workers', 'Obot'])
+  })
+
+  test('an empty period is rows of zeroes, not a crash', () => {
+    const none = billingRows(contractors, employees, [], '2026-09-01', '2026-09-30')
+    assert.equal(none.length, 3)
+    assert.ok(none.every(r => r.total === 0 && !r.hasRecords))
+    assert.equal(billingRows(null, null, null, '2026-09-01', '2026-09-30').length, 1)
+  })
+
+  test('days against a contractor no longer on the roster are kept, not dropped', () => {
+    const gone = billingRows(contractors,
+      [{ id: 'e9', full_name: 'Old Hand', contractor_id: 'c-archived', status: 'active' }],
+      [day('e9', '2026-09-08', 9000, 1)], '2026-09-01', '2026-09-30')
+    const orphan = gone.find(r => r.contractorId === 'c-archived')
+    assert.ok(orphan, 'those days must still be billable')
+    assert.equal(orphan.total, 9000)
+  })
+})
+
+describe('isBillable / liveInvoiceFor / invoiceStatusLabel', () => {
+  test('a row with no recorded days cannot be billed', () => {
+    assert.equal(isBillable({ hasRecords: true, days: 3 }), true)
+    assert.equal(isBillable({ hasRecords: false, days: 0 }), false)
+    assert.equal(isBillable({ hasRecords: true, days: 0 }), false)
+    assert.equal(isBillable(null), false)
+  })
+
+  test('a live invoice blocks its own contractor and period only', () => {
+    const invoices = [
+      { id: 'i1', status: 'void', contractor_id: 'c1', period_from: '2026-09-01', period_to: '2026-09-30' },
+      { id: 'i2', status: 'issued', contractor_id: null, period_from: '2026-09-01', period_to: '2026-09-30' },
+    ]
+    // The voided one no longer blocks anything...
+    assert.equal(liveInvoiceFor(invoices, 'c1', '2026-09-01', '2026-09-30'), null)
+    // ...and the unassigned bill is matched by its null id, not by "no id".
+    assert.equal(liveInvoiceFor(invoices, null, '2026-09-01', '2026-09-30').id, 'i2')
+    assert.equal(liveInvoiceFor(invoices, null, '2026-10-01', '2026-10-31'), null)
+  })
+
+  test('status reads as a person would say it', () => {
+    assert.equal(invoiceStatusLabel('issued'), 'Issued')
+    assert.equal(invoiceStatusLabel('void'), 'Voided')
+    assert.equal(invoiceStatusLabel(undefined), 'Issued')
+  })
+})
+
+describe('the invoice document', () => {
+  const invoice = {
+    id: 'i1', number: 'INV-0002', contractor_name: 'Eddimore',
+    period_from: '2026-09-01', period_to: '2026-09-30', status: 'issued',
+    issued_at: '2026-09-30T10:00:00', worker_count: 2, actual_days: 25,
+    leave_days: 0, equivalents: 28, total: 436000,
+    confirmed_days: 1, claimed_days: 23, disputed_days: 1, note: 'September work',
+  }
+  const lines = [
+    { id: 'l1', employee_name: 'Worker One', job_title: 'Mason', days: 22, worked: 22, leave_days: 0, equivalents: 25, amount: 400000, confirmed_days: 0, claimed_days: 22, disputed_days: 0 },
+    { id: 'l2', employee_name: 'Worker Two', job_title: 'Mason', days: 3, worked: 3, leave_days: 0, equivalents: 3, amount: 36000, confirmed_days: 1, claimed_days: 1, disputed_days: 1 },
+  ]
+
+  test('the document reports what was stored, to the naira', () => {
+    const M = invoiceModel(invoice, lines)
+    assert.equal(M.totalText, '₦436,000')
+    assert.equal(M.rows[0].amountText, '₦400,000')
+    assert.equal(M.rows[1].amountText, '₦36,000')
+    assert.deepEqual(M.figures.map(f => f.value), ['2', '25', '28'])
+  })
+
+  test('the lines always add up to the total — a bill that does not is worthless', () => {
+    const M = invoiceModel(invoice, lines)
+    assert.equal(M.rows.reduce((a, r) => a + r.amount, 0), M.total)
+  })
+
+  test('it never re-values a day: no rate is used anywhere', () => {
+    // Same days, half the stored amounts — the document halves with them,
+    // because it prints stored figures rather than multiplying a rate.
+    const halved = lines.map(l => ({ ...l, amount: l.amount / 2 }))
+    const M = invoiceModel({ ...invoice, total: 218000 }, halved)
+    assert.equal(M.rows[0].amountText, '₦200,000')
+    assert.equal(M.totalText, '₦218,000')
+  })
+
+  test('a disputed day is stated on the document, not hidden', () => {
+    const M = invoiceModel(invoice, lines)
+    assert.match(M.statusNote, /1 disputed/)
+    assert.match(M.statusNote, /23 awaiting confirmation/)
+    assert.match(M.statusNote, /All recorded days are included/)
+  })
+
+  test('a settled invoice says so without mentioning disputes', () => {
+    const M = invoiceModel({ ...invoice, claimed_days: 0, disputed_days: 0, confirmed_days: 25 }, lines)
+    assert.equal(M.statusNote, '25 confirmed. All recorded days are included in the total.')
+  })
+
+  test('a voided invoice is marked, and says why and when', () => {
+    const M = invoiceModel({ ...invoice, status: 'void', voided_at: '2026-09-30T11:00:00', void_reason: 'Wrong period.' }, lines)
+    assert.equal(M.isVoid, true)
+    assert.equal(M.statusLabel, 'Voided')
+    assert.equal(M.voidReason, 'Wrong period.')
+    assert.match(M.voidedText, /30 Sep 2026/)
+  })
+
+  test('numbers and captions read the way a person would say them', () => {
+    assert.equal(invoiceTitle(invoice), 'Invoice INV-0002')
+    assert.equal(invoiceTitle({}), 'Invoice')
+    assert.equal(invoicePeriodText(invoice), '1–30 Sep 2026')
+    assert.equal(invoiceLineCaption(lines[0]), '22 days · 25 equivalents')
+    assert.equal(invoiceLineCaption(lines[1]), '3 days · 3 equivalents')
+    assert.equal(invoiceLineCaption({ days: 0, equivalents: 0 }), 'No days')
+    assert.equal(invoiceStatusNote({ claimed_days: 0, disputed_days: 0, confirmed_days: 0 }), '')
+  })
+
+  test('the filename identifies the document without spaces or slashes', () => {
+    assert.equal(invoiceFilename(invoice), 'DayPay-INV-0002-Eddimore-2026-09-01_2026-09-30.pdf')
+    const rough = invoiceFilename({ number: 'INV/0003', contractor_name: 'Obi & Sons / Ltd', period_from: '2026-10-01', period_to: '2026-10-31' })
+    assert.match(rough, /^DayPay-INV-0003-Obi-Sons-Ltd-2026-10-01_2026-10-31\.pdf$/)
+  })
+
+  test('an empty document is still a valid document', () => {
+    const M = invoiceModel({ number: 'INV-0001' }, [])
+    assert.equal(M.totalText, '₦0')
+    assert.deepEqual(M.rows, [])
+    assert.equal(M.rowCount, 0)
   })
 })

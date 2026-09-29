@@ -32,6 +32,7 @@ import {
   CORRECTION_CHOICES, CORRECTION_LABELS, CORRECTION_STATUS,
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
+  periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -50,6 +51,7 @@ export {
   CORRECTION_CHOICES, CORRECTION_LABELS, CORRECTION_STATUS,
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
+  periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -651,6 +653,7 @@ export function resetSchemaProbes() {
   contractorColumnMissing = false
   contractorsMissing = false
   correctionsMissing = false
+  invoicesMissing = false
 }
 
 export async function listContractors({ includeArchived = false } = {}) {
@@ -978,4 +981,124 @@ export async function listEmployeeEvents(employeeId, limit = 40) {
   if (isMissingTable(res.error, 'day_record_events')) return []
   if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
   return res.data || []
+}
+
+// ── Billing: period summary, issuing, voiding ───────────────────────────────
+
+const INVOICE_COLS = 'id, employer_id, contractor_id, contractor_name, number, period_from, period_to, status, note, void_reason, issued_at, voided_at, worker_count, actual_days, leave_days, equivalents, total, confirmed_days, claimed_days, disputed_days'
+
+const INVOICE_LINE_COLS = 'id, invoice_id, employee_id, employee_name, job_title, days, worked, leave_days, equivalents, amount, confirmed_days, claimed_days, disputed_days'
+
+/* Is the invoices table present? Probed once and remembered, so a project that
+   has not run 013 does not pay a failed round trip on every render. */
+let invoicesMissing = false
+
+export function invoicesAvailable() {
+  return !invoicesMissing
+}
+
+export function markInvoicesMissing() {
+  invoicesMissing = true
+}
+
+/* A database without 013 gives three different errors depending on what is
+   asked for — a missing table, a missing function, or nothing at all — so they
+   are funnelled into one sentence that names the file to run. */
+function invoicesNeedUpdate(error) {
+  if (isMissingTable(error, 'invoices')) return true
+  const msg = String(error?.message || error?.details || '')
+  return /issue_invoice|void_invoice/.test(msg) && /does not exist|not find|could not find/i.test(msg)
+}
+
+function invoiceError(error, { emptyMessage = null } = {}) {
+  if (invoicesNeedUpdate(error)) {
+    return new EmployerError('Invoices need a database update.', {
+      hint: 'Run supabase/migrations/013_invoices.sql in the SQL editor.',
+      cause: error,
+    })
+  }
+  const msg = String(error?.message || '')
+  if (/already been billed/i.test(msg)) {
+    return new EmployerError('That period has already been billed.', {
+      hint: 'Void the existing invoice first if it needs reissuing.',
+      cause: error,
+    })
+  }
+  if (/nothing to bill/i.test(msg)) {
+    return new EmployerError('There are no recorded days for that period, so there is nothing to bill.', {
+      hint: 'Record or mark the days first, then bill.',
+      cause: error,
+    })
+  }
+  if (/already been voided/i.test(msg)) {
+    return new EmployerError('That invoice has already been voided.', {
+      hint: 'Refresh to see the current state.',
+      cause: error,
+    })
+  }
+  if (/not yours|not yours to answer/i.test(msg)) {
+    return new EmployerError('That invoice is not yours.', { cause: error })
+  }
+  const d = describe(error)
+  return new EmployerError(emptyMessage && !msg ? emptyMessage : d.message, {
+    code: error?.code, hint: d.hint, cause: error,
+  })
+}
+
+/* Every document for a period, newest first — voided ones included, because a
+   voided invoice is part of the record of what was sent. */
+export async function listInvoices({ from = null, to = null, limit = 100 } = {}) {
+  if (invoicesMissing) return []
+  let q = client().from('invoices').select(INVOICE_COLS)
+    .order('issued_at', { ascending: false })
+    .limit(limit)
+  if (from) q = q.eq('period_from', from)
+  if (to) q = q.eq('period_to', to)
+
+  const res = await q
+  if (isMissingTable(res.error, 'invoices')) {
+    invoicesMissing = true
+    return []
+  }
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data || []
+}
+
+/* The lines of one document, in the order they were written. Read-only: they
+   are frozen, so re-reading them later shows the same thing. */
+export async function listInvoiceLines(invoiceId) {
+  if (!invoiceId) return []
+  const res = await client().from('invoice_lines').select(INVOICE_LINE_COLS)
+    .eq('invoice_id', invoiceId)
+    .order('employee_name', { ascending: true })
+
+  if (isMissingTable(res.error, 'invoice_lines')) {
+    invoicesMissing = true
+    return []
+  }
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data || []
+}
+
+/* Bill a period. The database does every calculation from the stored days —
+   this call sends three identifiers and a note, and no figure of any kind. */
+export async function issueInvoice(contractorId, from, to, note = null) {
+  const { data, error } = await client().rpc('issue_invoice', {
+    p_contractor_id: contractorId || null,
+    p_from: from,
+    p_to: to,
+    p_note: (note || '').trim() || null,
+  })
+  if (error) throw invoiceError(error)
+  return Array.isArray(data) ? data[0] : data
+}
+
+/* The undo. The document stays; only its status changes. */
+export async function voidInvoice(id, reason = null) {
+  const { data, error } = await client().rpc('void_invoice', {
+    p_id: id,
+    p_reason: (reason || '').trim() || null,
+  })
+  if (error) throw invoiceError(error)
+  return Array.isArray(data) ? data[0] : data
 }

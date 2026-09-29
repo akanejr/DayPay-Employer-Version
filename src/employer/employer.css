@@ -1407,3 +1407,209 @@
   .ew-audit-why { grid-column: 1; }
   .ew-mgrid-cell { font-size: 11.5px; border-radius: 7px; }
 }
+
+/* ── Phase 7 — billing ───────────────────────────────────────────────────────
+   Two shapes only: a contractor row you can bill, and the document that comes
+   out of it. The document is deliberately the calmer of the two — it is the
+   thing that gets printed and handed to somebody. */
+
+.ew-bill-row {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 13px;
+}
+
+.ew-bill-row + .ew-bill-row { margin-top: 9px; }
+
+.ew-bill-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.ew-bill-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-bill-amount {
+  flex: 0 0 auto;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--daypay-green);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ew-bill-flags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 9px;
+}
+
+.ew-bill-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 11px;
+}
+
+.ew-bill-note {
+  margin: 0;
+  flex: 1 1 100%;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* ── An issued document ── */
+
+.ew-inv {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 13px;
+}
+
+.ew-inv + .ew-inv { margin-top: 9px; }
+
+/* A voided invoice must never be mistakeable for a live one at a glance. */
+.ew-inv-void {
+  border-style: dashed;
+  background: var(--bg-sunken);
+}
+
+.ew-inv-void .ew-bill-amount {
+  color: var(--text-4);
+  text-decoration: line-through;
+}
+
+.ew-inv-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.ew-inv-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-inv-number {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-inv-void-note {
+  margin: 9px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+.ew-inv-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 11px;
+}
+
+/* On a phone the four columns still fit; anything tighter scrolls rather than
+   squashing the amounts into two lines. */
+.ew-inv-table-wrap {
+  margin-top: 11px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ew-inv-table {
+  width: 100%;
+  min-width: 300px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.ew-inv-table th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-4);
+  padding: 0 6px 5px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ew-inv-table td {
+  padding: 7px 6px 7px 0;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-2);
+  vertical-align: top;
+}
+
+.ew-inv-table th:not(:first-child),
+.ew-inv-table td:not(:first-child) {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-inv-table tfoot td {
+  border-bottom: 0;
+  border-top: 1.5px solid var(--border-strong);
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ew-inv-job {
+  display: block;
+  font-size: 11px;
+  color: var(--text-4);
+  margin-top: 1px;
+}
+
+.ew-inv-money { color: var(--text); font-weight: 600; }
+
+/* ── Voiding ── */
+
+.ew-void-form { padding: 14px; }
+
+.ew-void-label {
+  display: block;
+  margin: 12px 0 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.ew-void-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.ew-void-input:focus {
+  outline: 2px solid var(--daypay-green);
+  outline-offset: 1px;
+}
+
+.ew-void-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+@media (max-width: 420px) {
+  .ew-bill-amount { font-size: 15px; }
+  .ew-inv-number { font-size: 14px; }
+}

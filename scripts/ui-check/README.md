@@ -14,7 +14,8 @@ It mounts the employer and worker screens in a real DOM (jsdom), with the
    which is why this uses a DOM).
 2. **The controls do something** — tapping a day opens that day's detail;
    Agree answers *that* request with those arguments; the correction form
-   sends the day and kind the worker chose and no invented fields.
+   sends the day and kind the worker chose and no invented fields; billing a
+   period sends a contractor and two dates and **no amount of any kind**.
 3. **The pre-existing screens still render** — the workspace's four sub-tabs,
    the day-marking grid, the summary, the roster, the attendance panel and the
    worker's check-in. This is the "do not break what works" rule, executed.
@@ -28,6 +29,11 @@ node node_modules/.daypay-ui-check/entry.js
 ```
 
 Exit code 0 means every check passed; the output names each screen it mounted.
+
+The invoice PDF is stubbed (`mock-invoice-pdf.js`) because jsPDF has no business
+running in node. The stub records what the document was asked to print, which is
+the thing worth checking: that it is handed the **stored** figures, not a fresh
+calculation.
 
 `mock-employer.js` re-exports the real pure helpers rather than restating
 them, so the screens are checked against shipping logic. An earlier version

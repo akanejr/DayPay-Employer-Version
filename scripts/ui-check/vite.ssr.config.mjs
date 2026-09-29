@@ -20,6 +20,8 @@ export default {
     alias: [
       // every component in src/employer imports the data layer by this path
       { find: /^\.\.\/lib\/employer$/, replacement: `${here}mock-employer.js` },
+      // the PDF layer draws with jsPDF; the check records the call instead
+      { find: /^\.\.\/lib\/invoicePdf$/, replacement: `${here}mock-invoice-pdf.js` },
       // the check files themselves live outside src/, so their bare imports
       // need pointing at the repository explicitly
       { find: 'react-dom/client', replacement: `${nm}react-dom/client.js` },

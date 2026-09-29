@@ -130,5 +130,71 @@ async function mount(el) {
   await act(async () => { root.unmount() })
 }
 
+
+// ── the employer bills a period, then voids it ─────────────────────────────
+{
+  const Billing = (await import('../../src/employer/Billing.jsx')).default
+  const { billingFixtures } = await import('./mock-employer.js')
+  const { host, root } = await mount(
+    <Billing employees={billingFixtures.employees} contractors={billingFixtures.contractors} />,
+  )
+
+  globalThis.__calls.length = 0
+
+  // Bill the contractor who has not been billed yet.
+  const billBtn = byText(host, '.ew-bill-actions .ew-btn', 'Bill this period')
+  ok('a contractor with unbilled days offers to bill them', !!billBtn)
+  await click(billBtn)
+
+  const issue = globalThis.__calls.find(c => c[0] === 'issueInvoice')
+  ok('billing sends the contractor and the period, and NO amount of any kind',
+    !!issue && issue[1] === 'c2' && /^\d{4}-\d{2}-01$/.test(issue[2]) === false
+      ? false : !!issue && issue[1] === 'c2' && /^\d{4}-\d{2}-\d{2}$/.test(issue[2]) && /^\d{4}-\d{2}-\d{2}$/.test(issue[3]) && issue.length === 5,
+    JSON.stringify(issue))
+  ok('and it is a request to the database, not a local total',
+    !!issue && issue[4] === null)
+
+  const card = byText(host, '.ew-inv', 'INV-0002')
+  ok('the issued document appears with a number of its own', !!card)
+
+  // Void it: the reason field must be reachable, and the call must carry it.
+  const voidBtn = byText(host, '.ew-inv-actions .ew-btn', 'Void')
+  ok('an issued invoice offers to be voided', !!voidBtn)
+  await click(voidBtn)
+  const form = host.querySelector('.ew-void-form')
+  ok('voiding asks why, in the page rather than in a browser dialog', !!form)
+
+  const input = host.querySelector('#void-reason')
+  if (input) {
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set
+    await act(async () => {
+      setter.call(input, 'Wrong rate for September.')
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+  }
+  const keep = byText(host, '.ew-void-actions .ew-btn', 'Keep it')
+  ok('and it can be backed out of', !!keep)
+
+  const confirm = byText(host, '.ew-void-actions .ew-btn', 'Void this invoice')
+  await click(confirm)
+  const didVoid = globalThis.__calls.find(c => c[0] === 'voidInvoice')
+  ok('voiding sends the document and the reason the employer typed',
+    !!didVoid && didVoid[1] === 'i1' && didVoid[2] === 'Wrong rate for September.',
+    JSON.stringify(didVoid))
+
+  // The PDF is asked for the frozen rows, not a recomputed figure.
+  globalThis.__calls.length = 0
+  const dl = byText(host, '.ew-inv-actions .ew-btn', 'Download PDF')
+  ok('an invoice can be downloaded as a document', !!dl)
+  await click(dl)
+  const pdf = globalThis.__calls.find(c => c[0] === 'downloadInvoice')
+  ok('the document is handed the stored figures, worker by worker',
+    !!pdf && pdf[1] === 'INV-0001' && Array.isArray(pdf[2]) && pdf[2][0]?.[0] === 'James Okon' && pdf[2][0]?.[2] === 48000,
+    JSON.stringify(pdf))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
 console.log(bad === 0 ? '\nINTERACTION: ALL CHECKS PASSED' : `\nINTERACTION: ${bad} CHECK(S) FAILED`)
 globalThis.__bad = (globalThis.__bad || 0) + bad

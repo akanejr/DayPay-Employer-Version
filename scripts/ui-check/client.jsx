@@ -79,6 +79,15 @@ await mount('Contractor worker list',
     employees={[{ ...employee, contractor_id: 'c1' }]} days={[]} onBack={() => {}} />,
   ['James Okon', 'Day by day'])
 
+// the billing pane, loaded: one contractor already billed, one still to bill
+const Billing = (await import('../../src/employer/Billing.jsx')).default
+const { billingFixtures } = await import('./mock-employer.js')
+
+await mount('Billing, loaded period',
+  <Billing employees={billingFixtures.employees} contractors={billingFixtures.contractors} />,
+  ['Not yet billed', 'Ready to bill', 'Contractor B', 'Bill this period',
+    'Already billed for this period', 'INV-0001', '₦42,000'])
+
 /* No process.exit here: the interaction pass runs after this file in the same
    bundle, so failures are accumulated and reported once, at the end. */
 globalThis.__bad = (globalThis.__bad || 0) + bad

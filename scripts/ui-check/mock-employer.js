@@ -47,7 +47,7 @@ const EVENTS = [
 export const listEmployeeMonth = async () => DAYS
 export const listEmployeeCorrections = async () => REQUESTS
 export const listEmployeeEvents = async () => EVENTS
-export const listAllMonth = async () => DAYS
+export const listAllMonth = async () => DAYS.concat(BILLING_DAYS)
 export const listOpenCorrections = async () => REQUESTS.filter(r => r.status === 'open')
 export const myMonth = async () => DAYS
 export const myCorrections = async () => REQUESTS
@@ -123,3 +123,82 @@ export const myRoles = async () => ({
   uid: 'o1', isEmployer: true, kind: 'business', isBusiness: true,
   businessName: 'Eddimore', employee: null,
 })
+
+// ── billing (Phase 7) ──────────────────────────────────────────────────────
+// Two contractors: one already billed for the period, one still to bill. Both
+// states matter — the row that offers a button and the row that explains why it
+// does not.
+
+const BILLING_EMPLOYEES = [
+  { id: 'e2', employer_id: 'o1', full_name: 'Timothy Bassey', job_title: 'Welder',
+    email: null, employee_user_id: null, invite_code: null, status: 'active',
+    contractor_id: 'c2', created_at: '2026-02-01T00:00:00Z' },
+]
+
+const BILLING_DAYS = [
+  { id: 'd9', employee_id: 'e2', work_date: '2026-09-09', kind: 'work', status: 'confirmed',
+    amount: 14000, rate: 14000, multiplier: 1, source: 'employer', note: null },
+  { id: 'd10', employee_id: 'e2', work_date: '2026-09-13', kind: 'weekend', status: 'claimed',
+    amount: 28000, rate: 14000, multiplier: 2, source: 'employer', note: null },
+]
+
+const INVOICES = [
+  { id: 'i1', employer_id: 'o1', contractor_id: 'c1', contractor_name: 'Contractor A',
+    number: 'INV-0001', period_from: '2026-09-01', period_to: '2026-09-30', status: 'issued',
+    note: null, void_reason: null, issued_at: '2026-09-30T18:00:00Z', voided_at: null,
+    worker_count: 1, actual_days: 2, leave_days: 0, equivalents: 3, total: 48000,
+    confirmed_days: 1, claimed_days: 1, disputed_days: 0 },
+]
+
+const INVOICE_LINES = [
+  { id: 'il1', invoice_id: 'i1', employee_id: 'e1', employee_name: 'James Okon',
+    job_title: 'Rigger', days: 2, worked: 2, leave_days: 0, equivalents: 3,
+    amount: 48000, confirmed_days: 1, claimed_days: 1, disputed_days: 0 },
+]
+
+export const billingFixtures = {
+  contractors: [
+    { id: 'c1', name: 'Contractor A', status: 'active', note: null },
+    { id: 'c2', name: 'Contractor B', status: 'active', note: null },
+  ],
+  employees: [
+    { id: 'e1', employer_id: 'o1', full_name: 'James Okon', job_title: 'Rigger',
+      email: null, employee_user_id: null, invite_code: null, status: 'active',
+      contractor_id: 'c1', created_at: '2026-01-01T00:00:00Z' },
+    ...BILLING_EMPLOYEES,
+  ],
+  days: BILLING_DAYS,
+}
+
+export const invoicesAvailable = () => true
+export const listInvoices = async () => INVOICES.slice()
+export const listInvoiceLines = async (id) => INVOICE_LINES.filter(l => l.invoice_id === id)
+
+/* The real one sends three identifiers and a note — never a figure. The check
+   asserts exactly that. */
+export const issueInvoice = async (contractorId, from, to, note) => {
+  globalThis.__calls.push(['issueInvoice', contractorId, from, to, note])
+  const row = {
+    id: `i${INVOICES.length + 1}`, employer_id: 'o1', contractor_id: contractorId,
+    contractor_name: contractorId === 'c2' ? 'Contractor B' : 'Unassigned workers',
+    number: `INV-000${INVOICES.length + 1}`, period_from: from, period_to: to,
+    status: 'issued', note, void_reason: null, issued_at: '2026-09-30T19:00:00Z',
+    voided_at: null, worker_count: 1, actual_days: 2, leave_days: 0, equivalents: 3,
+    total: 42000, confirmed_days: 1, claimed_days: 1, disputed_days: 0,
+  }
+  INVOICES.push(row)
+  INVOICE_LINES.push({
+    id: `il${INVOICE_LINES.length + 1}`, invoice_id: row.id, employee_id: 'e2',
+    employee_name: 'Timothy Bassey', job_title: 'Welder', days: 2, worked: 2,
+    leave_days: 0, equivalents: 3, amount: 42000, confirmed_days: 1, claimed_days: 1,
+    disputed_days: 0,
+  })
+  return row
+}
+
+export const voidInvoice = async (id, reason) => {
+  globalThis.__calls.push(['voidInvoice', id, reason])
+  const row = INVOICES.find(i => i.id === id)
+  if (row) { row.status = 'void'; row.void_reason = reason; row.voided_at = '2026-09-30T20:00:00Z' }
+  return row || {}
+}
