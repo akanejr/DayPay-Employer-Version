@@ -1,8 +1,20 @@
 -- ============================================================================
--- DayPay Employer Version — RLS verification harness (v5)
+-- DayPay Employer Version — RLS verification harness (v6)
 -- ============================================================================
 -- Proves an employee cannot read another employee's wages.
 -- Seeds test data, runs the checks, then ROLLS BACK. Safe to re-run.
+--
+-- NEW IN v6
+--   * overlapping sessions (Phase 4 bug): the database allows a site-wide
+--     session AND a per-contractor session on the same day. A worker in that
+--     contractor is covered by both, and check_in_with_code used to pick one
+--     with `order by work_date desc limit 1` — a tie with no tiebreaker, so
+--     PostgreSQL chose arbitrarily. The employer's screen is deterministic, so
+--     the code they read out could be compared against the other session and
+--     reported as WRONG despite being live and valid for that worker.
+--     v6 seeds both and asserts BOTH codes are accepted. The previous harness
+--     could not have caught this: it only ever created one session covering
+--     the linked worker.
 --
 -- NEW IN v5
 --   * attendance sessions (Phase 4): the daily code is invisible to the worker
@@ -197,6 +209,15 @@ select '66666666-6666-4666-8666-666666666666', employer_uid,
        current_date, '1357', now() + interval '8 hours'
 from _ids;
 
+-- A SITE-WIDE session open at the same time, with a different code. This is
+-- the overlap that produced the bug: a worker in contractor A is covered by
+-- both this and their contractor's session, so either code must work.
+insert into public.attendance_sessions
+  (id, employer_id, contractor_id, work_date, code, expires_at)
+select '88888888-8888-4888-8888-888888888888', employer_uid,
+       null, current_date, '8642', now() + interval '8 hours'
+from _ids;
+
 -- A session that ended yesterday. Its code must be dead.
 insert into public.attendance_sessions
   (id, employer_id, contractor_id, work_date, code, expires_at)
@@ -259,8 +280,8 @@ select public._harness_record(
 
 select public._harness_record(
   6, 'SESSIONS', 'employer sees their own attendance sessions',
-  '3', (select count(*)::text from public.attendance_sessions),
-  (select count(*) from public.attendance_sessions) = 3);
+  '4', (select count(*)::text from public.attendance_sessions),
+  (select count(*) from public.attendance_sessions) = 4);
 
 reset role;
 
@@ -521,8 +542,60 @@ exception when others then
     26, 'SESSIONS', 'the correct code records the day', 'work', 'ERROR: ' || sqlerrm, false);
 end $$;
 
+-- ── The overlap bug ───────────────────────────────────────────────────────
+-- Two live sessions cover this worker: their contractor's ('7429') and the
+-- site-wide one ('8642'). Both codes are legitimately open to them, so BOTH
+-- must be accepted. Before the fix, whichever session the planner returned
+-- first was compared against, so one of these two codes was reported wrong.
 select public._harness_record(
-  27, 'SESSIONS', 'the recorded day is marked as a check-in',
+  27, 'SESSIONS', 'two live sessions cover this worker (the overlap is real)',
+  '2', (select count(*)::text from public.attendance_sessions
+          where status = 'open' and now() < expires_at
+            and work_date = current_date
+            and (contractor_id is null
+                 or contractor_id = '33333333-3333-4333-8333-333333333333')),
+  (select count(*) from public.attendance_sessions
+     where status = 'open' and now() < expires_at
+       and work_date = current_date
+       and (contractor_id is null
+            or contractor_id = '33333333-3333-4333-8333-333333333333')) = 2);
+
+-- The site-wide code. The day already exists, so success means `already`.
+do $$
+declare r record; n int;
+begin
+  select * into r from public.check_in_with_code('8642');
+  select count(*) into n from public.day_records
+   where employee_id = '11111111-1111-4111-8111-111111111111' and work_date = current_date;
+  perform public._harness_record(
+    28, 'SESSIONS', 'the OTHER live code covering the worker is accepted, not refused',
+    'accepted (already=true), 1 day',
+    'accepted=' || coalesce(r.already::text,'?') || ', ' || n || ' day(s)',
+    r.already is true and n = 1);
+exception when others then
+  perform public._harness_record(
+    28, 'SESSIONS', 'the OTHER live code covering the worker is accepted, not refused',
+    'accepted (already=true), 1 day', 'REFUSED: ' || sqlerrm, false);
+end $$;
+
+-- And the employer's deterministic view must name the worker's OWN contractor,
+-- not the site-wide row that happens to sort first.
+do $$
+declare r record;
+begin
+  select * into r from public.my_attendance_status();
+  perform public._harness_record(
+    29, 'SESSIONS', 'my_attendance_status prefers the worker''s own contractor',
+    'Harness Contractor A', coalesce(r.contractor_name,'(null)'),
+    r.is_open is true and r.contractor_name = 'Harness Contractor A');
+exception when others then
+  perform public._harness_record(
+    29, 'SESSIONS', 'my_attendance_status prefers the worker''s own contractor',
+    'Harness Contractor A', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+select public._harness_record(
+  30, 'SESSIONS', 'the recorded day is marked as a check-in',
   '1', (select count(*)::text from public.day_records
           where employee_id = '11111111-1111-4111-8111-111111111111'
             and work_date = current_date
@@ -539,7 +612,7 @@ declare r record;
 begin
   select * into r from public.check_in_with_code('7429');
   perform public._harness_record(
-    28, 'SESSIONS', 'checking in twice does not double the day',
+    31, 'SESSIONS', 'checking in twice does not double the day',
     '1 day, already=true',
     (select count(*)::text from public.day_records
       where employee_id = '11111111-1111-4111-8111-111111111111'
@@ -550,7 +623,7 @@ begin
             and work_date = current_date) = 1);
 exception when others then
   perform public._harness_record(
-    28, 'SESSIONS', 'checking in twice does not double the day',
+    31, 'SESSIONS', 'checking in twice does not double the day',
     '1 day, already=true', 'ERROR: ' || sqlerrm, false);
 end $$;
 
@@ -564,11 +637,11 @@ begin
   insert into public.day_records (employee_id, work_date, kind)
   values ('11111111-1111-4111-8111-111111111111', current_date + 3, 'work');
   perform public._harness_record(
-    29, 'SESSIONS', 'worker CANNOT insert a day with no session open',
+    32, 'SESSIONS', 'worker CANNOT insert a day with no session open',
     'refused', 'ACCEPTED — a day was created with no session', false);
 exception when others then
   perform public._harness_record(
-    29, 'SESSIONS', 'worker CANNOT insert a day with no session open', 'refused', sqlerrm, true);
+    32, 'SESSIONS', 'worker CANNOT insert a day with no session open', 'refused', sqlerrm, true);
 end $$;
 
 -- ── The other hole: self-promotion to double pay ──────────────────────────
@@ -595,7 +668,7 @@ begin
    where employee_id = '11111111-1111-4111-8111-111111111111' and work_date = current_date;
 
   perform public._harness_record(
-    30, 'SESSIONS', 'worker CANNOT reclassify their own day to overtime',
+    33, 'SESSIONS', 'worker CANNOT reclassify their own day to overtime',
     'kind=' || coalesce(before_kind,'?') || ' amount=' || coalesce(before_amt::text,'?'),
     'kind=' || coalesce(after_kind,'?') || ' amount=' || coalesce(after_amt::text,'?'),
     after_kind = before_kind and after_amt = before_amt);
@@ -611,17 +684,17 @@ set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
 
 select public._harness_record(
-  31, 'ANON', 'signed-out visitor sees zero employees',
+  34, 'ANON', 'signed-out visitor sees zero employees',
   '0', (select count(*)::text from public.employees),
   (select count(*) from public.employees) = 0);
 
 select public._harness_record(
-  32, 'ANON', 'signed-out visitor sees zero day records',
+  35, 'ANON', 'signed-out visitor sees zero day records',
   '0', (select count(*)::text from public.day_records),
   (select count(*) from public.day_records) = 0);
 
 select public._harness_record(
-  33, 'ANON', 'signed-out visitor sees zero attendance sessions',
+  36, 'ANON', 'signed-out visitor sees zero attendance sessions',
   '0', (select count(*)::text from public.attendance_sessions),
   (select count(*) from public.attendance_sessions) = 0);
 
