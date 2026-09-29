@@ -435,42 +435,77 @@ exception when others then
     'open for Harness Contractor A', 'ERROR: ' || sqlerrm, false);
 end $$;
 
--- Yesterday's code. The session that issued it has expired, so the number must
--- be worthless even though "0000" is a perfectly well-formed code.
+-- ── Three wrong codes, and the question of whether they differ ────────────
+-- These are run together, capturing the message from each, because the point
+-- is not only that each is refused — it is that the refusals are
+-- INDISTINGUISHABLE. A worker must not be able to tell a code belonging to
+-- nobody from a code belonging to the contractor next door: the second answer
+-- would confirm the number was real and hand over a name, which turns the
+-- check-in endpoint into a validation oracle.
+--
+-- All three calls happen inside one block so the attempt budget is spent once
+-- (three of five), leaving room for the correct-code check that follows.
 do $$
+declare
+  msg_stale text;   -- a well-formed code whose session ended yesterday
+  msg_other text;   -- a LIVE code belonging to a different contractor
+  msg_junk  text;   -- a code that is nobody's
+  shot      text;
 begin
-  perform public.check_in_with_code('0000');
+  begin perform public.check_in_with_code('0000');
+  exception when others then msg_stale := sqlerrm; end;
+
+  begin perform public.check_in_with_code('1357');
+  exception when others then msg_other := sqlerrm; end;
+
+  begin perform public.check_in_with_code('9999');
+  exception when others then msg_junk := sqlerrm; end;
+
   perform public._harness_record(
     21, 'SESSIONS', 'yesterday''s code is refused',
-    'refused', 'ACCEPTED — a stale code recorded a day', false);
-exception when others then
-  perform public._harness_record(
-    21, 'SESSIONS', 'yesterday''s code is refused', 'refused', sqlerrm, true);
-end $$;
+    'refused', coalesce(msg_stale, 'ACCEPTED — a stale code recorded a day'),
+    msg_stale is not null);
 
--- A code belonging to a different contractor, open at the same time.
-do $$
-begin
-  perform public.check_in_with_code('1357');
   perform public._harness_record(
     22, 'SESSIONS', 'another contractor''s code is refused',
-    'refused', 'ACCEPTED — the code worked for the wrong contractor', false);
-exception when others then
-  perform public._harness_record(
-    22, 'SESSIONS', 'another contractor''s code is refused', 'refused', sqlerrm, true);
-end $$;
+    'refused', coalesce(msg_other, 'ACCEPTED — the code worked for the wrong contractor'),
+    msg_other is not null);
 
--- A code that is not today's and belongs to nobody.
-do $$
-begin
-  perform public.check_in_with_code('9999');
   perform public._harness_record(
     23, 'SESSIONS', 'a code that is nobody''s is refused',
-    'refused', 'ACCEPTED — a guessed code worked', false);
-exception when others then
+    'refused', coalesce(msg_junk, 'ACCEPTED — a guessed code worked'),
+    msg_junk is not null);
+
+  /* The check that actually tests the leak. If a wrong-but-real code and a
+     wrong-and-fake code produce the same sentence, there is nothing to learn
+     from probing. If they differ at all, the oracle is back. */
+  select case
+           when msg_stale is null or msg_other is null or msg_junk is null
+             then 'one or more calls were ACCEPTED'
+           when msg_stale = msg_other and msg_other = msg_junk
+             then 'identical: "' || msg_stale || '"'
+           else 'DIFFERENT — "'
+                || concat_ws('" / "', msg_stale, msg_other, msg_junk) || '"'
+         end
+    into shot;
+
   perform public._harness_record(
-    23, 'SESSIONS', 'a code that is nobody''s is refused', 'refused', sqlerrm, true);
+    24, 'SESSIONS', 'a real code for another contractor reads EXACTLY like a fake one',
+    'identical messages for all three',
+    shot,
+    msg_stale is not null and msg_stale = msg_other and msg_other = msg_junk);
+
+  /* Belt and braces: no contractor's name may appear in the refusal, whatever
+     the text happens to say. */
+  perform public._harness_record(
+    25, 'SESSIONS', 'the refusal never names another contractor',
+    'no contractor name in the message',
+    coalesce(msg_other, '(none)'),
+    msg_other is not null
+      and position('Harness Contractor A' in msg_other) = 0
+      and position('Harness Contractor B' in msg_other) = 0);
 end $$;
+
 
 -- The real code, which must work.
 do $$
@@ -478,16 +513,16 @@ declare r record;
 begin
   select * into r from public.check_in_with_code('7429');
   perform public._harness_record(
-    24, 'SESSIONS', 'the correct code records the day',
+    26, 'SESSIONS', 'the correct code records the day',
     'work', coalesce(r.kind,'(none)'),
     r.kind = 'work' and r.work_date = current_date);
 exception when others then
   perform public._harness_record(
-    24, 'SESSIONS', 'the correct code records the day', 'work', 'ERROR: ' || sqlerrm, false);
+    26, 'SESSIONS', 'the correct code records the day', 'work', 'ERROR: ' || sqlerrm, false);
 end $$;
 
 select public._harness_record(
-  25, 'SESSIONS', 'the recorded day is marked as a check-in',
+  27, 'SESSIONS', 'the recorded day is marked as a check-in',
   '1', (select count(*)::text from public.day_records
           where employee_id = '11111111-1111-4111-8111-111111111111'
             and work_date = current_date
@@ -504,7 +539,7 @@ declare r record;
 begin
   select * into r from public.check_in_with_code('7429');
   perform public._harness_record(
-    26, 'SESSIONS', 'checking in twice does not double the day',
+    28, 'SESSIONS', 'checking in twice does not double the day',
     '1 day, already=true',
     (select count(*)::text from public.day_records
       where employee_id = '11111111-1111-4111-8111-111111111111'
@@ -515,7 +550,7 @@ begin
             and work_date = current_date) = 1);
 exception when others then
   perform public._harness_record(
-    26, 'SESSIONS', 'checking in twice does not double the day',
+    28, 'SESSIONS', 'checking in twice does not double the day',
     '1 day, already=true', 'ERROR: ' || sqlerrm, false);
 end $$;
 
@@ -529,11 +564,11 @@ begin
   insert into public.day_records (employee_id, work_date, kind)
   values ('11111111-1111-4111-8111-111111111111', current_date + 3, 'work');
   perform public._harness_record(
-    27, 'SESSIONS', 'worker CANNOT insert a day with no session open',
+    29, 'SESSIONS', 'worker CANNOT insert a day with no session open',
     'refused', 'ACCEPTED — a day was created with no session', false);
 exception when others then
   perform public._harness_record(
-    27, 'SESSIONS', 'worker CANNOT insert a day with no session open', 'refused', sqlerrm, true);
+    29, 'SESSIONS', 'worker CANNOT insert a day with no session open', 'refused', sqlerrm, true);
 end $$;
 
 -- ── The other hole: self-promotion to double pay ──────────────────────────
@@ -560,7 +595,7 @@ begin
    where employee_id = '11111111-1111-4111-8111-111111111111' and work_date = current_date;
 
   perform public._harness_record(
-    28, 'SESSIONS', 'worker CANNOT reclassify their own day to overtime',
+    30, 'SESSIONS', 'worker CANNOT reclassify their own day to overtime',
     'kind=' || coalesce(before_kind,'?') || ' amount=' || coalesce(before_amt::text,'?'),
     'kind=' || coalesce(after_kind,'?') || ' amount=' || coalesce(after_amt::text,'?'),
     after_kind = before_kind and after_amt = before_amt);
@@ -576,17 +611,17 @@ set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
 
 select public._harness_record(
-  29, 'ANON', 'signed-out visitor sees zero employees',
+  31, 'ANON', 'signed-out visitor sees zero employees',
   '0', (select count(*)::text from public.employees),
   (select count(*) from public.employees) = 0);
 
 select public._harness_record(
-  30, 'ANON', 'signed-out visitor sees zero day records',
+  32, 'ANON', 'signed-out visitor sees zero day records',
   '0', (select count(*)::text from public.day_records),
   (select count(*) from public.day_records) = 0);
 
 select public._harness_record(
-  31, 'ANON', 'signed-out visitor sees zero attendance sessions',
+  33, 'ANON', 'signed-out visitor sees zero attendance sessions',
   '0', (select count(*)::text from public.attendance_sessions),
   (select count(*) from public.attendance_sessions) = 0);
 

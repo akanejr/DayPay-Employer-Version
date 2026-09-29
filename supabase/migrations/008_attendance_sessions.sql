@@ -426,7 +426,6 @@ declare
   v_emp      public.employees%rowtype;
   v_session  public.attendance_sessions%rowtype;
   v_ended    int;
-  v_other    text;
   v_fails    int;
   v_kind     text;
   v_row      public.day_records%rowtype;
@@ -467,7 +466,8 @@ begin
 
   if not found then
     -- Distinguish "finished" from "not started", because one means wait and
-    -- the other means ask.
+    -- the other means go and ask. Both are facts about the worker's own
+    -- workplace, so neither discloses anything about another contractor.
     select count(*) into v_ended
       from public.attendance_sessions s
      where s.employer_id = v_emp.employer_id
@@ -493,7 +493,7 @@ begin
      and a.attempted_at > now() - interval '15 minutes';
 
   if v_fails >= 5 then
-    raise exception 'Too many wrong codes. Ask your employer to read out the code, then try again in a few minutes.'
+    raise exception 'Too many wrong codes. Check the code with your contractor, then try again in a few minutes.'
       using errcode = '53400';
   end if;
 
@@ -501,22 +501,11 @@ begin
     insert into public.check_in_attempts (session_id, user_id)
     values (v_session.id, uid);
 
-    select c.name into v_other
-      from public.attendance_sessions s
-      join public.contractors c on c.id = s.contractor_id
-     where s.employer_id = v_emp.employer_id
-       and s.id <> v_session.id
-       and s.status = 'open'
-       and now() < s.expires_at
-       and s.code = v_code
-     limit 1;
-
-    if v_other is not null then
-      raise exception 'That code is for %, not your contractor.', v_other
-        using errcode = 'invalid_parameter_value';
-    end if;
-
-    raise exception 'That code is not the one for today. Check it and try again.'
+    /* ONE message for every wrong code, with no lookup to work out what the
+       code might have been. Naming the owner would confirm the number was a
+       real, live code and hand over a contractor's name — turning check-in
+       into a validation oracle. Hardened in migration 009. */
+    raise exception 'That code is not correct. Check with your contractor for today''s code.'
       using errcode = 'invalid_parameter_value';
   end if;
 
