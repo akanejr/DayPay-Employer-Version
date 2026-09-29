@@ -521,7 +521,18 @@ begin
     (employee_id, work_date, kind, status, source, session_id, checked_in_at)
   values
     (v_emp.id, v_session.work_date, v_kind, 'claimed', 'check_in', v_session.id, now())
-  on conflict (employee_id, work_date) do nothing
+  /* NOT `on conflict (employee_id, work_date)`.
+     This function returns table (employee_id ... work_date ...) — those names
+     are the JSON keys the worker's screen reads, so they cannot be renamed.
+     PL/pgSQL parses the inference clause as an expression, so a bare column
+     name there is a name that could be either a variable or a column, and the
+     statement is refused outright:
+         column reference "employee_id" is ambiguous   (SQLSTATE 42702)
+     Every check-in that matched a code died on this line, before writing
+     anything. Naming the constraint removes the ambiguity at its source
+     instead of depending on which side the parser happens to prefer.
+     Fixed in migration 011. */
+  on conflict on constraint day_records_employee_id_work_date_key do nothing
   returning * into v_row;
 
   if v_row.id is null then

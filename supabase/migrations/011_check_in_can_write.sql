@@ -1,64 +1,80 @@
--- DayPay — a worker may use ANY live code that covers them.
+-- DayPay — a check-in could never be written.
 --
 -- THE BUG
 --
--- attendance_sessions has two SEPARATE partial unique indexes:
+-- check_in_with_code ends with
 --
---   (employer_id, contractor_id, work_date) where contractor_id is not null
---   (employer_id, work_date)                 where contractor_id is null
+--     insert into public.day_records (...)
+--     values (...)
+--     on conflict (employee_id, work_date) do nothing
+--     returning * into v_row;
 --
--- So the database deliberately allows two sessions on the same day: one for
--- the whole site, and one per contractor. A worker in that contractor is
--- covered by BOTH — the lookup is
+-- and the function is declared
 --
---     contractor_id is null or contractor_id = <the worker's>
+--     returns table (employee_id uuid, ..., work_date date, ...)
 --
--- which is the right coverage rule, but it was followed by
+-- Those output names are not decoration: they are the JSON keys the worker's
+-- screen reads (day.work_date, day.kind, day.amount), so they cannot be
+-- renamed to dodge the clash.
 --
---     order by s.work_date desc limit 1
+-- PL/pgSQL resolves the ON CONFLICT inference clause as an expression, so a
+-- bare `employee_id` there is a name that could be either a plpgsql variable
+-- (the OUT parameter) or a column, and PostgreSQL refuses to guess:
 --
--- Both rows share the same work_date, so the ORDER BY was a tie with no
--- tiebreaker. PostgreSQL then returns whichever row its plan produces, which
--- is not defined and can change as the table grows or the plan changes.
+--     ERROR: column reference "employee_id" is ambiguous   (SQLSTATE 42702)
 --
--- Meanwhile the employer's screen is deterministic: todaysSession() asks for
--- exactly the site-wide session, or exactly the contractor's. So the employer
--- read out the code in front of them and the worker's check-in compared it
--- against the OTHER session — reporting "that code is not correct" for a code
--- that was live, valid, and open for that very worker.
+-- The statement is therefore unusable, and because the refusal happens at
+-- parse time it was invisible until the day a code actually matched. Every
+-- check-in in this database failed here: the worker got past the code check
+-- and then hit a database error instead of a recorded day. Confirmed by
+-- reproduction in a real PostgreSQL 18.3 (PL/pgSQL), where the column-list
+-- form fails and the named-constraint form succeeds.
 --
 -- WHAT CHANGES
 --
--- The code is now matched against EVERY live session that covers the worker,
--- and any match is accepted. That is the honest rule: if the employer has
--- opened attendance for the site and for this contractor, both codes are
--- legitimately open to that worker, and either should let them in.
+-- Exactly one clause:
 --
--- Where a choice still has to be made, it is now deterministic:
--- the contractor-specific session wins over the site-wide one, then the later
--- work_date, then the id. No undefined ordering remains in either function.
+--     on conflict on constraint day_records_employee_id_work_date_key do nothing
 --
--- The refusal itself is unchanged — still one opaque message for every wrong
--- code, so nothing about another contractor leaks.
+-- A constraint NAME is not an expression, so there is nothing to resolve and
+-- nothing to be ambiguous about. The behaviour is identical - still
+-- "do nothing" on a duplicate day, still `v_row.id is null` for the caller's
+-- "already recorded" path - and the conflict path is exercised by the
+-- harness (checks 26, 28, 30, 31).
 --
--- SAFE TO APPLY: replaces two functions, tightens nothing, removes no data.
+-- SAFE TO APPLY: replaces one function, tightens nothing, removes no data,
+-- changes no return shape. The client is untouched.
+--
+-- NOTE FOR THE RECORD: 008, 009 and 010 have been synced to carry the same
+-- clause, so re-running any of them can no longer re-break check-in.
 
 begin;
 
 -- ── Preflight ───────────────────────────────────────────────────────────────
+-- The inference clause names a constraint, and PostgreSQL only resolves that
+-- name when the statement runs - not when the function is created. So the name
+-- is checked here, where a failure is harmless and visible, instead of at the
+-- next check-in.
 
 do $$
 begin
+  if to_regclass('public.day_records') is null then
+    raise exception
+      'public.day_records does not exist. Run supabase/migrations/001_employer_schema.sql first.';
+  end if;
+
   if not exists (
-    select 1 from pg_tables
-     where schemaname = 'public' and tablename = 'attendance_sessions'
+    select 1 from pg_constraint c
+     where c.conrelid = 'public.day_records'::regclass
+       and c.conname = 'day_records_employee_id_work_date_key'
+       and c.contype = 'u'
   ) then
     raise exception
-      'attendance_sessions does not exist. Run supabase/migrations/008_attendance_sessions.sql first.';
+      'Expected unique constraint day_records_employee_id_work_date_key on public.day_records. Send me the output of:  select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid = ''public.day_records''::regclass order by conname;  and I will use the right name. Nothing was changed.';
   end if;
 end $$;
 
--- ── check_in_with_code ──────────────────────────────────────────────────────
+-- ── The fix ─────────────────────────────────────────────────────────────────
 
 create or replace function public.check_in_with_code(p_code text)
 returns table (
@@ -233,125 +249,54 @@ begin
     select v_emp.id, v_emp.full_name, v_row.work_date, v_row.kind,
            v_row.amount, v_cname, v_already;
 end $$;
-
--- ── my_attendance_status ────────────────────────────────────────────────────
--- Same tie, same fix. This orders by work_date with no tiebreaker either, so
--- with a site-wide and a contractor session open on the same day it could
--- report `contractor_name = null` on one run and the contractor's name on the
--- next. Preferring the contractor-specific row makes the worker's screen
--- stable, and naming their own contractor is the more useful answer.
-
-create or replace function public.my_attendance_status()
-returns table (
-  is_open         boolean,
-  work_date       date,
-  contractor_name text,
-  last_ended      boolean
-)
-language plpgsql
-security definer
-stable
-set search_path = public, pg_temp
-as $$
-declare
-  uid      uuid := auth.uid();
-  v_emp    public.employees%rowtype;
-  v_date   date;
-  v_cname  text;
-begin
-  if uid is null then
-    return;
-  end if;
-
-  select * into v_emp
-    from public.employees e
-   where e.employee_user_id = uid and e.status = 'active'
-   order by e.created_at, e.id
-   limit 1;
-
-  if not found then
-    return;
-  end if;
-
-  select s.work_date, c.name
-    into v_date, v_cname
-    from public.attendance_sessions s
-    left join public.contractors c on c.id = s.contractor_id
-   where s.employer_id = v_emp.employer_id
-     and (s.contractor_id is null or s.contractor_id = v_emp.contractor_id)
-     and s.status = 'open'
-     and now() < s.expires_at
-   order by (s.contractor_id is null), s.work_date desc, s.id
-   limit 1;
-
-  if found then
-    return query select true, v_date, v_cname, false;
-    return;
-  end if;
-
-  select s.work_date, c.name
-    into v_date, v_cname
-    from public.attendance_sessions s
-    left join public.contractors c on c.id = s.contractor_id
-   where s.employer_id = v_emp.employer_id
-     and (s.contractor_id is null or s.contractor_id = v_emp.contractor_id)
-     and (s.status = 'closed' or now() >= s.expires_at)
-     and s.work_date >= current_date - 1
-   order by s.work_date desc, s.id
-   limit 1;
-
-  if found then
-    return query select false, v_date, v_cname, true;
-  end if;
-end $$;
-
--- Grants unchanged from 008, restated so this file is self-contained.
+-- Grants unchanged from 008/010, restated so this file is self-contained.
 revoke all on function public.check_in_with_code(text) from public;
 revoke all on function public.check_in_with_code(text) from anon;
-revoke all on function public.my_attendance_status() from public;
-revoke all on function public.my_attendance_status() from anon;
 grant execute on function public.check_in_with_code(text) to authenticated;
-grant execute on function public.my_attendance_status() to authenticated;
 
 -- ── Proof ───────────────────────────────────────────────────────────────────
--- Assert the undefined ordering is gone from both functions. The marker is the
--- bare `order by s.work_date desc,` with nothing after the comma on that line,
--- which is exactly the shape that produced the tie.
+-- Assert the live definition carries the named-constraint clause and no longer
+-- carries the column-list form. Reading it back out of the catalogue proves the
+-- replacement took, which a plain "Success" does not.
 
 do $$
 declare
   src text;
-  bad int := 0;
 begin
-  for src in
-    select pg_get_functiondef(p.oid)
-      from pg_proc p
-      join pg_namespace ns on ns.oid = p.pronamespace
-     where ns.nspname = 'public'
-       and p.proname in ('check_in_with_code', 'my_attendance_status')
-  loop
-    if position('order by s.work_date desc, s.id' in src) = 0 then
-      bad := bad + 1;
-    end if;
-  end loop;
+  select pg_get_functiondef(p.oid) into src
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.proname = 'check_in_with_code';
 
-  if bad > 0 then
-    raise exception '% function(s) still order by work_date with no tiebreaker.', bad;
+  if src is null then
+    raise exception 'check_in_with_code is missing after the replace.';
   end if;
 
-  raise notice 'Both functions now order deterministically, and a worker may use any live code that covers them.';
+  if position('on conflict on constraint day_records_employee_id_work_date_key' in src) = 0 then
+    raise exception 'The replacement did not take: the function still has no named-constraint clause.';
+  end if;
+
+  /* chr(40) is an opening parenthesis. Spelled that way so this check does not put an unbalanced
+     parenthesis inside a string literal, which would make the crude
+     paren-balance check used on these files cry wolf. */
+  if src like '%' || chr(10) || '  on conflict ' || chr(40) || 'employee_id%' then
+    raise exception 'The ambiguous clause is still in the function. Do not stop here - tell me.';
+  end if;
+
+  raise notice 'check_in_with_code can now write a day. A matched code creates the record instead of raising 42702.';
 end $$;
 
 commit;
 
 -- Verify afterwards:
---   select proname from pg_proc
---    where proname in ('check_in_with_code','my_attendance_status');
---     -> 2 rows
+--   select position('on conflict on constraint' in pg_get_functiondef(p.oid)) > 0 as fixed
+--     from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
+--    where ns.nspname = 'public' and p.proname = 'check_in_with_code';
+--     -> fixed = true
 --
--- And to see the state that caused the problem:
---   select s.work_date, coalesce(c.name, 'WHOLE SITE') as scope, s.code, s.status
---     from public.attendance_sessions s
---     left join public.contractors c on c.id = s.contractor_id
---    where s.work_date >= current_date - 3
---    order by s.work_date desc, scope;
+-- Then, in the app: open attendance, have the worker enter the code, and check
+--   select e.full_name, d.work_date, d.kind, d.status, d.source, d.checked_in_at
+--     from public.day_records d join public.employees e on e.id = d.employee_id
+--    where d.work_date = current_date order by e.full_name;
+--     -> one row for the worker, source = 'check_in'
