@@ -1,8 +1,17 @@
 -- ============================================================================
--- DayPay Employer Version — RLS verification harness (v6)
+-- DayPay Employer Version — RLS verification harness (v7)
 -- ============================================================================
 -- Proves an employee cannot read another employee's wages.
 -- Seeds test data, runs the checks, then ROLLS BACK. Safe to re-run.
+--
+-- NEW IN v7
+--   * installed-migration state (checks 37-39). Reads the live function bodies
+--     out of the catalogue and reports whether 010 (deterministic ordering) and
+--     011 (the ON CONFLICT clause a check-in needs to be able to write at all)
+--     are actually installed. Without these, a project can pass every RLS check
+--     while being unable to record a single check-in. They also catch the
+--     reverse mistake: re-running 008 or 009 restores the old bodies and undoes
+--     both fixes.
 --
 -- NEW IN v6
 --   * overlapping sessions (Phase 4 bug): the database allows a site-wide
@@ -699,6 +708,61 @@ select public._harness_record(
   (select count(*) from public.attendance_sessions) = 0);
 
 reset role;
+
+
+-- ============================================================================
+-- PHASE 4 — WHICH MIGRATIONS ARE ACTUALLY INSTALLED
+-- ============================================================================
+-- Static assertions against the installed function bodies, run as the owner
+-- after the role switches above. A green RLS report on a project that cannot
+-- write a check-in is exactly the trap these three close.
+--
+-- If 37 fails, check-in cannot record anything — apply 011.
+-- If 38 or 39 fails, a live, valid code can still be refused when a site-wide
+-- and a contractor session are open on the same day — apply 010. If both fail,
+-- apply 010 then 011.
+
+select public._harness_record(
+  37, 'MIGRATIONS', 'check_in_with_code can write a day (011 clause installed)',
+  'installed', d.state, d.state = 'installed')
+from (
+  select case when exists (
+    select 1 from pg_proc p
+      join pg_namespace ns on ns.oid = p.pronamespace
+     where ns.nspname = 'public'
+       and p.proname = 'check_in_with_code'
+       and position('on conflict on constraint day_records_employee_id_work_date_key'
+                    in pg_get_functiondef(p.oid)) > 0
+  ) then 'installed' else 'MISSING - apply 011' end as state
+) d;
+
+select public._harness_record(
+  38, 'MIGRATIONS', 'check_in_with_code orders deterministically (010 then 011)',
+  'installed', d.state, d.state = 'installed')
+from (
+  select case when exists (
+    select 1 from pg_proc p
+      join pg_namespace ns on ns.oid = p.pronamespace
+     where ns.nspname = 'public'
+       and p.proname = 'check_in_with_code'
+       and position('order by (s.contractor_id is null), s.work_date desc, s.id'
+                    in pg_get_functiondef(p.oid)) > 0
+  ) then 'installed' else 'MISSING - apply 010 then 011' end as state
+) d;
+
+select public._harness_record(
+  39, 'MIGRATIONS', 'my_attendance_status orders deterministically (010)',
+  'installed', d.state, d.state = 'installed')
+from (
+  select case when exists (
+    select 1 from pg_proc p
+      join pg_namespace ns on ns.oid = p.pronamespace
+     where ns.nspname = 'public'
+       and p.proname = 'my_attendance_status'
+       and position('order by (s.contractor_id is null), s.work_date desc, s.id'
+                    in pg_get_functiondef(p.oid)) > 0
+  ) then 'installed' else 'MISSING - apply 010' end as state
+) d;
 
 
 -- ============================================================================

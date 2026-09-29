@@ -1,5 +1,13 @@
 -- DayPay — Phase 4: workplace attendance sessions and daily codes.
 --
+-- SUPERSEDED FOR check_in_with_code AND my_attendance_status.
+-- Migration 010 replaced both function bodies and migration 011 fixed the
+-- ON CONFLICT clause they used to fail on. The copies defined in THIS file are
+-- kept for the record only. Re-running this file restores them, which undoes
+-- the fix for a code that is live and valid being refused. If you re-run it,
+-- re-run 010 and 011 afterwards, and the harness (checks 37-39) will tell you
+-- whether that was done.
+
 -- WHAT THIS ADDS
 --
 -- Until now only the employer could create a day. This migration makes the

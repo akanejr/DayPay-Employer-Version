@@ -314,23 +314,41 @@ grant execute on function public.check_in_with_code(text) to authenticated;
 grant execute on function public.my_attendance_status() to authenticated;
 
 -- ── Proof ───────────────────────────────────────────────────────────────────
--- Assert the undefined ordering is gone from both functions. The marker is the
--- bare `order by s.work_date desc,` with nothing after the comma on that line,
--- which is exactly the shape that produced the tie.
+-- Assert the undefined ordering is gone from both functions.
+--
+-- The invariant is "every ORDER BY on s.work_date ends in a tiebreaker", and
+-- it takes two checks, because one alone is not enough:
+--
+--   (a) `s.work_date desc, s.id` must be present — the tiebreaker is there.
+--   (b) `work_date desc` must never be followed by anything but a comma —
+--       nothing is left open-ended.
+--
+-- An earlier version of this block tested only for the literal
+-- 'order by s.work_date desc, s.id', which the fixed check_in_with_code does
+-- NOT contain: it orders by '(s.contractor_id is null), s.work_date desc, s.id'
+-- so the parenthesised key sits between `order by` and the column name. The
+-- assertion therefore failed against the very fix it was checking, raised, and
+-- rolled the whole file back — the migration could never apply. Found by
+-- running this file against a real PostgreSQL 18.3 before handing it over,
+-- which is the step that should have happened the first time.
 
 do $$
 declare
-  src text;
+  r   record;
   bad int := 0;
 begin
-  for src in
-    select pg_get_functiondef(p.oid)
+  for r in
+    select p.proname, pg_get_functiondef(p.oid) as src
       from pg_proc p
       join pg_namespace ns on ns.oid = p.pronamespace
      where ns.nspname = 'public'
        and p.proname in ('check_in_with_code', 'my_attendance_status')
   loop
-    if position('order by s.work_date desc, s.id' in src) = 0 then
+    if position('s.work_date desc, s.id' in r.src) = 0 then
+      raise warning '% has no work_date tiebreaker at all', r.proname;
+      bad := bad + 1;
+    elsif r.src ~ 'work_date desc[^,]' then
+      raise warning '% still has an open-ended work_date ordering', r.proname;
       bad := bad + 1;
     end if;
   end loop;
@@ -339,7 +357,7 @@ begin
     raise exception '% function(s) still order by work_date with no tiebreaker.', bad;
   end if;
 
-  raise notice 'Both functions now order deterministically, and a worker may use any live code that covers them.';
+  raise notice 'Both functions order deterministically now, and a worker may use any live code that covers them.';
 end $$;
 
 commit;
