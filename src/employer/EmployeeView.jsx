@@ -16,8 +16,12 @@ import {
   EmployerError, redeemInvite, leaveRoster, myMonth, myRatePeriods,
   formatNaira, monthLabelFor, monthBounds, rateOn, todayKey,
   prettyDateKey, KIND_LABELS,
+  myCorrections, openRequestsByDate, monthGrid, workerMonthTotals,
+  ledgerSourceLabel,
 } from '../lib/employer'
 import CheckIn from './CheckIn'
+import CorrectionForm from './CorrectionForm'
+import CorrectionList from './CorrectionList'
 
 const STATUS_LABEL = {
   claimed: { text: 'Awaiting confirmation', cls: 'ew-chip ew-chip-warn' },
@@ -136,24 +140,29 @@ function MyRates({ periods }) {
 
 // ── The employee's month ────────────────────────────────────────────────────
 
-function MyMonth({ employee }) {
+function MyMonth({ employee, onChanged }) {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const [days, setDays] = useState([])
   const [periods, setPeriods] = useState([])
+  const [requests, setRequests] = useState([])
+  const [asking, setAsking] = useState(null)   // the dateKey being asked about
+  const [claiming, setClaiming] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const load = useCallback(async () => {
     setError(null)
     try {
-      const [d, p] = await Promise.all([
+      const [d, p, r] = await Promise.all([
         myMonth(employee.id, year, month),
         myRatePeriods(employee.id),
+        myCorrections(),
       ])
       setDays(d || [])
       setPeriods(p || [])
+      setRequests(r || [])
     } catch (e) {
       setError(e instanceof EmployerError ? e : new EmployerError(String(e)))
     } finally {
@@ -166,16 +175,33 @@ function MyMonth({ employee }) {
   const label = monthLabelFor(year, month)
 
   const stats = useMemo(() => {
-    let total = 0, worked = 0, leave = 0, confirmed = 0, pending = 0
-    for (const d of days) {
-      total += Number(d.amount) || 0
-      if (d.kind === 'leave') leave += 1
-      else worked += 1
-      if (d.status === 'confirmed') confirmed += 1
-      else if (d.status === 'claimed') pending += 1
+    const t = workerMonthTotals(days)
+    return {
+      total: t.total, worked: t.worked, leave: t.leave,
+      overtime: t.overtime, equivalents: t.equivalents,
+      confirmed: days.filter(d => d.status === 'confirmed').length,
+      pending: t.awaiting,
     }
-    return { total, worked, leave, confirmed, pending }
   }, [days])
+
+  /* The month grid shows the worker their own month the way their employer
+     sees it: days marked, days missing, and a flag where they have asked for
+     something. Read-only, always — tapping a day opens a request, never an
+     editor. */
+  const openByDate = useMemo(() => openRequestsByDate(requests), [requests])
+  const weeks = useMemo(() => monthGrid(year, month, days), [year, month, days])
+  const byDate = useMemo(() => {
+    const m = {}
+    for (const d of days) m[d.work_date] = d
+    return m
+  }, [days])
+
+  const mine = useMemo(
+    () => requests.filter(r => String(r.work_date).startsWith(`${year}-${String(month + 1).padStart(2, '0')}`)),
+    [requests, year, month],
+  )
+
+  const askAbout = asking ? byDate[asking] || null : null
 
   function stepMonth(delta) {
     const d = new Date(year, month + delta, 1)
@@ -219,6 +245,75 @@ function MyMonth({ employee }) {
             )}
           </div>
 
+          {/* The month at a glance. Read-only by design: tapping a day opens a
+              REQUEST, never an editor. A day with an unanswered request is
+              flagged here so a worker can see they have already asked. */}
+          <div className="ew-mgrid" role="grid" aria-label={`${label} at a glance`}>
+            <div className="ew-mgrid-head" role="row">
+              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+                <span key={i} className="ew-mgrid-dow" role="columnheader">{d}</span>
+              ))}
+            </div>
+            {weeks.map((week, wi) => (
+              <div className="ew-mgrid-week" role="row" key={wi}>
+                {week.map((cell, ci) => {
+                  if (!cell) return <span key={ci} className="ew-mgrid-cell is-blank" />
+                  const rec = cell.record
+                  const asking = openByDate[cell.key]
+                  const cls = [
+                    'ew-mgrid-cell',
+                    rec ? 'is-marked' : 'is-empty',
+                    rec && rec.status === 'confirmed' ? 'is-confirmed' : '',
+                    rec && rec.status === 'claimed' ? 'is-unconfirmed' : '',
+                    rec && rec.kind !== 'work' ? `is-${rec.kind}` : '',
+                    asking ? 'is-asked' : '',
+                  ].filter(Boolean).join(' ')
+                  return (
+                    <button
+                      key={ci}
+                      type="button"
+                      role="gridcell"
+                      className={cls}
+                      title={rec
+                        ? `${prettyDateKey(cell.key)} · ${KIND_LABELS[rec.kind] || rec.kind} · ${formatNaira(rec.amount)}${asking ? ' · you asked about this day' : ''}`
+                        : `${prettyDateKey(cell.key)} · nothing recorded`}
+                      onClick={() => setAsking(cell.key)}
+                    >
+                      <span className="ew-mgrid-day">{cell.day}</span>
+                      {asking && <span className="ew-mgrid-dot" aria-hidden="true" />}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+
+          <div className="ew-corr-tools">
+            <button type="button" className="ew-btn ew-btn-primary ew-btn-sm"
+              onClick={() => { setClaiming(true); setAsking(null) }}>
+              I worked a day that is not here
+            </button>
+          </div>
+
+          {claiming && (
+            <CorrectionForm
+              employee={employee}
+              mode="missing"
+              onDone={() => { setClaiming(false); load(); onChanged?.() }}
+              onCancel={() => setClaiming(false)}
+            />
+          )}
+
+          {asking && (
+            <CorrectionForm
+              employee={employee}
+              dateKey={asking}
+              currentKind={askAbout ? askAbout.kind : null}
+              onDone={() => { setAsking(null); load(); onChanged?.() }}
+              onCancel={() => setAsking(null)}
+            />
+          )}
+
           <MyRates periods={periods} />
 
           {days.length === 0 ? (
@@ -232,17 +327,36 @@ function MyMonth({ employee }) {
           ) : (
             days.map(d => {
               const st = STATUS_LABEL[d.status] || STATUS_LABEL.claimed
+              const asked = openByDate[d.work_date]
               return (
-                <div className="ew-dayrow is-marked" key={d.id}>
+                <div className={`ew-dayrow is-marked${asked ? ' is-asked' : ''}`} key={d.id}>
                   <div className="ew-dayrow-body">
                     <div className="ew-name">{prettyDateKey(d.work_date)}</div>
                     <div className="ew-meta">
                       <span className="ew-chip">{KIND_LABELS[d.kind] || d.kind}</span>
                       <span className={st.cls}>{st.text}</span>
+                      {asked && <span className="ew-chip ew-chip-warn">You asked</span>}
+                    </div>
+                    {/* Who put this day here. A worker looking at a figure they
+                        do not recognise should be able to tell a check-in from
+                        something their employer typed — without asking. */}
+                    <div className="ew-dayrow-source">
+                      {ledgerSourceLabel(d.source || 'employer')}
                     </div>
                   </div>
-                  <div className="ew-pay-amount">
-                    <span className="ew-pay-figure">{formatNaira(d.amount)}</span>
+                  <div className="ew-dayrow-actions">
+                    <div className="ew-pay-amount">
+                      <span className="ew-pay-figure">{formatNaira(d.amount)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="ew-linkbtn"
+                      onClick={() => { setClaiming(false); setAsking(d.work_date) }}
+                      disabled={!!asked}
+                      title={asked ? 'You have already asked about this day.' : undefined}
+                    >
+                      {asked ? 'Asked' : 'Something is wrong'}
+                    </button>
                   </div>
                 </div>
               )
@@ -255,6 +369,14 @@ function MyMonth({ employee }) {
               worked.
             </p>
           )}
+
+          <CorrectionList rows={mine} onChanged={() => { load(); onChanged?.() }} />
+
+          <p className="ew-hint" style={{ textAlign: 'center' }}>
+            Your workplace record cannot be edited from here. Check in with
+            today's code while you are at work, or ask your employer to change
+            a day.
+          </p>
         </>
       )}
     </>
@@ -316,7 +438,7 @@ export default function EmployeeView({ employee, onChanged }) {
           the next reload. */}
       <CheckIn employee={linked} onRecorded={() => setMonthBump(n => n + 1)} />
 
-      <MyMonth key={monthBump} employee={linked} />
+      <MyMonth key={monthBump} employee={linked} onChanged={() => setMonthBump(n => n + 1)} />
 
       {error && (
         <div className="ew-msg ew-msg-error">

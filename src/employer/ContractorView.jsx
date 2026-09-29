@@ -5,10 +5,11 @@
  *
  * Design decisions worth stating:
  *
- *   - A worker card carries exactly three facts — present or not, actual days,
+ *   - A worker card carries three facts — present or not, actual days,
  *     paid-day equivalents — and nothing else. The brief asks for clean cards
- *     and warns against overload, and the deeper detail (calendar, per-kind
- *     split, corrections) is a different screen's job.
+ *     and warns against overload; the deeper detail lives one tap away in
+ *     WorkerView, which is where Phase 6 put the calendar, overtime assignment,
+ *     corrections and the audit trail.
  *
  *   - All figures come from `contractorRollup`, which reads the same stored
  *     rows everything else reads. The header is derived from the cards
@@ -21,10 +22,12 @@
  * Copyright © 2026 Akaninyene. All rights reserved.
  */
 
+import { useState } from 'react'
 import {
   contractorRollup, formatNaira, initials, todayKey,
   monthLabelFor, prettyDateKey, KIND_LABELS,
 } from '../lib/employer'
+import WorkerView from './WorkerView'
 
 function Stat({ label, value, tone }) {
   return (
@@ -37,11 +40,15 @@ function Stat({ label, value, tone }) {
 
 // ── One worker's card ───────────────────────────────────────────────────────
 
-function WorkerCard({ row }) {
+function WorkerCard({ row, onOpen }) {
   const { employee, today, present } = row
 
   return (
-    <div className={`ew-worker${present ? ' is-present' : ''}`}>
+    <button
+      type="button"
+      className={`ew-worker ew-worker-btn${present ? ' is-present' : ''}`}
+      onClick={() => onOpen(employee.id)}
+    >
       <div className="ew-worker-head">
         <div className="ew-avatar">{initials(employee.full_name)}</div>
         <div className="ew-worker-body">
@@ -80,18 +87,37 @@ function WorkerCard({ row }) {
           </div>
         )}
       </div>
-    </div>
+
+      <span className="ew-worker-open">Day by day ›</span>
+    </button>
   )
 }
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 
-export default function ContractorView({ contractor, employees, days, onBack }) {
+export default function ContractorView({ contractor, employees, days, onBack, onChanged }) {
   const today = todayKey()
   const roll = contractorRollup(employees, days, today)
   const [year, monthIndex] = today.split('-').map((v, i) => (i === 0 ? Number(v) : Number(v) - 1))
+  const [openWorkerId, setOpenWorkerId] = useState(null)
 
   const title = contractor?.name || 'Unassigned workers'
+
+  /* Derived, not stored: a worker who is archived or reassigned elsewhere
+     while this screen is open falls back to the list on its own. */
+  const openWorker = openWorkerId
+    ? employees.find(e => e.id === openWorkerId) || null
+    : null
+
+  if (openWorker) {
+    return (
+      <WorkerView
+        employee={openWorker}
+        onBack={() => setOpenWorkerId(null)}
+        onChanged={onChanged}
+      />
+    )
+  }
 
   return (
     <div className="ew-contractor">
@@ -143,7 +169,9 @@ export default function ContractorView({ contractor, employees, days, onBack }) 
           <div className="ew-section-label">
             Workers · {prettyDateKey(today)}
           </div>
-          {roll.rows.map(row => <WorkerCard key={row.employee.id} row={row} />)}
+          {roll.rows.map(row => (
+            <WorkerCard key={row.employee.id} row={row} onOpen={setOpenWorkerId} />
+          ))}
         </>
       )}
     </div>

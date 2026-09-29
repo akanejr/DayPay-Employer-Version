@@ -29,6 +29,9 @@ import {
   endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
   timeLeftLabel, attendancePrompt, checkInError,
   ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote,
+  CORRECTION_CHOICES, CORRECTION_LABELS, CORRECTION_STATUS,
+  correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
+  auditLabel, auditTone, workerMonthTotals,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -44,6 +47,9 @@ export {
   endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
   timeLeftLabel, attendancePrompt, checkInError,
   ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote,
+  CORRECTION_CHOICES, CORRECTION_LABELS, CORRECTION_STATUS,
+  correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
+  auditLabel, auditTone, workerMonthTotals,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -374,6 +380,11 @@ export async function deleteRatePeriod(id) {
 
 const DAY_COLS = 'id, employee_id, work_date, kind, leave_type, leave_percent, rate, multiplier, amount, status, note, confirmed_at, disputed_at'
 
+/* Migration 012. Listed explicitly rather than `*` for the same reason as
+   DAY_COLS: the shape of a row is a decision, and a new column should be a
+   deliberate addition to this line. */
+const CORRECTION_COLS = 'id, employee_id, work_date, day_record_id, request_kind, want_kind, leave_type, leave_percent, message, status, resolved_by, resolved_at, decision_note, created_at'
+
 
 export async function listEmployeeMonth(employeeId, year, monthIndex) {
   const { from, to } = monthBounds(year, monthIndex)
@@ -639,6 +650,7 @@ export function contractorsAvailable() {
 export function resetSchemaProbes() {
   contractorColumnMissing = false
   contractorsMissing = false
+  correctionsMissing = false
 }
 
 export async function listContractors({ includeArchived = false } = {}) {
@@ -793,4 +805,177 @@ export async function checkIn(code) {
   if (!row) return { ok: false, message: 'Attendance was not recorded. Try again.' }
 
   return { ok: true, day: row, already: !!row.already }
+}
+
+// ── Phase 6: corrections ────────────────────────────────────────────────────
+
+/* A worker asks. This is the whole of their write access to a correction: one
+   INSERT, scoped by RLS to their own employee row, and the database refuses it
+   if another open request for the same day already exists.
+
+   Nothing here touches day_records. That is the point of the design and the
+   reason Phase 5's read-only month can stay read-only. */
+export async function requestCorrection(employeeId, workDate, {
+  requestKind, wantKind = null, leaveType = null, leavePercent = 0, message = null,
+} = {}) {
+  /* Fails fast and with the right message when nobody is signed in, before a
+     round trip that would come back as a policy refusal. The id itself is not
+     needed: RLS decides who may insert, and `employee_id` is the worker the
+     request is about, not the caller. */
+  await currentUserId()
+
+  const payload = {
+    employee_id: employeeId,
+    work_date: workDate,
+    request_kind: requestKind,
+    message: (message || '').trim() || null,
+    status: 'open',
+    // Not sent to the server as a claim of authorship — the policy decides
+    // that. Recorded here only so the row is complete if read before any
+    // policy applies.
+    want_kind: null,
+    leave_type: null,
+    leave_percent: 0,
+  }
+
+  if (requestKind === 'reclassify') {
+    payload.want_kind = wantKind
+    if (wantKind === 'leave') {
+      payload.leave_type = leaveType || 'annual'
+      payload.leave_percent = Number(leavePercent) || 0
+    }
+  }
+
+  return run(
+    client().from('correction_requests').insert(payload).select(CORRECTION_COLS).single(),
+    'send your request',
+  ).catch(err => {
+    // A missing table means migration 012 has not been run yet. Say that,
+    // rather than showing a worker a Postgres error code.
+    if (isMissingTable(err.cause || err, 'correction_requests')) {
+      throw new EmployerError('Corrections are not available on this account yet.', {
+        hint: 'Your employer needs to finish setting up their DayPay.',
+      })
+    }
+    // The partial unique index: they already have an open request for this day.
+    if (err.code === '23505') {
+      throw new EmployerError('You have already asked about this day.', {
+        hint: 'Your employer has not answered it yet. You can withdraw it if you have changed your mind.',
+      })
+    }
+    throw err
+  })
+}
+
+/* The worker's own requests. RLS scopes this to their own employee row, so no
+   filter is needed — and none is added, because a filter here would suggest
+   the database is not doing it. */
+export async function myCorrections(limit = 60) {
+  const res = await client().from('correction_requests')
+    .select(CORRECTION_COLS)
+    .order('work_date', { ascending: false })
+    .limit(limit)
+
+  if (isMissingTable(res.error, 'correction_requests')) {
+    correctionsMissing = true
+    return []
+  }
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data || []
+}
+
+export async function withdrawCorrection(id) {
+  return run(
+    client().from('correction_requests').update({ status: 'withdrawn' }).eq('id', id)
+      .select(CORRECTION_COLS).single(),
+    'withdraw your request',
+  )
+}
+
+/* Everything still waiting on this employer, across every worker.
+   Reads `employees` alongside so the queue can name the person without a
+   second round trip per row. */
+export async function listOpenCorrections() {
+  const res = await client().from('correction_requests')
+    .select(CORRECTION_COLS)
+    .eq('status', 'open')
+    .order('created_at', { ascending: true })
+
+  if (isMissingTable(res.error, 'correction_requests')) {
+    correctionsMissing = true
+    return []
+  }
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data || []
+}
+
+/* One worker's requests, answered ones included — the history of what was
+   asked and what was decided. */
+export async function listEmployeeCorrections(employeeId, limit = 40) {
+  const res = await client().from('correction_requests')
+    .select(CORRECTION_COLS)
+    .eq('employee_id', employeeId)
+    .order('work_date', { ascending: false })
+    .limit(limit)
+
+  if (isMissingTable(res.error, 'correction_requests')) {
+    correctionsMissing = true
+    return []
+  }
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data || []
+}
+
+/* The employer's answer. Approving applies the change to the ledger inside the
+   same transaction, so "agreed" and "the record changed" cannot come apart. */
+export async function resolveCorrection(id, approve, note = null) {
+  const { data, error } = await client().rpc('resolve_correction', {
+    p_id: id,
+    p_approve: !!approve,
+    p_note: (note || '').trim() || null,
+  })
+  if (error) {
+    if (isMissingTable(error, 'correction_requests')) {
+      throw new EmployerError('Corrections need a database update.', {
+        hint: 'Run supabase/migrations/012_correction_requests.sql in the SQL editor.',
+      })
+    }
+    const d = describe(error)
+    if (/already been answered/.test(error.message || '')) {
+      throw new EmployerError('That request has already been answered.', {
+        hint: 'Refresh to see the current state.',
+      })
+    }
+    throw new EmployerError(d.message, { code: error.code, hint: d.hint, cause: error })
+  }
+  return Array.isArray(data) ? data[0] : data
+}
+
+/* Is the corrections table present? Probed once and remembered, so a project
+   without 012 does not pay a failed round trip on every render. */
+let correctionsMissing = false
+
+export function correctionsAvailable() {
+  return !correctionsMissing
+}
+
+export function markCorrectionsMissing() {
+  correctionsMissing = true
+}
+
+/* The audit trail for one worker, newest first.
+ *
+ * Read-only, and there is no writer here on purpose: every row is written by a
+ * SECURITY DEFINER trigger as a side effect of a real change. Nothing in the
+ * client can append to history, which is what makes it worth reading. */
+export async function listEmployeeEvents(employeeId, limit = 40) {
+  const res = await client().from('day_record_events')
+    .select('id, day_record_id, employee_id, actor, action, reason, created_at')
+    .eq('employee_id', employeeId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (isMissingTable(res.error, 'day_record_events')) return []
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data || []
 }

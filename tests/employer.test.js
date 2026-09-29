@@ -13,6 +13,9 @@ import {
   formatNaira, initials, monthBounds, todayKey,
   rateOn, multiplierFor, makeInviteCode, CODE_ALPHABET, summarise,
   ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote,
+  CORRECTION_CHOICES, CORRECTION_LABELS, CORRECTION_STATUS,
+  correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
+  auditLabel, auditTone, workerMonthTotals,
 } from '../src/lib/employerLogic.js'
 import { payslipModel } from '../src/lib/payslip.js'
 
@@ -1327,5 +1330,205 @@ describe('the worker\'s payslip from the employer\'s ledger', () => {
     assert.equal(model.actualDays, 22)
     assert.equal(ledgerTotals(rows).claimed, 1)
     assert.equal(ledgerTotals(rows).confirmed, 21)
+  })
+})
+
+// ── Phase 6: corrections ────────────────────────────────────────────────────
+
+describe('corrections — the sentences a person reads', () => {
+  test('every sentence reads as English, not as a database value', () => {
+    // These strings are shown to a worker and to their employer about money.
+    // "Says this was Overtime, not Worked" is what a naive join of the chip
+    // labels produces, and it was the first thing this function did.
+    assert.equal(
+      correctionSentence({ request_kind: 'reclassify', want_kind: 'overtime' }, 'work'),
+      'Says this was overtime, not a normal working day.',
+    )
+    assert.equal(
+      correctionSentence({ request_kind: 'reclassify', want_kind: 'holiday' }, 'work'),
+      'Says this was a holiday, not a normal working day.',
+    )
+    assert.equal(
+      correctionSentence({ request_kind: 'remove' }, 'work'),
+      'Says they did not work this day.',
+    )
+    assert.equal(
+      correctionSentence({ request_kind: 'missing' }, null),
+      'Says they worked this day and it is not recorded.',
+    )
+  })
+
+  test('a reclassification with nothing recorded does not invent a comparison', () => {
+    assert.equal(
+      correctionSentence({ request_kind: 'reclassify', want_kind: 'weekend' }, null),
+      'Says this was weekend work.',
+    )
+  })
+
+  test('an unknown request kind degrades to a sentence, not to a blank', () => {
+    assert.equal(correctionSentence({ request_kind: 'nonsense' }, 'work'), 'Asked for a correction.')
+    assert.equal(correctionSentence(null), '')
+  })
+
+  test('the effect says what agreeing would actually do', () => {
+    // An employer is about to change someone's pay by tapping Agree. The
+    // consequence is spelled out before the tap, not after it.
+    assert.equal(
+      correctionEffect({ request_kind: 'reclassify', want_kind: 'overtime' }, 'work'),
+      'Agreeing changes it to overtime.',
+    )
+    assert.equal(
+      correctionEffect({ request_kind: 'remove' }, 'work'),
+      'Agreeing removes the day.',
+    )
+    assert.equal(
+      correctionEffect({ request_kind: 'remove' }, null),
+      'There is nothing recorded to remove.',
+    )
+    assert.equal(
+      correctionEffect({ request_kind: 'missing' }, 'work'),
+      'The day is already recorded.',
+    )
+    assert.equal(
+      correctionEffect({ request_kind: 'missing' }, null),
+      'Agreeing records a normal working day.',
+    )
+  })
+
+  test('the three choices, the three labels and the four states are complete', () => {
+    assert.deepEqual(CORRECTION_CHOICES.map(c => c.value), ['remove', 'reclassify', 'missing'])
+    assert.deepEqual(Object.keys(CORRECTION_LABELS).sort(), ['missing', 'reclassify', 'remove'])
+    assert.deepEqual(Object.keys(CORRECTION_STATUS).sort(), ['approved', 'open', 'rejected', 'withdrawn'])
+    for (const s of Object.values(CORRECTION_STATUS)) {
+      assert.ok(s.text && s.short && s.cls, 'every state needs words and a chip class')
+    }
+  })
+})
+
+describe('openRequestsByDate', () => {
+  test('keeps only open requests, keyed by the day they are about', () => {
+    const rows = [
+      { work_date: '2026-05-02', status: 'open', created_at: '2026-05-03T10:00:00Z' },
+      { work_date: '2026-05-04', status: 'approved', created_at: '2026-05-05T10:00:00Z' },
+      { work_date: '2026-05-06', status: 'open', created_at: '2026-05-07T10:00:00Z' },
+    ]
+    const map = openRequestsByDate(rows)
+    assert.deepEqual(Object.keys(map).sort(), ['2026-05-02', '2026-05-06'])
+  })
+
+  test('the oldest wins if two are somehow open for one day', () => {
+    const map = openRequestsByDate([
+      { work_date: '2026-05-02', status: 'open', created_at: '2026-05-09T10:00:00Z', message: 'later' },
+      { work_date: '2026-05-02', status: 'open', created_at: '2026-05-01T10:00:00Z', message: 'earlier' },
+    ])
+    assert.equal(map['2026-05-02'].message, 'earlier')
+  })
+
+  test('junk does not throw', () => {
+    assert.deepEqual(openRequestsByDate(null), {})
+    assert.deepEqual(openRequestsByDate([null, { status: 'open' }, {}]), {})
+  })
+})
+
+describe('monthGrid', () => {
+  test('lays a month out Monday first, padded with nulls', () => {
+    // September 2026 starts on a Tuesday, so exactly one leading blank.
+    const weeks = monthGrid(2026, 8, [])
+    assert.equal(weeks.length, 5)
+    assert.equal(weeks[0][0], null)
+    assert.equal(weeks[0][1].key, '2026-09-01')
+    assert.equal(weeks[0][1].day, 1)
+    for (const w of weeks) assert.equal(w.length, 7)
+  })
+
+  test('every day of the month appears exactly once', () => {
+    const weeks = monthGrid(2026, 8, [])
+    const days = weeks.flat().filter(Boolean).map(c => c.day)
+    assert.equal(days.length, 30)
+    assert.deepEqual(days, Array.from({ length: 30 }, (_, i) => i + 1))
+  })
+
+  test('a month starting on a Monday has no leading blank', () => {
+    // June 2026 starts on a Monday. Getting this wrong shifts every day.
+    const weeks = monthGrid(2026, 5, [])
+    assert.equal(weeks[0][0].key, '2026-06-01')
+  })
+
+  test('a 31-day month starting on a Sunday needs six weeks', () => {
+    // May 2026 starts on a Friday, has 31 days: 5 weeks would drop the last day.
+    const weeks = monthGrid(2026, 4, [])
+    const days = weeks.flat().filter(Boolean).map(c => c.day)
+    assert.ok(days.includes(31), 'the 31st must be on the grid')
+    assert.ok(weeks.length >= 5)
+  })
+
+  test('a leap February is 29 days, and 2026 is not a leap year', () => {
+    assert.equal(monthGrid(2028, 1, []).flat().filter(Boolean).length, 29)
+    assert.equal(monthGrid(2026, 1, []).flat().filter(Boolean).length, 28)
+  })
+
+  test('records land on their own day and nowhere else', () => {
+    const mine = [{ work_date: '2026-09-15', kind: 'overtime', amount: 32000 }]
+    const weeks = monthGrid(2026, 8, mine)
+    const found = weeks.flat().filter(c => c && c.record)
+    assert.equal(found.length, 1)
+    assert.equal(found[0].day, 15)
+    assert.equal(found[0].record.kind, 'overtime')
+  })
+
+  test('empty and junk input still produce a full grid', () => {
+    assert.equal(monthGrid(2026, 8).flat().filter(Boolean).length, 30)
+    assert.equal(monthGrid(2026, 8, [null, {}]).flat().filter(c => c && c.record).length, 0)
+  })
+})
+
+describe('audit trail labels', () => {
+  test('the stored actions become something readable', () => {
+    assert.equal(auditLabel('created'), 'Day recorded')
+    assert.equal(auditLabel('amended'), 'Day changed')
+    assert.equal(auditLabel('status:claimed->confirmed'), 'Confirmed')
+    assert.equal(auditLabel('status:confirmed->claimed'), 'Reopened')
+    assert.equal(auditLabel('status:claimed->disputed'), 'Disputed')
+  })
+
+  test('an action nobody has named yet still reads as a sentence', () => {
+    assert.equal(auditLabel('status:claimed->quibbled'), 'claimed → quibbled')
+    assert.equal(auditLabel('something-new'), 'something-new')
+    assert.equal(auditLabel(null), 'Changed')
+  })
+
+  test('tone is coarse on purpose — an audit list with nine colours is unreadable', () => {
+    assert.equal(auditTone('created'), 'create')
+    assert.equal(auditTone('amended'), 'amend')
+    assert.equal(auditTone('status:claimed->confirmed'), 'good')
+    assert.equal(auditTone('status:confirmed->claimed'), 'warn')
+    assert.equal(auditTone('status:claimed->disputed'), 'warn')
+    assert.equal(auditTone('something-new'), 'plain')
+  })
+})
+
+describe('workerMonthTotals', () => {
+  test('counts actual days, overtime and the equivalents the worker is paid for', () => {
+    const rows = [
+      { kind: 'work', amount: 16000, multiplier: 1, status: 'confirmed' },
+      { kind: 'work', amount: 16000, multiplier: 1, status: 'confirmed' },
+      { kind: 'weekend', amount: 32000, multiplier: 2, status: 'confirmed' },
+      { kind: 'overtime', amount: 32000, multiplier: 2, status: 'claimed' },
+      { kind: 'leave', amount: 8000, multiplier: 0.5, status: 'confirmed' },
+    ]
+    const t = workerMonthTotals(rows)
+    assert.equal(t.days, 5)
+    assert.equal(t.worked, 4)      // leave is not a worked day
+    assert.equal(t.overtime, 1)
+    assert.equal(t.leave, 1)
+    assert.equal(t.total, 104000)
+    assert.equal(t.equivalents, 6.5)
+    assert.equal(t.awaiting, 1)    // the worker can see what is not settled yet
+  })
+
+  test('an empty month is zeroes, not NaN', () => {
+    assert.deepEqual(workerMonthTotals([]),
+      { worked: 0, overtime: 0, leave: 0, total: 0, equivalents: 0, awaiting: 0, days: 0 })
+    assert.equal(workerMonthTotals([null, {}]).days, 2)
   })
 })

@@ -1135,3 +1135,275 @@
   color: var(--text-4);
   margin: 11px 0 0;
 }
+
+/* ── Phase 6: corrections, the worker's calendar, overtime, audit ─────────── */
+/*
+ * Everything below uses the tokens above and nothing else, so the dark theme
+ * keeps working without a second set of rules. The grid deliberately matches
+ * the worker's own calendar: two people looking at the same month should not
+ * have to learn two layouts.
+ */
+
+/* The month grid, shared by the worker's screen and the employer's. */
+.ew-mgrid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0 4px;
+}
+
+.ew-mgrid-head,
+.ew-mgrid-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.ew-mgrid-dow {
+  text-align: center;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  padding-bottom: 2px;
+}
+
+.ew-mgrid-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-elevated-2);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+
+.ew-mgrid-cell.is-blank {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+.ew-mgrid-cell.is-marked {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Settled days are solid; claims are dashed. One glance tells an employer
+   whether what they are looking at has been confirmed. */
+.ew-mgrid-cell.is-confirmed {
+  background: var(--daypay-navy);
+  border-color: var(--daypay-navy);
+  color: #fff;
+}
+
+.ew-mgrid-cell.is-unconfirmed {
+  border-style: dashed;
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.ew-mgrid-cell.is-disputed {
+  border-style: dashed;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.ew-mgrid-cell.is-overtime { box-shadow: inset 0 -3px 0 var(--amber); }
+.ew-mgrid-cell.is-weekend  { box-shadow: inset 0 -3px 0 var(--daypay-green); }
+.ew-mgrid-cell.is-holiday  { box-shadow: inset 0 -3px 0 var(--stamp-ot-bg); }
+.ew-mgrid-cell.is-leave    { box-shadow: inset 0 -3px 0 var(--text-4); }
+
+.ew-mgrid-cell:hover:not(.is-blank) { background: var(--bg-cell-hover); }
+.ew-mgrid-cell.is-confirmed:hover { background: var(--daypay-navy-light); }
+
+/* A correction is waiting on this day. The dot, not a border, so it cannot be
+   confused with the status the border already carries. */
+.ew-mgrid-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.ew-mgrid-cell.is-confirmed .ew-mgrid-dot { background: #FDE68A; }
+
+.ew-mgrid-day { pointer-events: none; }
+
+/* ── The worker's request form ───────────────────────────────────────────── */
+
+.ew-corr-tools { display: flex; gap: 8px; margin: 12px 0 4px; }
+
+.ew-corr-form { margin-top: 12px; }
+
+.ew-choice-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+
+.ew-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ew-choice.is-chosen {
+  border-color: var(--daypay-navy);
+  background: var(--bg-cell-hover);
+}
+
+.ew-choice-label { font-size: 13px; font-weight: 600; }
+.ew-choice-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.4; }
+
+.ew-datestep { display: flex; align-items: center; gap: 6px; }
+.ew-inline-fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; }
+
+.ew-corr-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+
+/* ── Requests, as read by either party ───────────────────────────────────── */
+
+.ew-corr-row,
+.ew-corr-card {
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: var(--bg-elevated);
+}
+
+.ew-corr-card.status-open { border-left-color: var(--amber); }
+.ew-corr-card.status-approved { border-left-color: var(--daypay-green); }
+.ew-corr-card.status-rejected { border-left-color: var(--danger); }
+
+.ew-corr-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ew-corr-msg { font-size: 12.5px; line-height: 1.5; color: var(--text-2); margin: 6px 0 0; }
+.ew-corr-effect { font-size: 11.5px; line-height: 1.45; color: var(--text-3); margin: 6px 0 0; }
+.ew-corr-decision { font-size: 12px; line-height: 1.5; color: var(--text-2); margin: 6px 0 0; }
+.ew-corr-decision-label {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+.ew-corrections-meta { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+
+.ew-dayrow.is-asked { border-left: 3px solid var(--amber); }
+.ew-dayrow-source { font-size: 11px; color: var(--text-4); margin-top: 3px; }
+.ew-dayrow-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+
+/* ── Worker detail ───────────────────────────────────────────────────────── */
+
+.ew-worker-view { display: flex; flex-direction: column; gap: 11px; }
+
+.ew-worker-btn {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  position: relative;
+}
+
+.ew-worker-btn:hover { background: var(--bg-cell-hover); }
+
+.ew-worker-open {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.ew-sheet {
+  border: 1px solid var(--daypay-navy);
+  border-radius: 12px;
+  padding: 12px 13px;
+  background: var(--bg-elevated);
+}
+
+.ew-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ew-sheet-figures { display: flex; gap: 18px; margin: 10px 0 8px; flex-wrap: wrap; }
+.ew-sheet-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.ew-sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+
+/* Overtime assignment: four taps, one row changed, clearly reversible. */
+.ew-kind-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+.ew-kind-btn {
+  padding: 6px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ew-kind-btn.is-on {
+  background: var(--daypay-navy);
+  border-color: var(--daypay-navy);
+  color: #fff;
+  font-weight: 600;
+}
+
+.ew-kind-btn:disabled { opacity: .55; cursor: default; }
+
+/* ── Audit trail ─────────────────────────────────────────────────────────── */
+
+.ew-audit { display: flex; flex-direction: column; }
+
+.ew-audit-row {
+  display: grid;
+  grid-template-columns: 118px 1fr;
+  gap: 4px 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 12px;
+}
+
+.ew-audit-row:last-child { border-bottom: 0; }
+.ew-audit-when { color: var(--text-4); font-variant-numeric: tabular-nums; }
+.ew-audit-what { color: var(--text); font-weight: 600; }
+.ew-audit-why { grid-column: 2; color: var(--text-3); font-size: 11.5px; }
+
+.ew-audit-row.tone-create .ew-audit-what { color: var(--daypay-green); }
+.ew-audit-row.tone-good   .ew-audit-what { color: var(--daypay-green); }
+.ew-audit-row.tone-warn   .ew-audit-what { color: var(--amber); }
+.ew-audit-row.tone-amend  .ew-audit-what { color: var(--text); }
+
+@media (max-width: 420px) {
+  .ew-audit-row { grid-template-columns: 1fr; }
+  .ew-audit-why { grid-column: 1; }
+  .ew-mgrid-cell { font-size: 11.5px; border-radius: 7px; }
+}

@@ -25,13 +25,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  EmployerError, listAllMonth,
+  EmployerError, listAllMonth, listOpenCorrections,
   dayBoard, unmetRates, monthFigures,
   groupByContractor, contractorRollup,
   formatNaira, initials, todayKey, prettyDateKey, monthLabelFor,
+  correctionSentence,
 } from '../lib/employer'
 import ContractorView from './ContractorView'
 import AttendancePanel from './AttendancePanel'
+import WorkerView from './WorkerView'
 
 function Stat({ label, value, tone }) {
   return (
@@ -56,11 +58,21 @@ export default function Dashboard({ employees, contractors = [], periods, onOpen
     return [y, m - 1]
   }, [today])
 
+  /* Correction requests are loaded with the month, not after it: a request
+     the employer does not see on the screen where they mark days is a request
+     that gets answered a week late. */
+  const [requests, setRequests] = useState([])
+  const [openWorkerId, setOpenWorkerId] = useState(null)
+
   const load = useCallback(async () => {
     setError(null)
     try {
-      const rows = await listAllMonth(year, monthIndex)
+      const [rows, reqs] = await Promise.all([
+        listAllMonth(year, monthIndex),
+        listOpenCorrections(),
+      ])
       setDays(rows || [])
+      setRequests(reqs || [])
     } catch (e) {
       setError(e instanceof EmployerError ? e : new EmployerError(String(e)))
     } finally {
@@ -91,6 +103,24 @@ export default function Dashboard({ employees, contractors = [], periods, onOpen
 
   if (loading) return <div className="ew-loading">Loading today…</div>
 
+  /* The worker detail, opened from the corrections queue. Derived for the same
+     reason as openGroup: a worker archived on another device must not leave
+     this screen pinned to a stale record. */
+  const openWorker = openWorkerId
+    ? employees.find(e => e.id === openWorkerId) || null
+    : null
+
+  if (openWorker) {
+    return (
+      <WorkerView
+        employee={openWorker}
+        period={(periods || []).find(p => p.employee_id === openWorker.id) || null}
+        onBack={() => setOpenWorkerId(null)}
+        onChanged={load}
+      />
+    )
+  }
+
   if (openGroup) {
     return (
       <ContractorView
@@ -98,6 +128,7 @@ export default function Dashboard({ employees, contractors = [], periods, onOpen
         employees={openGroup.workers}
         days={days}
         onBack={() => setOpenContractorId(null)}
+        onChanged={load}
       />
     )
   }
@@ -266,6 +297,44 @@ export default function Dashboard({ employees, contractors = [], periods, onOpen
               )
             })}
           </div>
+        </section>
+      )}
+
+      {/* ── Corrections ─────────────────────────────────────────────────── */}
+      {/* A request from a worker is the one thing on this screen with another
+          person waiting at the other end of it, so it goes above everything
+          else the employer might do today. */}
+      {requests.length > 0 && (
+        <section className="ew-card ew-card-attention">
+          <div className="ew-board-label">
+            Correction{requests.length === 1 ? '' : 's'} waiting · {requests.length}
+          </div>
+
+          {requests.slice(0, 4).map(r => {
+            const who = employees.find(e => e.id === r.employee_id)
+            return (
+              <div className="ew-attention" key={r.id}>
+                <div className="ew-attention-title">
+                  {who ? who.full_name : 'A worker'} · {prettyDateKey(r.work_date)}
+                </div>
+                <p className="ew-attention-body">
+                  {correctionSentence(r, (days.find(d => d.employee_id === r.employee_id
+                    && d.work_date === r.work_date) || {}).kind || null)}
+                  {r.message ? ` “${r.message}”` : ''}
+                </p>
+                <button type="button" className="ew-btn ew-btn-sm"
+                  onClick={() => setOpenWorkerId(r.employee_id)}>
+                  Answer it
+                </button>
+              </div>
+            )
+          })}
+
+          {requests.length > 4 && (
+            <p className="ew-attention-body">
+              and {requests.length - 4} more, on each worker's own screen.
+            </p>
+          )}
         </section>
       )}
 

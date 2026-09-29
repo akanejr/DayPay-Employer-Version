@@ -748,3 +748,185 @@ export function checkInError(error) {
   }
   return raw
 }
+
+// ── Phase 6: corrections, worker detail and the audit trail ────────────────
+//
+// Everything below is pure: rows in, strings and arrays out. The screens that
+// show corrections and history are then only about layout, and every sentence
+// a worker or an employer reads about a request is decided in one place and
+// tested without a database.
+
+/* The three things a worker may ask for, in the words they see when choosing.
+   The database enforces the same three values; this is the label table for
+   `request_kind`, not a second definition of what is allowed. */
+export const CORRECTION_CHOICES = [
+  {
+    value: 'remove',
+    label: 'I did not work this day',
+    hint: 'The day will be removed from your record.',
+  },
+  {
+    value: 'reclassify',
+    label: 'The type of day is wrong',
+    hint: 'Say what it should be — overtime, weekend or holiday.',
+  },
+  {
+    value: 'missing',
+    label: 'I worked this day and it is not recorded',
+    hint: 'Your employer will add the day if they agree.',
+  },
+]
+
+export const CORRECTION_LABELS = {
+  remove: 'Not there that day',
+  reclassify: 'Wrong type of day',
+  missing: 'Day not recorded',
+}
+
+/* Status of a request, as the worker and the employer both see it. `open` is
+   deliberately not called "pending" anywhere: pending sounds like the system
+   is still working, and this is a person who has not answered yet. */
+export const CORRECTION_STATUS = {
+  open: { text: 'Waiting for your employer', short: 'Waiting', cls: 'ew-chip ew-chip-warn' },
+  approved: { text: 'Agreed', short: 'Agreed', cls: 'ew-chip ew-chip-live' },
+  rejected: { text: 'Not agreed', short: 'Not agreed', cls: 'ew-chip' },
+  withdrawn: { text: 'Withdrawn', short: 'Withdrawn', cls: 'ew-chip' },
+}
+
+/* A chip and a sentence want different words. KIND_LABELS gives "Overtime"
+   for a chip; a sentence needs "overtime" and "a normal working day" — "Says
+   this was Overtime, not Worked" is not something a person would say out
+   loud, and these sentences are read by two people about somebody's pay. */
+const CORRECTION_KIND_PHRASE = {
+  work: 'a normal working day',
+  weekend: 'weekend work',
+  overtime: 'overtime',
+  holiday: 'a holiday',
+  leave: 'leave',
+}
+
+/* One sentence for the employer's queue. `dayKind` is what the day says now,
+   so a reclassification can read as the change it is. */
+export function correctionSentence(row, dayKind = null) {
+  if (!row) return ''
+  const wants = CORRECTION_KIND_PHRASE[row.want_kind] || KIND_LABELS[row.want_kind] || row.want_kind
+  const had = CORRECTION_KIND_PHRASE[dayKind] || KIND_LABELS[dayKind] || dayKind
+  if (row.request_kind === 'remove') return 'Says they did not work this day.'
+  if (row.request_kind === 'missing') return 'Says they worked this day and it is not recorded.'
+  if (row.request_kind === 'reclassify') {
+    return had
+      ? `Says this was ${wants}, not ${had}.`
+      : `Says this was ${wants}.`
+  }
+  return 'Asked for a correction.'
+}
+
+/* What approving would actually do, kept separate from the asking so the
+   employer can see the consequence before they tap Agree. */
+export function correctionEffect(row, dayKind = null) {
+  if (!row) return ''
+  if (row.request_kind === 'remove') {
+    return dayKind ? 'Agreeing removes the day.' : 'There is nothing recorded to remove.'
+  }
+  if (row.request_kind === 'missing') {
+    return dayKind ? 'The day is already recorded.' : 'Agreeing records a normal working day.'
+  }
+  const wants = CORRECTION_KIND_PHRASE[row.want_kind] || KIND_LABELS[row.want_kind] || row.want_kind
+  return dayKind ? `Agreeing changes it to ${wants}.` : `Agreeing records it as ${wants}.`
+}
+
+/* The open request for each date, for painting a chip on a day row. Resolved
+   requests are ignored: the day row is about today's argument, not history. */
+export function openRequestsByDate(rows = []) {
+  const out = {}
+  for (const r of rows || []) {
+    if (!r || r.status !== 'open') continue
+    const key = r.work_date
+    if (!key) continue
+    // Oldest wins if two somehow exist — the one the employer saw first.
+    if (!out[key] || String(r.created_at) < String(out[key].created_at)) out[key] = r
+  }
+  return out
+}
+
+/* A month laid out as weeks of seven, Monday first — the same convention as
+   the main calendar, so a worker's workplace calendar and their personal one
+   read identically. Days outside the month are null rather than borrowed from
+   the neighbouring month, because this grid is for looking at, and a leading
+   "31" from the last month invites a mis-tap. */
+export function monthGrid(year, monthIndex, rows = []) {
+  const byDate = {}
+  for (const r of rows || []) {
+    if (r && r.work_date) byDate[r.work_date] = r
+  }
+
+  const first = new Date(year, monthIndex, 1)
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate()
+  const mondayOffset = (first.getDay() + 6) % 7
+
+  const cells = []
+  for (let i = 0; i < mondayOffset; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    cells.push({ key, day: d, record: byDate[key] || null })
+  }
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  const weeks = []
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
+  return weeks
+}
+
+/* The audit trail is stored as actions, because that is the right thing to
+   store. Nobody should have to read `status:claimed->confirmed`. */
+const AUDIT_LABELS = {
+  created: 'Day recorded',
+  amended: 'Day changed',
+  'status:claimed->confirmed': 'Confirmed',
+  'status:confirmed->claimed': 'Reopened',
+  'status:claimed->disputed': 'Disputed',
+  'status:disputed->claimed': 'Dispute withdrawn',
+  'status:disputed->confirmed': 'Confirmed after a dispute',
+  'status:confirmed->disputed': 'Disputed after confirming',
+}
+
+export function auditLabel(action) {
+  if (!action) return 'Changed'
+  if (AUDIT_LABELS[action]) return AUDIT_LABELS[action]
+  // A status pair nobody has named yet still reads as a sentence rather than
+  // as a database value.
+  const m = /^status:(\w+)->(\w+)$/.exec(action)
+  if (m) return `${m[1]} → ${m[2]}`
+  return action
+}
+
+/* Which of the few colours this entry gets. Deliberately coarse: an audit list
+   with nine colours is a list nobody reads. */
+export function auditTone(action) {
+  if (!action) return 'plain'
+  if (action === 'created') return 'create'
+  if (action === 'amended') return 'amend'
+  if (action.includes('disputed')) return 'warn'
+  if (action.endsWith('->confirmed')) return 'good'
+  if (action.startsWith('status:confirmed->')) return 'warn'
+  return 'plain'
+}
+
+/* What a worker's month adds up to, from the ledger rows they can see. Mirrors
+   ledgerTotals but keyed to a person's own screen, and counts overtime, so the
+   worker can see the same 2× the employer sees. */
+export function workerMonthTotals(rows = []) {
+  let worked = 0, overtime = 0, leave = 0, total = 0, equivalents = 0, awaiting = 0
+  for (const r of rows || []) {
+    if (!r) continue
+    total += Number(r.amount) || 0
+    equivalents += Number(r.multiplier) || 0
+    if (r.kind === 'leave') leave += 1
+    else {
+      worked += 1
+      if (r.kind === 'overtime') overtime += 1
+    }
+    if (r.status === 'claimed') awaiting += 1
+  }
+  return { worked, overtime, leave, total, equivalents, awaiting, days: (rows || []).length }
+}

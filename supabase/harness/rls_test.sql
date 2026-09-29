@@ -1,8 +1,18 @@
 -- ============================================================================
--- DayPay Employer Version — RLS verification harness (v8)
+-- DayPay Employer Version — RLS verification harness (v9)
 -- ============================================================================
 -- Proves an employee cannot read another employee's wages.
 -- Seeds test data, runs the checks, then ROLLS BACK. Safe to re-run.
+--
+-- NEW IN v9
+--   * corrections (checks 42-47). Phase 5 made a worker's month read-only; the
+--     brief still requires them to be able to raise a correction. Both are true
+--     only if a worker can ASK and cannot APPLY. These six checks prove the
+--     asking works, that it cannot be aimed at a colleague, that the worker
+--     cannot approve their own request (which would be a second, forged write
+--     path to the ledger), that one day cannot accumulate two open requests,
+--     that an approval genuinely rewrites the day and keeps a confirmed day
+--     confirmed, and that an answered request does not ban the next one.
 --
 -- NEW IN v8
 --   * what a worker may NOT do to their own record (checks 40-41). Phase 5
@@ -882,6 +892,248 @@ exception when others then
   perform public._harness_record(
     41, 'EMPLOYEE', 'worker CAN withdraw their own unconfirmed day',
     '1 withdrawn', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+reset role;
+
+
+-- ============================================================================
+-- PHASE 6 — WHAT A WORKER MAY ASK FOR (checks 42-47)
+-- ============================================================================
+-- Phase 5 made a worker's month read-only. The brief still requires that they
+-- be able to raise a correction, so the two must be true at once: a worker
+-- ASKS, and only the employer's answer changes the ledger. These checks are
+-- that sentence, executed.
+--
+-- The database half of this is one table and one function (migration 012). The
+-- thing being defended is not the row in correction_requests — it is that
+-- answering one is the ONLY write path it opens, and that it is open only to
+-- the employer who owns the worker.
+
+-- ── 42. The worker can raise a request about their own day ────────────────
+do $$
+declare n int; st text;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  insert into public.correction_requests
+    (employee_id, work_date, request_kind, want_kind, message)
+  values
+    ('11111111-1111-4111-8111-111111111111', current_date - 2,
+     'reclassify', 'overtime', 'I worked overtime that day.');
+
+  select count(*), max(status) into n, st
+    from public.correction_requests
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and work_date = current_date - 2;
+
+  perform public._harness_record(
+    42, 'CORRECTIONS', 'worker CAN ask for a correction on their own day',
+    '1 request, open', n || ' request(s), ' || coalesce(st, 'none'), n = 1 and st = 'open');
+exception when others then
+  perform public._harness_record(
+    42, 'CORRECTIONS', 'worker CAN ask for a correction on their own day',
+    '1 request, open', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 43. ...but not about anybody else's ───────────────────────────────────
+do $$
+declare n int;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  insert into public.correction_requests
+    (employee_id, work_date, request_kind, want_kind, message)
+  values
+    ('22222222-2222-4222-8222-222222222222', current_date - 2,
+     'reclassify', 'overtime', 'Not mine to ask about.');
+
+  perform public._harness_record(
+    43, 'CORRECTIONS', 'worker CANNOT raise a request about a colleague''s day',
+    'refused', 'ACCEPTED — the request was filed against someone else', false);
+exception when others then
+  perform public._harness_record(
+    43, 'CORRECTIONS', 'worker CANNOT raise a request about a colleague''s day',
+    'refused', sqlerrm, true);
+end $$;
+
+-- ── 44. The worker cannot approve their own request ───────────────────────
+-- This is the one that matters. If a worker could set status = 'approved' on
+-- their own request, they would have a second way to write the ledger — after
+-- Phase 5 closed the first one — and the employer's answer would be forgeable.
+-- The policy's WITH CHECK allows 'withdrawn' and nothing else.
+do $$
+declare st text;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  begin
+    update public.correction_requests set status = 'approved'
+     where employee_id = '11111111-1111-4111-8111-111111111111'
+       and work_date = current_date - 2;
+  exception when others then
+    null;   -- refused outright, which passes just as well as a silent no-op
+  end;
+
+  select max(status) into st
+    from public.correction_requests
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and work_date = current_date - 2;
+
+  perform public._harness_record(
+    44, 'CORRECTIONS', 'worker CANNOT approve their own request',
+    'still open', coalesce(st, 'none'), st = 'open');
+exception when others then
+  perform public._harness_record(
+    44, 'CORRECTIONS', 'worker CANNOT approve their own request',
+    'still open', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 45. One open request per day, enforced by the database ────────────────
+-- A double tap on a flaky connection must not put two identical requests in
+-- the employer's queue. The rule lives in a partial unique index, so it holds
+-- no matter what the UI does.
+do $$
+declare n int;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  insert into public.correction_requests
+    (employee_id, work_date, request_kind, want_kind, message)
+  values
+    ('11111111-1111-4111-8111-111111111111', current_date - 2,
+     'reclassify', 'overtime', 'Second tap.');
+
+  select count(*) into n from public.correction_requests
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and work_date = current_date - 2;
+
+  perform public._harness_record(
+    45, 'CORRECTIONS', 'a second open request for the same day is refused',
+    '1 request', n || ' request(s)', false);
+exception when unique_violation then
+  perform public._harness_record(
+    45, 'CORRECTIONS', 'a second open request for the same day is refused',
+    'refused', 'unique_violation', true);
+when others then
+  perform public._harness_record(
+    45, 'CORRECTIONS', 'a second open request for the same day is refused',
+    'refused', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 46. The employer approves, and the LEDGER changes ─────────────────────
+-- The day under this request was confirmed by check 40, so this exercises the
+-- hard path: a confirmed day's money is frozen by the guard trigger, and
+-- reclassifying to overtime changes the money. The function must reopen,
+-- reclassify, and leave the day confirmed — which is what the employer meant.
+do $$
+declare
+  v_id      uuid;
+  v_req     public.correction_requests%rowtype;
+  v_after   public.day_records%rowtype;
+  v_events  int;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select id into v_id
+    from public.correction_requests
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and work_date = current_date - 2
+     and status = 'open';
+
+  select * into v_req from public.resolve_correction(v_id, true, 'Confirmed with the crew.');
+
+  select * into v_after
+    from public.day_records
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and work_date = current_date - 2;
+
+  select count(*) into v_events
+    from public.day_record_events
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and created_at > now() - interval '1 minute';
+
+  perform public._harness_record(
+    46, 'CORRECTIONS', 'approving overtime reclassifies the day and keeps it confirmed',
+    'overtime, confirmed, 2x, request approved',
+    v_after.kind || ', ' || v_after.status || ', ' || v_after.amount || ', request ' || v_req.status,
+    v_after.kind = 'overtime'
+      and v_after.status = 'confirmed'
+      and v_after.amount = v_after.rate * 2
+      and v_after.source = 'correction'
+      and v_req.status = 'approved'
+      and v_req.resolved_by is not null);
+exception when others then
+  perform public._harness_record(
+    46, 'CORRECTIONS', 'approving overtime reclassifies the day and keeps it confirmed',
+    'overtime, confirmed, 2x, request approved', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 47. An answered request does not block a later one ────────────────────
+-- The partial index covers OPEN requests only. Without that, a worker whose
+-- request was rejected could never raise another about the same day, and the
+-- uniqueness rule meant to stop double taps would become a permanent ban.
+do $$
+declare st text;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  insert into public.correction_requests
+    (employee_id, work_date, request_kind, message)
+  values
+    ('11111111-1111-4111-8111-111111111111', current_date - 2,
+     'remove', 'And actually I was not there either.');
+
+  select max(status) into st from public.correction_requests
+   where employee_id = '11111111-1111-4111-8111-111111111111'
+     and work_date = current_date - 2;
+
+  perform public._harness_record(
+    47, 'CORRECTIONS', 'an answered request does not block a new one',
+    'a second request exists', 'latest status ' || coalesce(st, 'none'),
+    (select count(*) from public.correction_requests
+      where employee_id = '11111111-1111-4111-8111-111111111111'
+        and work_date = current_date - 2) = 2);
+exception when others then
+  perform public._harness_record(
+    47, 'CORRECTIONS', 'an answered request does not block a new one',
+    'a second request exists', 'ERROR: ' || sqlerrm, false);
 end $$;
 
 reset role;
