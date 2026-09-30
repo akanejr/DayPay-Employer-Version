@@ -1,8 +1,33 @@
 -- ============================================================================
--- DayPay Employer Version — RLS verification harness (v9)
+-- DayPay Employer Version — RLS verification harness (v10)
 -- ============================================================================
 -- Proves an employee cannot read another employee's wages.
 -- Seeds test data, runs the checks, then ROLLS BACK. Safe to re-run.
+--
+-- NEW IN v10 — THE FILE NOW ACTUALLY RUNS. It had never been executed
+-- end-to-end from top to bottom: Phases 6 and 7 verified their sections by
+-- slicing them out, and a slice supplies its own fixtures, so it cannot see an
+-- ordering mistake at the top of the file. Phase 8 ran the whole thing against
+-- a real PostgreSQL with all thirteen migrations, and found four faults, all
+-- fixed here. Every one of them stopped the run before a single check could
+-- execute, which is why none was ever noticed:
+--
+--   1. `grant select on _ids` sat eight lines ABOVE the creation of `_ids`.
+--      The file died on that statement: relation "_ids" does not exist.
+--   2. The "code from yesterday is dead" fixture had `expires_at` in the past
+--      against a default `opens_at` of now(), so it violated
+--      attendance_session_window (expires_at > opens_at). A session that has
+--      ended has to have started before it ended.
+--   3. Check 18 (client-sent amount ignored) inherited Phase 2's EMPLOYEE role,
+--      which cannot insert a day at all — check 17 proves that two checks
+--      earlier. RLS refused the insert and the money trigger the check exists
+--      to exercise was never reached. It now runs as the owner.
+--   4. Check 27 (two live sessions cover this worker) also counted sessions as
+--      the employee, who by design can see none — the very thing check 19
+--      asserts. The two checks contradicted each other. It now counts as the
+--      owner, because it is a statement about the fixture, not a permission.
+--
+-- Result: 58 checks, 0 failures, in one run.
 --
 -- NEW IN v9
 --   * billing (checks 48-57). Phase 7 freezes a period into an invoice. The
@@ -119,15 +144,6 @@ end $$;
 grant execute on function public._harness_record(int, text, text, text, text, boolean)
   to authenticated, anon;
 
-/* _ids and _rls live in the TEMP schema, and a temporary table created by the
-   owner is NOT readable by a role switched with SET ROLE. Every phase below
-   reads _ids to find out which account it is acting as, so without this the
-   whole run dies on its first check with "permission denied for table _ids" —
-   which is exactly what happened the first time this file was executed against
-   a real PostgreSQL. */
-grant select on _ids to authenticated, anon;
-grant select on _rls to authenticated, anon;
-
 -- ── Which two accounts to test ─────────────────────────────────────────────
 -- Blank = auto-pick the two most recently created accounts.
 create temp table _cfg on commit drop as
@@ -161,6 +177,23 @@ select
   (select email from auth.users where id = p.employee_uid) as employee_email_used,
   (select count(*) from auth.users) as total_accounts
 from picked p;
+
+/* _ids and _rls live in the TEMP schema, and a temporary table created by the
+   owner is NOT readable by a role switched with SET ROLE. Every phase below
+   reads _ids to find out which account it is acting as, so without this the
+   whole run dies on its first check with "permission denied for table _ids" —
+   which is exactly what happened the first time this file was executed against
+   a real PostgreSQL.
+
+   THESE GRANTS USED TO SIT 8 LINES TOO HIGH — immediately after the recorder
+   function and BEFORE `_ids` was created — so the file could never run at all:
+   it stopped on `grant select on _ids` with `relation "_ids" does not exist`,
+   before a single check. Slicing sections out to test them (which is how
+   Phases 6 and 7 were verified) cannot see that, because a slice supplies its
+   own fixtures. Found by running the whole file for Phase 8. Grants always
+   come after the thing they grant on. */
+grant select on _ids to authenticated, anon;
+grant select on _rls to authenticated, anon;
 
 do $$
 declare n int; a uuid; b uuid;
@@ -264,12 +297,19 @@ select '88888888-8888-4888-8888-888888888888', employer_uid,
        null, current_date, '8642', now() + interval '8 hours'
 from _ids;
 
--- A session that ended yesterday. Its code must be dead.
+/* A session that ended yesterday. Its code must be dead.
+
+   `opens_at` is given explicitly here, and that is not tidiness: it defaults to
+   now(), so an expiry in the PAST makes the window negative and trips
+   attendance_session_window (expires_at > opens_at). This fixture failed that
+   check every single time the file was run — the second of the two bugs that
+   stopped the harness before any check could execute. A session that has ended
+   has to have started earlier than it ended. */
 insert into public.attendance_sessions
-  (id, employer_id, contractor_id, work_date, code, expires_at)
+  (id, employer_id, contractor_id, work_date, code, opens_at, expires_at)
 select '77777777-7777-4777-8777-777777777777', employer_uid,
        '33333333-3333-4333-8333-333333333333',
-       current_date - 1, '0000', now() - interval '1 hour'
+       current_date - 1, '0000', now() - interval '2 days', now() - interval '1 hour'
 from _ids;
 
 
@@ -459,8 +499,16 @@ begin
     refused);
 end $$;
 
--- Attempt to dictate the amount. The server must overwrite it: a weekend day
--- at ₦16,000 × 2 is ₦32,000 no matter what the client sends.
+/* Attempt to dictate the amount. The server must overwrite it: a weekend day
+   at ₦16,000 × 2 is ₦32,000 no matter what the client sends.
+
+   AS THE OWNER, not as the employee. This check inherits Phase 2's role, and
+   the employee role cannot insert a day at all — check 17 proves exactly that
+   — so the insert was refused by RLS and the trigger the check exists to
+   exercise was never reached. A check that cannot reach its own subject and
+   reports "refused" looks almost identical to one that passes, which is why
+   this was invisible for three phases. */
+reset role;
 do $$
 declare paid numeric;
 begin
@@ -474,6 +522,18 @@ exception when others then
   perform public._harness_record(
     18, 'FORGERY', 'client-sent amount ignored; server computed 32000',
     '32000', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- Hand back to the employee: everything after this runs as the worker again.
+set local role authenticated;
+do $$
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
 end $$;
 
 -- ── Attendance sessions, from the worker's side ───────────────────────────
@@ -593,6 +653,11 @@ end $$;
 -- site-wide one ('8642'). Both codes are legitimately open to them, so BOTH
 -- must be accepted. Before the fix, whichever session the planner returned
 -- first was compared against, so one of these two codes was reported wrong.
+/* Counting the sessions is a fact about the FIXTURE, not about permissions, so
+   it runs as the owner. Read as the employee it returns 0 — which is what
+   check 19 asserts a few lines above, so the two checks were contradicting each
+   other and the file "failed" a database that was behaving perfectly. */
+reset role;
 select public._harness_record(
   27, 'SESSIONS', 'two live sessions cover this worker (the overlap is real)',
   '2', (select count(*)::text from public.attendance_sessions
@@ -605,6 +670,18 @@ select public._harness_record(
        and work_date = current_date
        and (contractor_id is null
             or contractor_id = '33333333-3333-4333-8333-333333333333')) = 2);
+
+-- Hand back to the employee: everything after this runs as the worker again.
+set local role authenticated;
+do $$
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+end $$;
 
 -- The site-wide code. The day already exists, so success means `already`.
 do $$
