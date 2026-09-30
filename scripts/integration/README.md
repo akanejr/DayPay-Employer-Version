@@ -8,12 +8,15 @@ gets an answer from the database rather than from a fixture someone wrote by
 hand.
 
 They use [PGlite](https://github.com/electric-sql/pglite), which is PostgreSQL
-compiled to WebAssembly. No Docker, no server, no connection string. The two
+compiled to WebAssembly — it is a devDependency, so `npm install` is all the
+setup there is. (It was fetched with `--no-save` at first, which meant the next
+`npm install` silently pruned it and the proofs stopped running. An artefact
+that disappears is not evidence.) No Docker, no server, no connection string. The two
 Supabase pieces the migrations assume — the `anon`/`authenticated` roles and
 `auth.uid()` reading the JWT claims — are created by the runners themselves.
 
 ```bash
-npm install --no-save @electric-sql/pglite
+npm install     # @electric-sql/pglite and jsdom are devDependencies
 npm run prove
 ```
 
