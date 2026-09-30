@@ -2,7 +2,7 @@
 
 These are not unit tests. `tests/` runs the pure logic in microseconds and
 should stay that way. What these add is the layer underneath it: a real
-PostgreSQL — the same seventeen migrations the live project has — so that a
+PostgreSQL — the same eighteen migrations the live project has — so that a
 question like *"does the number on the invoice equal the number in the ledger"*
 gets an answer from the database rather than from a fixture someone wrote by
 hand.
@@ -25,9 +25,9 @@ also be run alone:
 
 | File | The question it answers |
 | --- | --- |
-| `migrations.mjs` | Does 001→017 apply to an empty database, and is what comes out the shape the app expects? |
+| `migrations.mjs` | Does 001→018 apply to an empty database, and is what comes out the shape the app expects? |
 | `e2e.mjs` | Does one day of work end up as the *same money* on every screen? |
-| `harness.mjs` | Can an employee see another employee's wages? |
+| `harness.mjs` | Can an employee see another employee's wages, or guess a colleague's PIN? |
 | `lockout-probe.mjs` | Does the five-attempt lockout actually lock anybody out? (It did not. 017 fixed it — see below.) |
 
 ## The one file to paste into Supabase

@@ -33,7 +33,8 @@ import {
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
   periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
-  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus,
+  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus, isMissingFunction,
+  isValidPinShape,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -53,7 +54,8 @@ export {
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
   periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
-  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus,
+  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus, isMissingFunction,
+  isValidPinShape,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -560,6 +562,50 @@ export async function redeemInvite(code) {
   const row = Array.isArray(data) ? data[0] : data
   if (!row) throw new EmployerError('Could not join.', { hint: 'The code was accepted but no roster entry came back.' })
   return row
+}
+
+/* ── Phase 11: the personal attendance PIN ───────────────────────────────────
+   The kiosk's half of "prove it is you". A worker with no smartphone, or no
+   network today, has no account to sign in with, so the site proves who they
+   are another way: they pick their name and type four digits that only they
+   have been told.
+
+   The PIN is generated on the SERVER and the plain value is returned exactly
+   once. Nothing in the database can produce it again — only a salted hash is
+   stored — so the panel that shows it has to say so, and does. A lost PIN is
+   replaced, never recovered, and that is a property of the storage, not a
+   policy somebody could change their mind about later. */
+
+export async function setAttendancePin(employeeId) {
+  const { data, error } = await client().rpc('set_attendance_pin', { p_employee_id: employeeId })
+  if (error) {
+    throw new EmployerError(describe(error).message, { code: error.code, cause: error })
+  }
+  // PostgREST returns a bare scalar for a function returning `text`.
+  const pin = Array.isArray(data) ? data[0] : data
+  if (!pin || !isValidPinShape(pin)) {
+    throw new EmployerError('The PIN was not issued.', {
+      hint: 'The database accepted the request but returned no four-digit PIN. Nothing was changed — try again.',
+    })
+  }
+  return String(pin)
+}
+
+/* Has this worker got a PIN, and when was it issued. Deliberately NOT "what is
+   it": there is no such question, and the label in the roster depends on the
+   difference between "never issued" and "issued in June". */
+export async function employeePinStatus(employeeId) {
+  const { data, error } = await client().rpc('employee_pin_status', { p_employee_id: employeeId })
+  if (error) {
+    /* A project that has not run migration 018 yet: the roster must still work,
+       so this degrades to "unknown" rather than taking the pane down. The
+       panel says the PIN feature is not installed instead of pretending the
+       worker has no PIN — those are different facts. */
+    if (isMissingFunction(error, 'employee_pin_status')) return null
+    throw new EmployerError(describe(error).message, { code: error.code, cause: error })
+  }
+  const row = Array.isArray(data) ? data[0] : data
+  return row || { has_pin: false, set_at: null, locked_until: null }
 }
 
 /* Unlinks the signed-in account from whatever roster entry it holds. */

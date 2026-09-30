@@ -13,6 +13,8 @@ const { createRoot } = await import('react-dom/client')
 const { act } = await import('react')
 const WorkerView = (await import('../../src/employer/WorkerView.jsx')).default
 const EmployeeView = (await import('../../src/employer/EmployeeView.jsx')).default
+const PinPanel = (await import('../../src/employer/PinPanel.jsx')).default
+const mock = await import('./mock-employer.js')
 
 const employee = { id: 'e1', full_name: 'James Okon', job_title: 'Rigger', status: 'active' }
 let bad = 0
@@ -205,7 +207,6 @@ globalThis.__bad = (globalThis.__bad || 0) + bad
 // what the card leads with, so here it leads with the money already billed.
 {
   const Billing = (await import('../../src/employer/Billing.jsx')).default
-  const mock = await import('./mock-employer.js')
 
   const issued = (id, contractorId, name, total) => ({
     id, employer_id: 'o1', contractor_id: contractorId, contractor_name: name,
@@ -234,6 +235,63 @@ globalThis.__bad = (globalThis.__bad || 0) + bad
     !!card && /Every recorded day/.test(card.textContent))
   ok('both documents are still listed underneath', !!byText(host, '.ew-inv', 'INV-0007')
     && !!byText(host, '.ew-inv', 'INV-0008'))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+/* ── Phase 11: issuing a PIN ─────────────────────────────────────────────────
+   Two things have to be true, and only one of them is about rendering.
+
+   The first is that a worker with no PIN is told what a PIN is FOR — they have
+   no smartphone and no account, and this is their way onto the site. The
+   second, and the one that matters, is that the PIN appears once and the
+   screen says so. There is no recover-it-later path, because the database
+   holds only a hash; a screen that quietly implied otherwise would be found
+   out by an employer at a kiosk with a queue behind them. */
+{
+  mock.setPinFixtures({})
+  const { host, root } = await mount(
+    <PinPanel employee={{ id: 'e1', full_name: 'James Okon' }} onChanged={() => {}} />,
+  )
+
+  ok('a worker with no PIN is told what one is for',
+    host.innerHTML.includes('kiosk') && host.innerHTML.includes('No PIN yet'),
+    host.textContent.replace(/\s+/g, ' ').slice(0, 90))
+
+  await click(byText(host, '.ew-btn', 'Create PIN'))
+
+  const value = host.querySelector('[data-testid="pin-value"]')
+  ok('the PIN is shown, once it has been issued',
+    !!value && /^\d{4}$/.test(value.textContent.trim()),
+    value ? value.textContent.trim() : 'no PIN on screen')
+
+  ok('and the screen says this is the only time it will be shown',
+    /only time/.test(host.textContent) && /hashed/.test(host.textContent))
+
+  await click(byText(host, '.ew-btn', 'Copy'))
+
+  ok('the irreversibility is stated in words an employer can act on',
+    /issue a new one|Issue a new one/.test(host.textContent))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+/* A worker who already holds a PIN: the number is gone for good, and the only
+   thing on offer is a replacement. */
+{
+  mock.setPinFixtures({ e1: { has_pin: true, set_at: '2026-09-30T08:00:00Z', locked_until: null } })
+  const { host, root } = await mount(
+    <PinPanel employee={{ id: 'e1', full_name: 'James Okon' }} onChanged={() => {}} />,
+  )
+
+  ok('an existing PIN is never re-displayed — only its issue date',
+    !host.querySelector('[data-testid="pin-value"]') && /30 Sep 2026/.test(host.textContent),
+    host.textContent.replace(/\s+/g, ' ').slice(0, 90))
+
+  ok('and the button offers a replacement, not a lookup',
+    !!byText(host, '.ew-btn', 'Issue a new PIN'))
 
   await act(async () => { root.unmount() })
   host.remove()

@@ -212,6 +212,12 @@ const LIVE_BATCH = ['012_correction_requests.sql',
   '016_attendance_status_tiebreak.sql',
   '017_refusal_as_value.sql']
 
+/* AND THE STATE THAT COMES AFTER IT: a project which has run the batch and is
+   one file behind the repository. This is the ordinary state of a project
+   between phases, and it is the one that catches a migration written against
+   the latest schema instead of against the schema it will actually meet. */
+const LIVE_NEXT = ['018_attendance_pin.sql']
+
 {
   const db2 = new PGlite({ parsers: { 1082: (v) => v } })
   await db2.exec(`create role anon; create role authenticated; create schema auth;
@@ -237,6 +243,15 @@ const LIVE_BATCH = ['012_correction_requests.sql',
 
   ok(`the ${LIVE_BATCH.length} batch migrations apply on top of a project that predates them`,
     !broke, broke || `after ${applied.length} already applied (${LIVE_BATCH.map(f => f.slice(0, 3)).join(' → ')})`)
+
+  if (!broke) {
+    for (const f of LIVE_NEXT) {
+      try { await db2.exec(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8')) }
+      catch (e) { broke = `${f}: ${e.message.split('\n')[0]}`; break }
+    }
+    ok(`and the ${LIVE_NEXT.length} file added since apply on top of that`,
+      !broke, broke || `after the whole batch (${LIVE_NEXT.map(f => f.slice(0, 3)).join(' → ')})`)
+  }
 
   if (!broke) {
     const patched = await functionShape(db2)

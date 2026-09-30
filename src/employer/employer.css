@@ -1613,3 +1613,52 @@
   .ew-bill-amount { font-size: 15px; }
   .ew-inv-number { font-size: 14px; }
 }
+
+/* ── Phase 11: the personal attendance PIN ──────────────────────────────────
+   The PIN is shown once and then never again, so its one appearance has to be
+   unmissable: large, monospaced, and set apart from the card around it. This
+   is the same reasoning as the site code in the attendance panel — a number
+   somebody has to read off a screen and write down or say out loud is a
+   typographic job, not a data job. */
+.ew-pin-fresh {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg-sunken, #F7F8FA);
+  border: 1px solid var(--border);
+}
+
+.ew-pin-caption {
+  margin: 0 0 6px;
+  font-size: var(--fs-label, 11px);
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.ew-pin-value {
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: .26em;
+  line-height: 1.1;
+  color: var(--text);
+  /* The tracking pushes the last digit right by one gap; pull it back so the
+     number sits optically centred rather than visibly off to the left. */
+  margin-left: -.26em;
+  padding: 2px 0 6px;
+  user-select: all;
+}
+
+.ew-pin-warn {
+  margin: 0 0 10px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+@media (max-width: 420px) {
+  .ew-pin-value { font-size: 28px; }
+}

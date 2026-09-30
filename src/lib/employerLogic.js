@@ -631,6 +631,50 @@ export function isMissingTable(error, table) {
   return new RegExp(`relation\\b.*\\b${table}\\b.*does not exist`, 'i').test(msg)
 }
 
+/* Did this call fail because the FUNCTION does not exist yet?
+
+   Same reasoning as isMissingColumn above: the app is deployed by hand at a
+   different moment from the migration, so there is always a window where the
+   code is newer than the schema, and a lookup that hard-requires the new
+   function would take the whole pane down during it. Migration 018 is the case
+   this exists for.
+
+   Two different systems can answer this call, and they word it differently:
+
+     PostgreSQL   42883  "function public.foo(uuid) does not exist"
+     PostgREST    PGRST202
+                  "Could not find the function public.foo(p_x) in the schema cache"
+
+   The first attempt at this only knew the first wording and the second one,
+   written as "does not exist|not found" AFTER the name, matched neither — the
+   PostgREST sentence puts "Could not find" BEFORE the name. That is exactly the
+   case a user hits, because the app talks to PostgREST and never to PostgreSQL.
+   So the phrases are checked anywhere in the message, and the function name has
+   to be in there too.
+
+   What must NOT match, and is tested: "permission denied for function foo" —
+   same words, entirely different problem. Told to run a migration when the
+   real answer is "that worker is not yours" sends somebody to fix the wrong
+   thing. */
+export function isMissingFunction(error, fn) {
+  if (!error) return false
+
+  const msg = String(error.message || error.details || '')
+
+  /* 42883 IS "undefined_function" — the SQLSTATE means exactly one thing, so
+     the code alone is enough and there is nothing to disambiguate. */
+  if (error.code === '42883') return true
+
+  /* PGRST202 is PostgREST's general "could not find it in the schema cache",
+     which is NOT specific to functions, so the name has to appear. Without
+     this, a missing table or view would be read as "run migration 018". */
+  const named = !fn || new RegExp(`\\b${fn}\\b`, 'i').test(msg)
+  if (error.code === 'PGRST202') return named
+
+  if (!msg || !named) return false
+  return /does not exist|not found|could not find|schema cache/i.test(msg)
+}
+
 // ── Attendance sessions ─────────────────────────────────────────────────────
 
 /* The end of the employer's own local day, as an instant.
@@ -664,6 +708,16 @@ export function sessionIsLive(session, now = new Date()) {
    five attempts the server allows. */
 export function isValidCodeShape(code) {
   return /^[0-9]{4}$/.test(String(code ?? '').trim())
+}
+
+/* The personal attendance PIN, at the kiosk. Same shape rule as the site code
+   above, and deliberately its own function rather than a shared one: they are
+   different secrets with different owners, and a change to one must not move
+   the other. Checked here so a mistyped PIN does not spend one of the five
+   attempts the server allows — the cap is a security control, and a typo
+   should not eat it. */
+export function isValidPinShape(pin) {
+  return /^[0-9]{4}$/.test(String(pin ?? '').trim())
 }
 
 /* How long is left, in words an employer can act on. Deliberately coarse: the

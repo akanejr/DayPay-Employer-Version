@@ -24,6 +24,7 @@ import {
 } from '../lib/employer'
 import Dashboard from './Dashboard'
 import ContractorEditor from './ContractorEditor'
+import PinPanel from './PinPanel'
 import PaneErrorBoundary from './PaneErrorBoundary'
 import StaffDays from './StaffDays'
 import Summary from './Summary'
@@ -228,6 +229,10 @@ function Staff({ employees, contractors = [], contractorsOk = true, periods, loa
   const [rateFor, setRateFor] = useState(null)
   const [inviteFor, setInviteFor] = useState(null)
   const [busyInvite, setBusyInvite] = useState(false)
+  /* Which worker's PIN panel is open. Only one card is open at a time — the
+     roster already opens Rate panels and the Add form the same way, and two
+     open cards push the roster off the screen on a phone. */
+  const [pinFor, setPinFor] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
   const [busyId, setBusyId] = useState(null)
 
@@ -367,9 +372,18 @@ function Staff({ employees, contractors = [], contractorsOk = true, periods, loa
               </button>
               <button
                 type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
-                onClick={() => { setInviteFor(e.id === inviteFor ? null : e.id); setRateFor(null); setAdding(false) }}
+                onClick={() => { setInviteFor(e.id === inviteFor ? null : e.id); setRateFor(null); setAdding(false); setPinFor(null) }}
               >
                 Invite
+              </button>
+              {/* The kiosk route: for a worker who will never have an account
+                  of their own. Sits next to Invite because it answers the same
+                  question — how do I get this person into the system? */}
+              <button
+                type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+                onClick={() => { setPinFor(e.id === pinFor ? null : e.id); setRateFor(null); setAdding(false); setInviteFor(null) }}
+              >
+                PIN
               </button>
               <button
                 type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
@@ -476,6 +490,12 @@ function Staff({ employees, contractors = [], contractorsOk = true, periods, loa
             )}
           </div>
         )
+      })()}
+
+      {pinFor && (() => {
+        const emp = employees.find(x => x.id === pinFor)
+        if (!emp) return null
+        return <PinPanel employee={emp} onChanged={reload} />
       })()}
 
       {rateFor && (() => {

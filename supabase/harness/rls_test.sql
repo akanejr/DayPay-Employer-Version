@@ -240,6 +240,14 @@ begin
     raise exception
       'The attendance_sessions table does not exist. Run supabase/migrations/008_attendance_sessions.sql, then re-run this harness.';
   end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'employees' and column_name = 'pin_hash'
+  ) then
+    raise exception
+      'The personal attendance PIN is not installed. Run supabase/migrations/018_attendance_pin.sql, then re-run this harness.';
+  end if;
 end $$;
 
 -- ── Seed ───────────────────────────────────────────────────────────────────
@@ -1630,6 +1638,187 @@ exception when others then
   perform public._harness_record(
     57, 'BILLING', 'documents never leak to an account that does not own them',
     '0 foreign documents, 0 lines', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+
+-- ============================================================================
+-- THE ATTENDANCE PIN (migration 018)
+-- ============================================================================
+-- Numbered from 59 because 58 is taken and the number is an id, not a
+-- position. These are the checks that make four digits defensible: the PIN is
+-- never stored as itself, a worker cannot issue one for anybody, a worker
+-- cannot use the verifier as a guessing oracle, and five wrong guesses shut
+-- the door.
+
+-- ── 59, 60. The employer issues a PIN ─────────────────────────────────────
+do $$
+declare
+  v_pin  text;
+  v_hash text;
+  v_salt text;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  v_pin := public.set_attendance_pin('11111111-1111-4111-8111-111111111111');
+
+  perform public._harness_record(
+    59, 'PIN', 'the employer can give a worker a PIN, and it comes back as four digits',
+    '4 digits', coalesce(v_pin, '(none)'),
+    v_pin is not null and v_pin ~ '^[0-9]{4}$');
+
+  /* THE PIN MUST NOT BE SITTING IN THE DATABASE. The employer can read these
+     columns — they are their worker's row — so this is a real read, not a
+     peek at something the API hides. */
+  select pin_hash, pin_salt into v_hash, v_salt
+    from public.employees where id = '11111111-1111-4111-8111-111111111111';
+
+  perform public._harness_record(
+    60, 'PIN', 'what is stored is a digest, not the PIN itself',
+    '64 hex chars, salted, and not equal to the PIN',
+    coalesce(left(v_hash, 16), '(null)') || '… salt ' || coalesce(length(v_salt)::text, '0') || ' chars',
+    v_hash is not null and v_hash ~ '^[0-9a-f]{64}$'
+      and v_hash <> v_pin and v_salt is not null and length(v_salt) >= 16);
+exception when others then
+  perform public._harness_record(
+    59, 'PIN', 'the employer can give a worker a PIN, and it comes back as four digits',
+    '4 digits', 'ERROR: ' || sqlerrm, false);
+  perform public._harness_record(
+    60, 'PIN', 'what is stored is a digest, not the PIN itself',
+    'a hash', 'not reached', false);
+end $$;
+
+-- ── 61. A worker cannot issue one, for themselves or anybody else ─────────
+do $$
+declare v_err text := 'no error — a worker issued a PIN';
+declare v_pin text;
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  begin
+    v_pin := public.set_attendance_pin('11111111-1111-4111-8111-111111111111');
+  exception when others then
+    v_err := sqlerrm;
+  end;
+
+  -- And the direction that matters more: a colleague.
+  if v_err like 'no error%' then
+    begin
+      v_pin := public.set_attendance_pin('22222222-2222-4222-8222-222222222222');
+      v_err := 'no error — a worker issued a PIN for a colleague';
+    exception when others then
+      v_err := sqlerrm;
+    end;
+  end if;
+
+  perform public._harness_record(
+    61, 'PIN', 'a worker CANNOT issue a PIN, for themselves or a colleague',
+    'both refused', left(v_err, 60), position('not on your roster' in v_err) > 0);
+exception when others then
+  perform public._harness_record(
+    61, 'PIN', 'a worker CANNOT issue a PIN, for themselves or a colleague',
+    'both refused', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 62. The verifier is not a guessing oracle for a signed-in worker ──────
+-- The whole point of a 4-digit PIN is that it cannot be tried in a loop. If a
+-- signed-in account can call the verifier directly, it can. This check is the
+-- reason verify_attendance_pin is executable by the owner and nobody else.
+do $$
+declare v_err text := 'no error — a worker called the verifier';
+begin
+  begin
+    perform public.verify_attendance_pin('11111111-1111-4111-8111-111111111111', '0000');
+  exception when others then
+    v_err := sqlerrm;
+  end;
+
+  perform public._harness_record(
+    62, 'PIN', 'a worker CANNOT call the PIN verifier in a loop',
+    'refused', left(v_err, 60),
+    position('permission denied' in v_err) > 0 or position('does not exist' in v_err) > 0);
+exception when others then
+  perform public._harness_record(
+    62, 'PIN', 'a worker CANNOT call the PIN verifier in a loop',
+    'refused', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+reset role;
+
+-- ── 63–66. The PIN itself, as the owner, because only the owner may check ──
+do $$
+declare
+  v_status text;
+  v_fails  int;
+  v_locked timestamptz;
+  emp      uuid := '11111111-1111-4111-8111-111111111111';
+begin
+  /* The PIN issued in check 59 is not readable from here — that is the whole
+     design, and this block cannot cheat around it. So the verifier is tested
+     against a PIN written directly as the owner: the salt already on the row
+     is reused with a known value, which also proves pin_hash() is deterministic
+     for the same salt and PIN. Nothing here guesses what the four digits were. */
+  update public.employees
+     set pin_hash = public.pin_hash('4321', pin_salt),
+         pin_fails = 0, pin_locked_until = null
+   where id = emp;
+
+  -- 63. The right PIN verifies.
+  v_status := public.verify_attendance_pin(emp, '4321');
+  perform public._harness_record(
+    63, 'PIN', 'the right PIN verifies as ok',
+    'ok', v_status, v_status = 'ok');
+
+  -- 64. A wrong PIN is REFUSED AND RECORDED. This is migration 017's lesson,
+  --     applied before the mistake: if a wrong PIN raised, the write would be
+  --     rolled back by the very failure it was recording, and the lockout
+  --     below could never fire.
+  v_status := public.verify_attendance_pin(emp, '0001');
+  select pin_fails into v_fails from public.employees where id = emp;
+  perform public._harness_record(
+    64, 'PIN', 'a wrong PIN is refused AND written down, so the cap can count it',
+    'wrong, 1 recorded', v_status || ', ' || coalesce(v_fails::text, '?') || ' recorded',
+    v_status = 'wrong' and v_fails = 1);
+
+  -- 65. Five wrong guesses close the door, and the CORRECT PIN stops working.
+  --     A lockout that still accepts the right PIN is not a lockout.
+  perform public.verify_attendance_pin(emp, '0002');
+  perform public.verify_attendance_pin(emp, '0003');
+  perform public.verify_attendance_pin(emp, '0004');
+  v_status := public.verify_attendance_pin(emp, '0005');   -- the fifth
+  v_status := public.verify_attendance_pin(emp, '4321');   -- the right one, now late
+
+  select pin_fails, pin_locked_until into v_fails, v_locked
+    from public.employees where id = emp;
+
+  perform public._harness_record(
+    65, 'PIN', 'five wrong guesses lock the PIN, and the right PIN stops working too',
+    'locked', v_status,
+    v_status = 'locked' and v_locked is not null and v_locked > now());
+
+  -- 66. A worker with no PIN cannot be verified against anything.
+  update public.employees
+     set pin_hash = null, pin_salt = null, pin_fails = 0, pin_locked_until = null
+   where id = '22222222-2222-4222-8222-222222222222';
+
+  v_status := public.verify_attendance_pin('22222222-2222-4222-8222-222222222222', '0000');
+  perform public._harness_record(
+    66, 'PIN', 'a worker with NO PIN matches nothing, not even a guess of 0000',
+    'not_set', v_status, v_status = 'not_set');
+exception when others then
+  perform public._harness_record(
+    63, 'PIN', 'the right PIN verifies as ok',
+    'ok', 'ERROR: ' || sqlerrm, false);
 end $$;
 
 

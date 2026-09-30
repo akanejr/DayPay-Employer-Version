@@ -119,6 +119,19 @@ export const resetSchemaProbes = () => {}
 export const correctionsAvailable = () => true
 export const markCorrectionsMissing = () => {}
 export const issueInviteCode = async () => 'ABCD1234'
+
+/* ── Phase 11: the attendance PIN ───────────────────────────────────────────
+   The mock has to model the two facts the panel branches on, because they are
+   what the screen is FOR: a worker who has never had a PIN, and one who has.
+   `setAttendancePin` returns a value, like the real RPC, so the panel's
+   "shown once" branch is exercised. */
+let PIN_STATE = {}
+export const employeePinStatus = async (id) => PIN_STATE[id] || { has_pin: false, set_at: null, locked_until: null }
+export const setAttendancePin = async (id) => {
+  PIN_STATE[id] = { has_pin: true, set_at: '2026-09-30T08:00:00Z', locked_until: null }
+  return '4821'
+}
+export function setPinFixtures(next) { PIN_STATE = next || {} }
 export const myRoles = async () => ({
   uid: 'o1', isEmployer: true, kind: 'business', isBusiness: true,
   businessName: 'Eddimore', employee: null,

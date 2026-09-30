@@ -44,8 +44,94 @@ const day = (employee_id, { amount = 16000, kind = 'work', status = 'claimed', m
    who somebody is. */
 
 import {
-  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus,
+  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus, isMissingFunction,
+  isValidPinShape, isValidCodeShape,
 } from '../src/lib/employerLogic.js'
+
+
+/* ── PHASE 11: the personal attendance PIN ──────────────────────────────────
+
+   The PIN is a four-digit secret typed on a machine in front of a queue, so
+   the rules around it are small and load-bearing. Two kinds of rule live here:
+   what counts as a well-formed PIN in the browser, and how the app behaves
+   when the migration has not been run yet. */
+
+describe('a PIN must not spend an attempt just to be typed', () => {
+  test('four digits is a PIN', () => {
+    assert.equal(isValidPinShape('0000'), true)
+    assert.equal(isValidPinShape('4821'), true)
+  })
+
+  test('padding and stray spaces are the user, not an error', () => {
+    // Somebody typing on a kiosk keypad produces spaces. Rejecting " 4821 "
+    // would spend one of five attempts on a PIN that was actually correct.
+    assert.equal(isValidPinShape(' 4821 '), true)
+    assert.equal(isValidPinShape('\t4821\n'), true)
+  })
+
+  test('anything that is not four digits is refused before it is sent', () => {
+    for (const bad of ['', '123', '12345', 'abcd', '12a4', '12 4', null, undefined, {}, '一234']) {
+      assert.equal(isValidPinShape(bad), false, `${JSON.stringify(bad)} must not pass`)
+    }
+  })
+
+  test('it is not the site-code rule wearing a hat', () => {
+    // They are different secrets with different owners, so they are separate
+    // functions — but they must stay in step. If this fails, one format moved
+    // without the other, and the kiosk would accept a PIN the mobile check-in
+    // would refuse.
+    for (const v of ['0000', '4821', '123', 'abcd']) {
+      assert.equal(isValidPinShape(v), isValidCodeShape(v), `disagree on ${v}`)
+    }
+  })
+})
+
+describe('behaving when the PIN migration has not been run yet', () => {
+  test('a missing function is recognised by its SQLSTATE', () => {
+    assert.equal(isMissingFunction({ code: '42883' }, 'employee_pin_status'), true)
+  })
+
+  test('and by PostgreSQL\'s own wording', () => {
+    assert.equal(
+      isMissingFunction({ message: 'function public.employee_pin_status(uuid) does not exist' }, 'employee_pin_status'),
+      true)
+  })
+
+  test('and by PostgREST\'s, which is the one a user actually meets', () => {
+    // The app never talks to PostgreSQL. It talks to PostgREST, whose sentence
+    // puts "Could not find" BEFORE the name — so a pattern that looks for
+    // "not found" after the name matches nothing, in the only case that happens
+    // in production. This check exists because that was the first draft.
+    assert.equal(
+      isMissingFunction({
+        code: 'PGRST202',
+        message: 'Could not find the function public.employee_pin_status(p_employee_id) in the schema cache',
+      }, 'employee_pin_status'),
+      true)
+  })
+
+  test('the code alone is not enough — the name has to be in there', () => {
+    // Otherwise a missing SOMETHING ELSE degrades this pane to "not installed".
+    assert.equal(
+      isMissingFunction({ code: 'PGRST202', message: 'Could not find the function public.other_thing()' }, 'employee_pin_status'),
+      false)
+  })
+
+  test('a real error is NOT mistaken for a missing migration', () => {
+    // The failure mode worth guarding: reading "not on your roster" as "the
+    // migration was not run" would tell an employer to run SQL when the real
+    // problem is that the worker is not theirs.
+    assert.equal(isMissingFunction({ code: '42501', message: 'That worker is not on your roster.' }, 'employee_pin_status'), false)
+    assert.equal(isMissingFunction({ message: 'permission denied for function employee_pin_status' }, 'employee_pin_status'), false)
+    assert.equal(isMissingFunction(null, 'employee_pin_status'), false)
+  })
+
+  test('and a different function being missing does not match this one', () => {
+    assert.equal(
+      isMissingFunction({ message: 'function public.some_other_thing() does not exist' }, 'employee_pin_status'),
+      false)
+  })
+})
 
 describe('the account-type choice', () => {
   test('offers exactly the two roles the brief names', () => {
@@ -1099,7 +1185,7 @@ describe('isMissingTable', () => {
 // ── Attendance sessions ─────────────────────────────────────────────────────
 
 import {
-  endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
+  endOfLocalDay, sessionState, sessionIsLive,
   timeLeftLabel, attendancePrompt, checkInError,
 } from '../src/lib/employerLogic.js'
 

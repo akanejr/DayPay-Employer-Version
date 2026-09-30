@@ -40,6 +40,18 @@ cr as (
 ),
 attempts as (
   select count(*) as n from public.check_in_attempts
+),
+pin as (
+  select
+    (select count(*) from information_schema.columns
+      where table_schema = 'public' and table_name = 'employees'
+        and column_name in ('pin_hash','pin_salt','pin_set_at','pin_fails','pin_locked_until')) as cols,
+    (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in ('set_attendance_pin','employee_pin_status','verify_attendance_pin')) as fns,
+    (select count(*) from public.employees where pin_hash is not null) as issued,
+    (select has_function_privilege('authenticated',
+        'public.verify_attendance_pin(uuid, text)', 'execute')) as oracle_open
 )
 select '017 · a refusal has somewhere to go' as check_name,
        case when (select position('ok boolean' in res) > 0
@@ -85,9 +97,21 @@ select '012 · resolve_correction is installed and SECURITY DEFINER',
        case when (select resolver from cr) = 1
             then 'PASS' else 'FAIL — run 012: an approved correction cannot be applied' end
 union all
+select '018 · the personal attendance PIN is installed',
+       case when (select cols from pin) = 5 and (select fns from pin) = 3
+            then 'PASS' else 'FAIL — run 018: nobody can be checked in at a kiosk' end
+union all
+select '018 · the PIN hash cannot be guessed through the API',
+       case when (select oracle_open from pin) = false
+            then 'PASS'
+            else 'FAIL — verify_attendance_pin is callable by any signed-in worker' end
+union all
 select '017 · how many wrong codes are on record (a fact, not a check)',
        'INFO — ' || (select n::text from attempts)
        || ' attempt(s) recorded. This number was stuck at 0 before 017.'
+union all
+select '018 · how many workers hold a PIN (a fact, not a check)',
+       'INFO — ' || (select issued::text from pin) || ' worker(s) have an attendance PIN.'
 order by check_name;
 
 -- The last row is a fact, not a check: check_in_attempts was empty forever
