@@ -259,9 +259,23 @@ ok('the worker cannot read the code they are about to be given', workerSeesCode 
 
 // ── 2. Check-in ─────────────────────────────────────────────────────────────
 step(2, 'The linked worker checks in with it')
+/* The refusal, asserted to the character. This sentence is the ONLY thing a
+   worker sees when their code is wrong, and it is raised by the database — the
+   interface has no copy of it — so the exact words are a contract, not a
+   detail. Migration 014 set them.
+   The second wrong code proves the messages are IDENTICAL: a code belonging to
+   nobody and a code that is merely stale must look the same, or the endpoint
+   becomes a way to ask "was that number real?" */
+const REFUSAL = 'Code not correct, visit the site.'
 const wrong = await attempt(USER.james, `select * from public.check_in_with_code('0001')`)
-ok('a wrong code is refused without naming anybody',
-  !!wrong && !/james|okon|timothy|samuel|grace/i.test(wrong), wrong?.split('\n')[0])
+const wrong2 = await attempt(USER.james, `select * from public.check_in_with_code('9998')`)
+const said = (m) => (m || '').split('\n')[0].replace(/^ERROR:\s*/, '').trim()
+ok('a wrong code is refused in exactly the words we agreed',
+  said(wrong) === REFUSAL, `"${said(wrong)}"`)
+ok('and the refusal names nobody — no worker, no contractor, no hint the number was real',
+  !!wrong && !/james|okon|timothy|samuel|grace|contractor/i.test(wrong), said(wrong))
+ok('a different wrong code gets a byte-identical answer (the endpoint is not an oracle)',
+  said(wrong2) === said(wrong), `"${said(wrong2)}"`)
 
 const checked = (await as(USER.james, `select * from public.check_in_with_code('${CODE}')`, { commit: true })).rows[0]
 ok('the right code records the day', !!checked && checked.work_date === TODAY, JSON.stringify(checked?.work_date))
