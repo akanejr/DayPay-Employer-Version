@@ -86,27 +86,40 @@ Three things then protect you, and all three were verified by triggering them:
 
 4. **Deploy.** You get `https://<project>.vercel.app`.
 
-### Step 2 — expect the first build to be the WRONG branch
+### Step 2 — expect the first build to FAIL, and ignore it
 
-This is the step that decides whether the deploy succeeds, and it is easy to
-get wrong because the instruction used to live in the wrong place.
+This is the step that decides whether the deploy works, and the failure it
+produces is alarming if nobody has warned you. It is also not what it looks
+like: **nothing is wrong with the code.**
 
 **The import screen has no Production Branch field.** It cannot have one: Vercel
 chooses the production branch by itself, in a documented order — **`main`
 first**, then `master`, then the repository's default branch. This repository
-*has* a `main`, and it is the older baseline (the v24.3 tracker, 52 commits
-behind this work). So the first deployment is the old app, built successfully,
-and it looks like the work is missing.
+does have a `main`, and `main` is a placeholder: **one file, a README with a
+single line of text.** No `package.json`, no lockfile, no application. All 109
+files of the app are on `arena/01a0cffa-daypay-employer-version`.
 
-**You can see which one you got without opening the app.** Whatever the address
-is, fetch:
+So the first deployment builds a repository with nothing in it to install, and
+it fails exactly like this:
+
+```
+Cloning github.com/akanejr/DayPay-Employer-Version (Branch: main, Commit: c5fd6f9)
+sh: line 1: vite: command not found
+Error: Command "vite build" exited with 127
+```
+
+That is the whole story of that error. There is no application on `main` for any
+build command to succeed on. **No code was lost and nothing needs repairing** —
+the fix is Step 3, which points Production at the branch that holds the app.
+
+To confirm you are serving the right build afterwards, fetch:
 
 ```
 https://<project>.vercel.app/sw.js
 ```
 
-* `CACHE_NAME = 'daypay-v24'` → that is `main`, the old baseline.
-* `CACHE_NAME = 'daypay-employer-v1'` → that is this branch, correct.
+`CACHE_NAME = 'daypay-employer-v1'` is this branch. Anything else, or a 404,
+means Production is still pointing somewhere that is not this branch.
 
 ### Step 3 — point Production at the right branch
 
