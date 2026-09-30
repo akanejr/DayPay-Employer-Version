@@ -6,6 +6,8 @@ import { createRequire } from 'node:module'
 const require_ = createRequire(new URL('../../node_modules/', import.meta.url))
 const { JSDOM } = require_('jsdom')
 
+const { polishProblems } = await import('./polish.js')
+
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true })
 global.window = dom.window
 global.document = dom.window.document
@@ -24,7 +26,9 @@ const CheckIn = (await import('../../src/employer/CheckIn.jsx')).default
 let bad = 0
 const must = (label, html, needles) => {
   const missing = needles.filter(n => !html.includes(n))
+  const faults = polishProblems(html)
   if (missing.length) { bad++; console.log(`  FAIL  ${label} — missing: ${missing.join(' | ')}`) }
+  else if (faults.length) { bad++; console.log(`  FAIL  ${label} — polish: ${faults.join(' | ')}`) }
   else console.log(`  PASS  ${label} (${html.length} chars)`)
 }
 
@@ -65,6 +69,32 @@ await mount('Attendance panel', <AttendancePanel contractors={[{ id: 'c1', name:
 // attendance is not open in these fixtures, so the pane shows its "checking"
 // state — the point is that it renders and says something, not what it says
 await mount('Check-in (worker)', <CheckIn employee={employee} onRecorded={() => {}} />, ['Attendance'])
+
+/* ── The employee app itself ───────────────────────────────────────────────
+   Every other check in this suite covers the employer workspace. The product
+   that already existed — the month grid, the payslip, the year view — was
+   never mounted anywhere, so a broken import or a crash on the very first
+   screen would have passed everything here. It stops at the splash because
+   there is no signed-in session in jsdom, which is fine: the point is that the
+   root component loads and draws instead of throwing. */
+{
+  const App = (await import('../../src/App.jsx')).default
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  let html = '', failure = null
+  try {
+    await act(async () => { root.render(<App />) })
+    await act(async () => { await new Promise(r => setTimeout(r, 60)) })
+    html = host.innerHTML
+  } catch (e) { failure = e }
+  const problems = failure ? [`threw: ${failure.message}`] : polishProblems(html)
+  if (!html.includes('app-root')) problems.push('rendered nothing into the root')
+  if (problems.length) { bad++; console.log(`  FAIL  The employee app — ${problems.join(' | ')}`) }
+  else console.log(`  PASS  The employee app (${html.length} chars)`)
+  await act(async () => { root.unmount() })
+  host.remove()
+}
 
 console.log(bad === 0 ? '\nEXISTING SCREENS: ALL STILL RENDER' : `\nEXISTING SCREENS: ${bad} CHECK(S) FAILED`)
 globalThis.__bad = (globalThis.__bad || 0) + bad

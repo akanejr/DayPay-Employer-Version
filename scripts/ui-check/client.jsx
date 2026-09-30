@@ -6,6 +6,8 @@ import { createRequire } from 'node:module'
 const require_ = createRequire(new URL('../../node_modules/', import.meta.url))
 const { JSDOM } = require_('jsdom')
 
+const { polishProblems } = await import('./polish.js')
+
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { pretendToBeVisual: true })
 global.window = dom.window
 global.document = dom.window.document
@@ -26,7 +28,9 @@ let bad = 0
 
 const must = (label, html, needles) => {
   const missing = needles.filter(n => !html.includes(n))
+  const faults = polishProblems(html)
   if (missing.length) { bad++; console.log(`  FAIL  ${label} — missing: ${missing.join(' | ')}`) }
+  else if (faults.length) { bad++; console.log(`  FAIL  ${label} — polish: ${faults.join(' | ')}`) }
   else console.log(`  PASS  ${label} (${html.length} chars)`)
 }
 
@@ -87,6 +91,40 @@ await mount('Billing, loaded period',
   <Billing employees={billingFixtures.employees} contractors={billingFixtures.contractors} />,
   ['Not yet billed', 'Ready to bill', 'Contractor B', 'Bill this period',
     'Already billed for this period', 'INV-0001', '₦42,000'])
+
+/* ── The app-level crash screen ────────────────────────────────────────────
+   The employer's pane boundary has existed since Phase 6; the app itself was
+   rendered bare, so a throw in the employee's app still produced the blank
+   screen that started all this. A boundary that has never been triggered is
+   decoration, so this one is made to fail on purpose and the fallback is read
+   back. */
+const AppErrorBoundary = (await import('../../src/AppErrorBoundary.jsx')).default
+
+function Detonator() {
+  throw new Error('synthetic failure for the ui check')
+}
+
+{
+  const realError = console.error
+  console.error = () => {}            // React logs the caught error; expected
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => {
+      root.render(<AppErrorBoundary><Detonator /></AppErrorBoundary>)
+    })
+  } finally {
+    console.error = realError
+  }
+  must('App crash screen (a throw above the app)',
+    host.innerHTML,
+    ['dp-crash', 'could not finish drawing this screen',
+      'not a loss of data', 'synthetic failure for the ui check',
+      'Reload DayPay', 'Try again'])
+  await act(async () => { root.unmount() })
+  host.remove()
+}
 
 /* No process.exit here: the interaction pass runs after this file in the same
    bundle, so failures are accumulated and reported once, at the end. */

@@ -36,8 +36,19 @@ function isWeekendDay(dateObj) {
   const day = dateObj.getDay()
   return day === 0 || day === 6
 }
+/* One way to write money, everywhere.
+   This used to be Number(n).toLocaleString('en-NG'), which is a different
+   formatter from the one the payslip uses and depends on the device's ICU
+   data: on a runtime built without the en-NG locale it falls back to whatever
+   the default is, and a browser that groups with a space or a full stop turns
+   ₦16,000 into ₦16 000 or ₦16.000 without anything going wrong that a test
+   would notice. It also printed decimals, so a part-day could render ₦8,000.5
+   on a screen where every other amount was whole naira.
+   src/lib/payslip.js already had the correct, locale-independent version and
+   documents why. This now defers to it, so the 60 call sites in this file
+   inherit the fix and the two cannot drift apart again. */
 function formatNaira(n) {
-  return `₦${Number(n).toLocaleString('en-NG')}`
+  return fmtMoney(n)
 }
 // v18: truthful share/PDF line — "N × ₦per-day" only when every day in the
 // group paid the same amount; a mixed-rate group shows "N days" instead.
@@ -2757,7 +2768,7 @@ export default function App() {
         </div>
 
         <div className="footer">
-          <span className="footer-dot" /> {displayName ? `${displayName} · ` : ''}{settings.dailyRate.toLocaleString('en-NG')} / day · {settings.weekendMultiplier}× OT/Hol/Weekend {monthStatus==='locked' ? '· locked' : monthStatus==='active' ? '· active' : ''} {isSupabaseConfigured && user ? '· synced' : '· local'} · PWA ready · © 2026 Akaninyene
+          <span className="footer-dot" /> {displayName ? `${displayName} · ` : ''}{fmtMoney(settings.dailyRate)} / day · {settings.weekendMultiplier}× OT/Hol/Weekend {monthStatus==='locked' ? '· locked' : monthStatus==='active' ? '· active' : ''} {isSupabaseConfigured && user ? '· synced' : '· local'} · PWA ready · © 2026 Akaninyene
         </div>
       </div>
 

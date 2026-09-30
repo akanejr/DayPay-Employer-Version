@@ -23,12 +23,31 @@ It mounts the employer and worker screens in a real DOM (jsdom), with the
 ## Running it
 
 ```bash
-npm install --no-save jsdom     # not in package.json: this is a dev-only tool
+npm install     # jsdom is a devDependency, so this is the whole setup
 npx vite build --config scripts/ui-check/vite.ssr.config.mjs
 node node_modules/.daypay-ui-check/entry.js
 ```
 
 Exit code 0 means every check passed; the output names each screen it mounted.
+
+## The polish invariants
+
+Every mounted screen is passed through `polish.js` before it is called a pass,
+so a defect has to survive all of it. The rules are objective on purpose —
+"looks better" is taste and cannot fail a build, but these are facts:
+
+- no `undefined`, `NaN` or `[object Object]` visible in the text. A pane showing
+  `NaN` looks like an amount and is not one, which is the same family of failure
+  as the blank screen `PaneErrorBoundary` exists to end.
+- every `₦` amount grouped in threes, whole naira, no decimals and no device
+  locale (`src/lib/payslip.js` documents why).
+- no raw database error in user-facing text (`PGRST`, `SQLSTATE`, …).
+
+Attributes are stripped first, so a class called `ew-undefined-state` is not a
+failure. `tests/polish.test.js` checks the checker: every rule is given
+something it must catch and something it must leave alone. That second half is
+not decoration — the first draft of the money rule failed two healthy panes
+because a sentence ending "…totals ₦42,000." looked like kobo.
 
 The invoice PDF is stubbed (`mock-invoice-pdf.js`) because jsPDF has no business
 running in node. The stub records what the document was asked to print, which is

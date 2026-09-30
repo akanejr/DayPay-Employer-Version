@@ -27,6 +27,7 @@ import {
   formatNaira, initials, todayKey, shiftDateKey, suggestedKind,
   prettyDateKey, monthBounds, KIND_LABELS,
 } from '../lib/employer'
+import { monthLabelFor } from '../lib/employerLogic'
 
 const KINDS = ['work', 'overtime', 'holiday', 'leave']
 
@@ -240,8 +241,11 @@ export default function StaffDays({ employees }) {
     [monthDays],
   )
   const { from, to } = monthBounds(viewYear, viewMonth)
-  const monthName = new Date(viewYear, viewMonth, 1)
-    .toLocaleString('en', { month: 'long', year: 'numeric' })
+  /* monthLabelFor, not toLocaleString: the same "September 2026" on every
+     device, from the same table the Billing period uses. toLocaleString
+     depends on the runtime's locale data, which is not something this app can
+     promise is present. */
+  const monthName = monthLabelFor(viewYear, viewMonth)
 
   if (!active.length) {
     return (

@@ -6,11 +6,20 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import AppErrorBoundary from './AppErrorBoundary.jsx'
 import './ux-motion.js' // DayPay visual-only motion layer (no logic/data changes)
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    {/* Outermost net. PaneErrorBoundary protects one employer pane; this
+        protects the whole app, because <App /> used to render bare — a throw
+        anywhere in the employee's Month, Year or payslip took the entire tree
+        down and left a white screen with nothing to report. React can only
+        catch a render error ABOVE the component that threw, so this cannot be
+        done any lower down. */}
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
   </StrictMode>,
 )
 
