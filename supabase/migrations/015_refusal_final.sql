@@ -38,9 +38,10 @@
 -- ambiguous (42702) because the function's OUT parameters share those names,
 -- and every check-in that matched a code died on it. That was migration 011.
 --
--- ORDER: run this AFTER 010. 010 also replaces this function and it carries
--- the OLD sentences, so running 010 afterwards would put them back. The guard
--- at the end of this file checks the result either way.
+-- ORDER: DO NOT RUN 010. It also replaces this function, and it carries the
+-- OLD sentences — running it after this file would put them back. The only
+-- thing 010 still has that your database is missing is my_attendance_status,
+-- and migration 016 installs that on its own. Run 012, then 015, then 016.
 --
 -- Safe to re-run.
 -- ============================================================================
@@ -256,7 +257,7 @@ begin
   end if;
 
   if position('Check with your contractor' in def) > 0 then
-    raise exception 'An old sentence is still in the function - run 010 BEFORE this file. Tell me.';
+    raise exception 'An old sentence is still in the function. Tell me - do not continue.';
   end if;
 
   if position('day_records_employee_id_work_date_key' in def) = 0 then

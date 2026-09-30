@@ -51,8 +51,10 @@
 -- Re-running it is harmless — every statement is guarded.
 --
 -- NOTE ON NUMBERING: the refusal-as-value change offered earlier under the
--- name "012" has no SQL written yet and becomes 013. Work that exists is
--- numbered in the order it exists.
+-- name "012" still has no SQL, and the number went to invoices. It is not
+-- forgotten — it is the fix for a real defect found in Phase 9 (a refusal
+-- currently rolls back its own attempt record, so the five-attempt cap never
+-- fires). It is waiting on a decision, not on an author.
 
 begin;
 
