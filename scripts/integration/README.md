@@ -2,7 +2,7 @@
 
 These are not unit tests. `tests/` runs the pure logic in microseconds and
 should stay that way. What these add is the layer underneath it: a real
-PostgreSQL — the same eighteen migrations the live project has — so that a
+PostgreSQL — the same nineteen migrations the live project has — so that a
 question like *"does the number on the invoice equal the number in the ledger"*
 gets an answer from the database rather than from a fixture someone wrote by
 hand.
@@ -25,7 +25,7 @@ also be run alone:
 
 | File | The question it answers |
 | --- | --- |
-| `migrations.mjs` | Does 001→018 apply to an empty database, and is what comes out the shape the app expects? |
+| `migrations.mjs` | Does 001→019 apply to an empty database, and is what comes out the shape the app expects? |
 | `e2e.mjs` | Does one day of work end up as the *same money* on every screen? |
 | `harness.mjs` | Can an employee see another employee's wages, or guess a colleague's PIN? |
 | `lockout-probe.mjs` | Does the five-attempt lockout actually lock anybody out? (It did not. 017 fixed it — see below.) |
@@ -34,13 +34,20 @@ also be run alone:
 
 `supabase/harness/verify_installed.sql` is not part of `npm run prove` as a
 question — it is the answer to one a human asks: *what is actually installed in
-this project?* Paste it into the Supabase SQL Editor and it returns eleven rows,
-each PASS or FAIL, covering 012, 016 and 017: whether a refusal has somewhere to
-travel, whether the attempt is written before the refusal, whether the cap
-exists, whether the tie-break is in place, whether corrections are installed and
-whether anybody can delete them. It changes nothing and needs no fixture, no
-signed-in user and no second account, so it is safe to run before a batch, after
-one, or a year later on a project nobody remembers the history of.
+this project?* Paste it into the Supabase SQL Editor and it returns seventeen
+rows, each PASS or FAIL, covering 012, 016, 017, 018 and 019: whether a refusal
+has somewhere to travel, whether the attempt is written before the refusal,
+whether the cap exists, whether the tie-break is in place, whether corrections
+are installed, whether the attendance PIN is locked away from the API, and
+whether the kiosk can record anybody at all. It changes nothing and needs no
+fixture, no signed-in user and no second account, so it is safe to run before a
+batch, after one, or a year later on a project nobody remembers the history of.
+
+It is also written to survive the state it is most often pasted into — a
+half-installed project. Every check is structural, read from the catalogs, so a
+missing migration comes back as a FAIL naming it rather than as a Postgres
+error that hides the other sixteen rows. `migrations.mjs` runs it against a
+project halted at 017 to keep that true.
 
 It is tested anyway, by `migrations.mjs`, against a database the test has just
 built: a report that throws on a valid database, or returns no rows at all,

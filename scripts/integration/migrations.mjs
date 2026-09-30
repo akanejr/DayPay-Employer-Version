@@ -300,6 +300,39 @@ const LIVE_NEXT = ['018_attendance_pin.sql', '019_site_kiosk.sql']
         : notPassing.map(r => r.check_name).join('; '))
   }
 
+  /* ── The report, on a project that STOPPED. ─────────────────────────────
+     verify_installed.sql is pasted into projects in unknown states — that is
+     its whole purpose — and it used to be useless in exactly that case: it
+     asked has_function_privilege() by name (which RAISES when the function is
+     absent) and counted rows in columns that later migrations add (which
+     cannot even be parsed). One missing migration turned the report into a
+     Postgres error instead of a row saying which migration was missing.
+     So it is run here against a project halted at 017, and it must come back
+     with FAIL rows and no exception. */
+  const db3 = new PGlite({ parsers: { 1082: (v) => v } })
+  await db3.exec(`create role anon; create role authenticated; create schema auth;
+    create table auth.users (id uuid primary key default gen_random_uuid(), email text unique,
+      created_at timestamptz not null default now());
+    create function auth.uid() returns uuid language sql stable as
+      $f$ select (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid $f$;
+    grant usage on schema auth to authenticated, anon;`)
+  for (const f of [...applied, ...LIVE_BATCH]) {
+    await db3.exec(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8'))
+  }
+  const reportSql = fs.readFileSync(
+    path.join(REPO, 'supabase', 'harness', 'verify_installed.sql'), 'utf8')
+  let partial = null
+  let partialErr = null
+  try { partial = await db3.query(reportSql) } catch (e) { partialErr = e.message.split('\n')[0] }
+  const partialFails = partial ? partial.rows.filter(r => /^FAIL/.test(r.verdict)) : []
+  ok('the report RUNS on a project that stopped at 017, instead of erroring at it',
+    !partialErr, partialErr || `${partial.rows.length} rows read`)
+  ok('...and it names 018 and 019 as the missing pieces',
+    !partialErr && partialFails.some(r => /^018/.test(r.check_name))
+      && partialFails.some(r => /^019/.test(r.check_name)),
+    partialErr || partialFails.map(r => r.check_name.slice(0, 3)).join(', '))
+  await db3.close()
+
   await db2.close()
 }
 

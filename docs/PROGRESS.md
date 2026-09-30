@@ -1,156 +1,102 @@
-# DayPay Employer Version — progress to date
+# Where DayPay stands
 
-Branch: `arena/01a0cffa-daypay-employer-version`
-Latest commit: `6af9a56`
-Tests: **85 passing**, zero dependencies
-Database: 4 migrations applied, isolation harness verified
-
----
-
-## Starting point
-
-The repository held only a one-line README. The employer-version code did not
-exist anywhere in the workspace, so DayPay v24.3 (from `akanejr/DayPay-repo`,
-commit `cceb44a`) was imported as the baseline and verified byte-identical.
-
-That app is a **single-user** day-rate tracker: one person's calendar, rates
-and payslips, backed by one `user_data` row per auth user.
+*Current as of the last commit on this branch. This file is a status report, not
+a history lesson — for what each feature does, read `APP-SUMMARY.md`; for the
+kiosk specifically, read `SITE-ATTENDANCE.md`.*
 
 ---
 
-## What was added
+## The numbers
 
-### The foundation
-
-| File | Purpose |
+| | |
 |---|---|
-| `supabase/migrations/001_employer_schema.sql` | 5 tables, 14 RLS policies |
-| `supabase/migrations/002_fix_audit_trigger.sql` | Corrects the audit trigger |
-| `supabase/migrations/003_legacy_user_data.sql` | Restores the employee-side table |
-| `supabase/migrations/004_grants.sql` | Explicit privileges + future defaults |
-| `supabase/harness/rls_test.sql` | 14 checks proving employee isolation |
+| Branch | `arena/01a0cffa-daypay-employer-version` |
+| Migrations | **19**, all applied to project `crirzuoehbkzpnwokyxl` |
+| Unit tests | **321** (`npm test`) |
+| Cross-layer proofs | **migration chain 36/36 · e2e 115/115 · RLS harness 78/78 · lockout PASS** (`npm run prove`) |
+| UI check | **141 checks, all green** — every screen rendered in a real DOM, including the kiosk |
+| Lint | 0 errors, 13 warnings (all pre-existing) |
+| Build | `dist/` with two entry points: `index.html` and `kiosk.html` |
 
-Schema: `employers`, `employees`, `employee_rate_periods`, `day_records`,
-`day_record_events`.
+---
 
-Three rules are enforced **in the database**, not in the client:
+## What exists
 
-1. **Money is computed server-side.** A trigger reads the rate period in force
-   on the *work date*. A client may claim a day was worked; it cannot claim
-   what that day pays.
-2. **Confirmed amounts are frozen.** The trigger refuses to change a confirmed
-   day's money; the day must be reopened first, which is recorded.
-3. **The audit trail is unwritable by the audited.** `day_record_events` has
-   no INSERT policy at all; rows come only from `SECURITY DEFINER` triggers.
+**The app** (`/`) — the original DayPay single-user tracker, unchanged in its
+money behaviour: month and year calendars, effective-dated rates, weekend and
+holiday at 2×, leave percentages, locked months, payslip and Yearly Share
+exports, reminders, four themes, installable PWA.
 
-### The employer workspace
+**The workforce layer** — employers, contractors and employees as real tables;
+a roster with invite codes; a day ledger with an audit trail; claimed →
+confirmed → disputed; corrections with reasons; invoices that freeze at issue;
+RLS policies for every table.
 
-New third tab: **Month · Year · Staff**, with Staff split into three panes.
+**Roles (Phase 10)** — Employer or Employee chosen at sign-up, enforced in the
+database. Employees reach their own information and attendance only. The invite
+code is onboarding-only.
 
-| Pane | What it does |
-|---|---|
-| **Mark days** | Date stepper, per-person marking, bulk "mark all present", inline kind picker, month running total |
-| **Summary** | The "you owe" figure, per-employee rows, confirm/reopen, dispute list, CSV export |
-| **Roster** | Add/archive/restore staff, effective-dated rate history, invite codes |
+**Attendance PIN (Phase 11)** — a per-worker 4-digit PIN, salted and hashed,
+issued once and shown once, five wrong guesses lock it for five minutes.
 
-Supporting code:
+**Site kiosk (Phase 12)** — `/kiosk.html`: a separate page with its own bundle
+that records attendance for workers with no phone or no network, using eight
+validations in order. The machine is a revocable device account; its roster
+carries no money at all.
 
-| File | Lines | Purpose |
-|---|---|---|
-| `src/lib/employerLogic.js` | 287 | Pure functions, zero imports — testable |
-| `src/lib/employer.js` | 395 | Supabase I/O; never sends `rate`/`amount` |
-| `src/employer/EmployerWorkspace.jsx` | 475 | Container, roster, rate editor |
-| `src/employer/StaffDays.jsx` | 316 | The daily marking job |
-| `src/employer/Summary.jsx` | 353 | Month end |
-| `src/employer/employer.css` | 539 | Uses existing theme tokens |
+**One attendance database** — phone and kiosk write the same `day_records` row.
+`attendance_method` records which route, **for audit only**; no calculation
+reads it.
 
-### Tooling
+**Audit view (Phase 13)** — the employer's existing day sheet says *"At the site
+kiosk"* or *"Checked in on their phone"*. No new report, no redesign.
 
-| File | Purpose |
-|---|---|
-| `serve.py` | Dependency-free static server (node_modules is wiped between sandbox turns) |
-| `start-preview.sh` | One-command rebuild-and-serve |
-| `scripts/make-connection-check.py` | Browser-side diagnostic, because the agent's sandbox cannot reach Supabase |
-| `config/supabase-public.env` | Public config, committed so it survives wipes |
-| `docs/*.md` | Setup guide, runbook, plain-language instructions |
+**Deployment** — `vercel.json`, headers, and a build that needs no environment
+variables because the public config is committed. `docs/DEPLOY-VERCEL.md`.
 
 ---
 
 ## What is verified, and how
 
-| Claim | How it was verified |
-|---|---|
-| DayPay source imported intact | 24 files, checksums compared to source |
-| Employee isolation holds | 14-check harness run by the user on the live project — **all passed** |
-| A raise never reprices the past | Test asserts total ≠ days × newest rate |
-| A forged amount is overwritten | Harness: client sent ₦1, server stored ₦32,000 |
-| An employee cannot self-confirm | Harness: 42501 on the attempt |
-| Roster + rates work end to end | User created "James, Welder, ₦16,000/day" against the live database |
-| Payroll maths, CSV, date logic | 85 automated tests |
-
-**Not verified:** the Mark days and Summary screens have never been executed
-against a live database. The agent has no network route to Supabase, so these
-can only be confirmed by the user running them.
+| Question | Answered by | Result |
+|---|---|---|
+| Does the schema come out right from empty? | `migrations.mjs` | 001→019 applies clean; the batch applies on top of an older project and lands in the same place |
+| Does one day of work become the same money everywhere? | `e2e.mjs` | 115/115, every layer reconciles |
+| Can a worker see another worker's wages or guess a PIN? | `harness.mjs` | 78/78 — including the eleven kiosk checks |
+| Can someone brute-force a site code? | `lockout-probe.mjs` | five wrong codes recorded, the sixth refused, all refusals word-identical |
+| Does every screen render, and do the buttons work? | ui-check | 141 checks — including the kiosk walked button by button |
+| Is a given project actually installed? | `verify_installed.sql` | 17 rows, PASS/FAIL, safe on a half-installed project |
+| Does the kiosk bundle contain employer code? | `tests/kiosk.test.js` | no — the import graph is asserted, and the built chunk is greppable |
 
 ---
 
-## Bugs found today
+## What is outstanding
 
-Every SQL bug below was found by the user running the code and reporting the
-error precisely. None could have been caught by the agent alone.
-
-| Bug | Severity |
-|---|---|
-| `SET LOCAL x = <expression>` is invalid PostgreSQL (42601) | Harness unusable |
-| CTE referenced `p.employer_uid` with no `p` alias (42P01) | Harness unusable |
-| **Audit trigger was BEFORE INSERT but wrote to a table with an FK to the row being inserted (23503)** | Every day save failed |
-| `summarise` threw on a null element | Would blank the whole summary |
-| **`summarise` dropped days belonging to an unlisted employee** | **Understated what is owed** |
-| Staff returned early on error, hiding the Add button | A data error looked like a broken UI |
-| 42501 and 42P01 reported as "are you signed in?", blaming the user for a setup fault | Sent the reader to the wrong place |
-| Sandbox reset local git history twice | Recovered from the remote; no work lost |
-
-### One wrong diagnosis, worth recording
-
-After seeing a "signed in as the employer" message, the missing-grant theory
-was pursued and migration 004 was written to fix it. **The theory was wrong.**
-The user's own verification output showed privileges
-(`REFERENCES, TRIGGER, TRUNCATE`) that only `GRANT ALL` produces, proving the
-grants were already in place. Supabase's defaults covered it; the original
-single-user app's `supabase-setup.sql` had no grants either and worked fine.
-
-Migration 004 is retained as insurance — Supabase now requires explicit grants
-for newly created public tables — but it was not the fix. The real cause was
-that the user was not signed in, and a similar-sounding error message led the
-diagnosis astray.
-
-### Process changes made in response
-
-- Whole-file rewrites instead of regex edits, after a regex cut `employer.js`
-  from 370 lines to 93 and it had to be restored from git.
-- Brace-counting, not regex, for removing code blocks.
-- Pure logic moved into a zero-import module so it can be tested at all.
+1. **The browser run of the eight scenarios** (`SITE-ATTENDANCE.md` §4). They
+   are proven against a real database and in a real DOM; what only your browser
+   can show is Supabase Auth never asking for an invite code again after
+   sign-out, and how it all looks on a phone.
+2. **The deploy itself** — the repository is ready; the steps are in
+   `docs/DEPLOY-VERCEL.md`. The two things to get right are the **Production
+   Branch** (this one, not `main`) and Supabase's **Auth URL configuration**.
+3. **Scenario H, flagged not fixed:** a recorded day is attributed to the
+   contractor a worker is on *now*. The day rows are never rewritten and an
+   issued invoice does not move, but the per-contractor rollup follows a
+   reassignment. That is existing reporting behaviour; changing it is a
+   reporting change, which the brief forbids without instruction. Say the word
+   and it becomes a decision.
+4. **Two keys look alike.** The publishable key is public and committed; the
+   `service_role` key must never be shared, pasted into a host, or added to this
+   repository. The build refuses to ship one if it appears in the environment.
 
 ---
 
-## Costs and caveats
+## Phase history, briefly
 
-- **No African Supabase region exists.** Port Harcourt runs against
-  `eu-west-1` / `eu-central-1`, so every query carries an intercontinental
-  round trip. Acceptable for day-rate logging; worth knowing before scaling.
-- **Sync is still last-write-wins on a whole dataset** for the employee-side
-  `user_data` blob. Fine for one person on two devices; a problem the moment
-  two people edit. The new multi-employee tables do not have this issue.
-- **Bulk operations are sequential**, one audited call per day. Correct, but
-  slow for a large roster; an RPC would be the optimisation.
-- **The employer workspace is unexercised.** Expect rough edges on first use.
+Phases 0–9 built the employer version from the v24.3 baseline: schema, roles,
+invite and join, contractors, attendance sessions and codes, corrections,
+invoices and other retention, locked months, reminders, themes and polish.
 
----
-
-## Next
-
-1. **Invite flow** — `invite_code` and `employee_user_id` exist in the schema
-   with no UI. This is what makes the system genuinely two-sided.
-2. **Employee's own view** — see your days, your rates, your total.
-3. **The handshake** — employee claims, employer confirms, both sides see the
-   same agreed figure with an audit trail.
+Phases 10–13 are the current brief: **10** roles, account access and
+account-less workers · **11** the attendance PIN · **12** the site kiosk ·
+**13** the audit view and the scenario record.

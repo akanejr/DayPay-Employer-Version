@@ -16,7 +16,7 @@ It mounts the employer and worker screens in a real DOM (jsdom), with the
    Agree answers *that* request with those arguments; the correction form
    sends the day and kind the worker chose and no invented fields; billing a
    period sends a contractor and two dates and **no amount of any kind**.
-3. **The pre-existing screens still render** — the workspace's four sub-tabs,
+3. **The pre-existing screens still render** — the workspace's five panes,
    the day-marking grid, the summary, the roster, the attendance panel and the
    worker's check-in. This is the "do not break what works" rule, executed.
 

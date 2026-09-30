@@ -220,3 +220,47 @@ describe('a host that injects environment variables cannot poison the bundle', (
     assert.match(key, /^sb_publishable_/)
   })
 })
+
+/* ── The build must not remember where it used to live ────────────────────
+ * A deploy that carries the previous deployment's address inside it is a
+ * deploy that is right only by accident. Two strings used to do exactly that:
+ * the About screen printed `daypay-app.vercel.app` whatever the real address
+ * was, and every exported reminder put that same host inside the calendar
+ * entry a worker taps — so after moving to a new project, the reminder opened
+ * the old app. Both now read the address they are actually running at, which
+ * is also what makes a preview build tell the truth about itself.
+ *
+ * The release identity is the other half: `APP_VERSION` decides when the
+ * splash is an occasion and, paired with the service worker's cache name,
+ * decides whether a returning browser keeps the previous shell. Drifting them
+ * apart is how a phone ends up running last month's files, so they are
+ * asserted to be one string, in the spelling this product actually uses.
+ */
+describe('the shipped app knows its own address and its own release', () => {
+  const app = read('src/App.jsx')
+  const sw = read('public/sw.js')
+
+  test('no source file hard-codes a deployment address', () => {
+    const carriers = ['src/App.jsx', 'index.html', 'kiosk.html', 'public/sw.js',
+      'public/manifest.json']
+    const offenders = carriers.filter(f => /vercel\.app/.test(read(f)))
+    assert.deepEqual(offenders, [],
+      'these carry a fixed host instead of reading the one they run at')
+  })
+
+  test('the About screen and the reminder use the address the app is served from', () => {
+    assert.match(app, /Running at/, 'About must describe where this copy runs')
+    assert.match(app, /window\.location\.hostname/, 'About reads the real host')
+    assert.match(app, /window\.location\.origin/, 'the reminder link reads the real origin')
+  })
+
+  test('APP_VERSION and the service-worker cache name are one release', () => {
+    const appVersion = /const APP_VERSION = '([^']+)'/.exec(app)
+    const cacheName = /const CACHE_NAME = '([^']+)'/.exec(sw)
+    assert.ok(appVersion && cacheName, 'both constants must be findable')
+    assert.equal(appVersion[1], cacheName[1],
+      'a bumped version with an unbumped cache serves the previous shell')
+    assert.match(appVersion[1], /^daypay-employer-v\d/,
+      `the release name must identify this product, not the tracker it came from: ${appVersion[1]}`)
+  })
+})

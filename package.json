@@ -1,7 +1,8 @@
 {
-  "name": "daypay",
+  "name": "daypay-employer",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "DayPay — day-rate attendance and pay record for a workforce and the person running it.",
   "type": "module",
   "scripts": {
     "dev": "node scripts/prepare-env.mjs && vite",

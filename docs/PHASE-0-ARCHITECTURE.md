@@ -1,5 +1,23 @@
 # DayPay — Phase 0: Architecture Inspection & Implementation Plan
 
+> **HISTORICAL — kept for the record, not for use.** Written on 2026-09-25,
+> before Phases 1–13 were built. Nothing in it was changed afterwards: it is
+> the picture of the codebase at the moment the work started, and the plan
+> drawn from it.
+>
+> Two of its findings were overtaken by what came later, so do not read them as
+> current:
+>
+> * It describes DayPay as *"two applications sharing one shell"* that **do not
+>   share data**. They now do: Phases 10–13 made roles, attendance and money one
+>   system, with the employer and the worker looking at the same rows through
+>   different permissions.
+> * It lists the migrations that existed on that date. There are **nineteen**
+>   now, ending at `018_attendance_pin.sql` and `019_site_kiosk.sql`; the
+>   runnable sequence is in `README.md` and `docs/PROGRESS.md`.
+>
+> For what the product is today, read `docs/APP-SUMMARY.md`.
+
 **Status:** inspection only. No application code was modified in Phase 0.
 **Date:** 2026-09-25
 **Repo:** `akanejr/DayPay-Employer-Version`, branch `arena/01a0cffa-daypay-employer-version`

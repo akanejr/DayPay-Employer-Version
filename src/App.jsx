@@ -24,7 +24,7 @@ const STORAGE_KEY = 'work_tracker_v1'
 const EMPTY_RECORDS = Object.freeze({})
 // v19-D: splash version — the splash is an occasion (first run + version
 // updates), not a toll. Bump together with sw.js CACHE_NAME on every release.
-const APP_VERSION = 'daypay-v24'
+const APP_VERSION = 'daypay-employer-v1'
 const appVersionNum = (APP_VERSION.match(/v([\d.]+)/) || [])[1] || '' // v23.1: "23" for the About page
 const START_KEY = 'work_tracker_start_v1'
 
@@ -1172,7 +1172,8 @@ export default function App() {
       dpShowToast({ title: 'Pick days and a time first' })
       return
     }
-    triggerDownload(`DayPay-reminder-${fileDateStamp()}.ics`, buildReminderIcs(reminder.days, reminder.time, 'https://daypay-app.vercel.app'), 'text/calendar')
+    triggerDownload(`DayPay-reminder-${fileDateStamp()}.ics`, buildReminderIcs(reminder.days, reminder.time,
+      (typeof window !== 'undefined' && window.location.origin) ? window.location.origin : ''), 'text/calendar')
     try { localStorage.setItem('dp_reminder_calendar', 'done') } catch {}
     dpShowToast({ title: 'Alarm file downloaded', sub: 'Open it in Calendar to confirm the alarm' })
   }
@@ -3330,12 +3331,12 @@ export default function App() {
                     </svg>
                     <div className="sp-about-word"><span className="wm-day">Day</span><span className="wm-pay">Pay</span></div>
                     <div className="sp-about-tag">“Know what your work is worth.”</div>
-                    <p className="sp-about-desc">DayPay is a personal salary-tracking application built for the Nigerian work environment. It records your worked days, overtime, weekend and public-holiday pay, and shows exactly what your work is worth — with monthly payslips, salary goals and full ownership of your data.</p>
-                    <span className="sp-about-ver">Version {appVersionNum} · {APP_VERSION}</span>
+                    <p className="sp-about-desc">DayPay is a day-rate attendance and pay record built for the Nigerian work environment — for a whole workforce, or for one person on their own. It keeps every worked day with its weekend, holiday and overtime value, monthly payslips and goals, and it shows exactly what the work is worth.</p>
+                    <span className="sp-about-ver">DayPay Employer · v{appVersionNum}</span>
                     <div className="sp-card sp-about-card">
                       <div className="sp-kv"><span>Works offline</span><span className="sp-kv-val" style={{color:'var(--green-ink)'}}>PWA ready</span></div>
                       <div className="sp-kv"><span>Cloud sync</span><span className="sp-kv-val" style={{color: isSupabaseConfigured ? 'var(--green-ink)' : 'var(--danger)'}}>{isSupabaseConfigured ? (user ? 'Connected' : 'Ready — sign in') : 'Not configured'}</span></div>
-                      <div className="sp-kv"><span>Deployed at</span><span className="sp-kv-val">daypay-app.vercel.app</span></div>
+                      <div className="sp-kv"><span>Running at</span><span className="sp-kv-val">{(typeof window !== 'undefined' && window.location.hostname) || 'this device'}</span></div>
                     </div>
                     <div className="sp-about-copy">© 2026 Akaninyene — All rights reserved.<br/>DayPay — Know what your work is worth.</div>
                   </div>
