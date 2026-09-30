@@ -2,7 +2,7 @@
 
 These are not unit tests. `tests/` runs the pure logic in microseconds and
 should stay that way. What these add is the layer underneath it: a real
-PostgreSQL — the same thirteen migrations the live project has — so that a
+PostgreSQL — the same seventeen migrations the live project has — so that a
 question like *"does the number on the invoice equal the number in the ledger"*
 gets an answer from the database rather than from a fixture someone wrote by
 hand.
@@ -20,15 +20,32 @@ npm install     # @electric-sql/pglite and jsdom are devDependencies
 npm run prove
 ```
 
-`npm run prove` runs all three and exits non-zero if any of them fails. Each can
+`npm run prove` runs all four and exits non-zero if any of them fails. Each can
 also be run alone:
 
 | File | The question it answers |
 | --- | --- |
-| `migrations.mjs` | Does 001→013 apply to an empty database, and is what comes out the shape the app expects? |
+| `migrations.mjs` | Does 001→017 apply to an empty database, and is what comes out the shape the app expects? |
 | `e2e.mjs` | Does one day of work end up as the *same money* on every screen? |
 | `harness.mjs` | Can an employee see another employee's wages? |
-| `lockout-probe.mjs` | Does the five-attempt lockout actually lock anybody out? (It does not — see below.) |
+| `lockout-probe.mjs` | Does the five-attempt lockout actually lock anybody out? (It did not. 017 fixed it — see below.) |
+
+## The one file to paste into Supabase
+
+`supabase/harness/verify_installed.sql` is not part of `npm run prove` as a
+question — it is the answer to one a human asks: *what is actually installed in
+this project?* Paste it into the Supabase SQL Editor and it returns eleven rows,
+each PASS or FAIL, covering 012, 016 and 017: whether a refusal has somewhere to
+travel, whether the attempt is written before the refusal, whether the cap
+exists, whether the tie-break is in place, whether corrections are installed and
+whether anybody can delete them. It changes nothing and needs no fixture, no
+signed-in user and no second account, so it is safe to run before a batch, after
+one, or a year later on a project nobody remembers the history of.
+
+It is tested anyway, by `migrations.mjs`, against a database the test has just
+built: a report that throws on a valid database, or returns no rows at all,
+answers "is it installed?" with something that looks like an answer, and that is
+worse than having no report.
 
 ## Why they live in the repository
 
@@ -73,16 +90,40 @@ phases while proving the opposite of what it claimed.
 
 ## The lockout probe, and what it found
 
-`lockout-probe.mjs` is a diagnostic, not part of `npm run prove`: it exists to
-measure one specific claim, and it exits 0 either way.
+This is the one defect in the project that was found by an instrument rather
+than by a user, and the instrument is why it was found at all.
 
-It found that the five-attempt cap on check-in **never fires**.
-`check_in_with_code()` writes the attempt row and then raises the refusal, and
-an exception aborts the transaction that wrote it — so every wrong code erases
-its own evidence. Six wrong codes leave `check_in_attempts` empty. The probe
-also shows the other half: insert five rows by hand, committed, and the sixth
-call is refused with the lockout message. The counter works; the transaction is
-the problem.
+`lockout-probe.mjs` began as a diagnostic. It measured one claim — that five
+wrong codes lock a worker out — and reported that it was false, on every
+database this project had ever run against. `check_in_with_code()` wrote the
+attempt row and then raised the refusal; an exception aborts the transaction
+that wrote it, so every wrong code **erased its own evidence**. Six wrong codes
+left `check_in_attempts` empty, the count never reached five, and the cap was
+unreachable. The probe also showed the other half, which is what made the
+diagnosis certain rather than plausible: insert five rows by hand, committed,
+and the sixth call *is* refused. The counter was always correct. The
+transaction was the problem.
 
-`e2e.mjs` records the real behaviour as two `KNOWN GAP` checks, so the suite
-stays honest and fails the moment the behaviour changes.
+That behaviour was too precisely known to be dropped, so it was never deleted
+from the suite. `e2e.mjs` recorded it as `KNOWN GAP` checks — the suite stayed
+honest about the defect, and would fail the moment anything changed.
+
+Migration 017 changed it. A refusal is now **returned** as a value rather than
+raised, so nothing is aborted and the attempt row stands. `lockout-probe.mjs`
+was rewritten to assert the fix instead of the defect, and it is now part of
+`npm run prove` — it exits non-zero if any of its four properties breaks:
+
+1. five wrong codes leave **five** recorded attempts (not zero);
+2. every refusal is byte-identical — a code belonging to nobody, a code from
+   yesterday, and the contractor next door all read the same, and none of them
+   names anybody;
+3. the sixth call is refused for the cap, with the agreed sentence;
+4. no refusal sentence discloses whose code it was.
+
+`e2e.mjs` carries the same behaviour with real accounts: five committed wrong
+codes leave five rows, counted as the **owner** — `check_in_attempts` has no
+SELECT policy for either role, so a worker or employer reading it gets zero, and
+that is a permission rather than a fact. `KNOWN GAP` appears nowhere in this
+repository now, which is the point of keeping the probe: a file that once
+described a defect and now asserts its absence is a stronger record than one
+that has simply been edited.

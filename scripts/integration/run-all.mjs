@@ -37,7 +37,7 @@ import { fileURLToPath } from 'node:url'
 
 const here = fileURLToPath(new URL('./', import.meta.url))
 const scripts = [
-  ['migrations.mjs', 'THE SCHEMA — 001 to 013, from empty'],
+  ['migrations.mjs', 'THE SCHEMA — 001 to 017, from empty'],
   ['e2e.mjs', 'THE FIGURES — every layer reconciles with the one below it'],
   ['harness.mjs', 'THE PERMISSIONS — the shipped RLS harness, every check'],
   ['lockout-probe.mjs', 'THE LOCKOUT — five wrong codes recorded, the sixth refused'],

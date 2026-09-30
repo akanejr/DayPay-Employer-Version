@@ -1,5 +1,14 @@
 # What I need from you
 
+> **SUPERSEDED — kept for the record, not for use.** This was written during
+> Phase 1, when the first thing to establish was that one employee cannot read
+> another's wages. That question has since been answered far more thoroughly:
+> the harness is `supabase/harness/rls_test.sql` (59 checks, run by
+> `npm run prove`), and the query to paste into Supabase today is
+> `supabase/harness/verify_installed.sql`. The counts below are from that
+> earlier, smaller harness — do not follow them.
+
+
 **Total time: about 10 minutes. All of it in your browser. No coding.**
 
 I cannot do these steps myself. My sandbox has no network route to Supabase —

@@ -181,14 +181,24 @@ const freshAttendance = (await db.query(
     where n.nspname = 'public' and p.proname = 'my_attendance_status'`)).rows[0].d
 await db.close()
 
-/* The LIVE state, written out rather than derived, because a derived state
-   quietly re-derives itself when a new file is added and stops modelling
-   anything. As of Phase 9 the live project has run 001-009, 011 and 013.
-   Everything else is outstanding. */
+/* THE STATE THIS MODELS, AND WHY IT IS STILL WORTH TESTING.
+
+   This was "the live state" while the batch was outstanding. As of
+   2026-09-30 the live project has run everything here plus 012, 016 and 017,
+   so the list below is no longer a description of it. It is kept because it is
+   the state ANY project is in before it runs the batch: a restore of a backup
+   taken before that date, a second environment, the copy someone makes next
+   month. A batch that only works against a clean database is not a batch, and
+   that is what this test is for.
+
+   Written out rather than derived, because a derived state quietly re-derives
+   itself whenever a new file is added and stops modelling anything at all. */
 const LIVE_APPLIED = ['001', '002', '003', '004', '005', '006', '007', '008', '009',
   '011', '013']
 
-/* The recommended batch, by name. NOTE WHAT IS ABSENT AND WHY:
+/* The batch, by name — INSTALLED on the live project on 2026-09-30, and still
+   modelled as pending here so the paragraph above keeps its subject. NOTE WHAT
+   IS ABSENT AND WHY:
      010  its check_in_with_code is already installed by 011 (identical md5),
           and it carries the OLD refusal sentences — 016 replaces the only part
           of 010 that is still missing.
@@ -225,7 +235,7 @@ const LIVE_BATCH = ['012_correction_requests.sql',
     }
   }
 
-  ok(`the ${LIVE_BATCH.length} outstanding migrations apply on top of a half-migrated project`,
+  ok(`the ${LIVE_BATCH.length} batch migrations apply on top of a project that predates them`,
     !broke, broke || `after ${applied.length} already applied (${LIVE_BATCH.map(f => f.slice(0, 3)).join(' → ')})`)
 
   if (!broke) {
@@ -257,6 +267,22 @@ const LIVE_BATCH = ['012_correction_requests.sql',
     ok('after the batch, a refusal has an (ok, message) contract to travel in',
       /ok boolean/.test(liveCheckIn) && /message text/.test(liveCheckIn),
       liveCheckIn.slice(0, 62) + '…')
+
+    /* THE REPORT A HUMAN PASTES. supabase/harness/verify_installed.sql is the
+       "what is actually installed?" query handed to whoever administers the
+       project. It is read by a person, which is exactly why it has to be
+       tested here: a report that silently returns no rows, or throws on a
+       valid database, is worse than no report — it answers "is it installed?"
+       with something that looks like an answer. Run against a database this
+       test has just built and therefore knows the truth about. */
+    const report = await db2.query(fs.readFileSync(
+      path.join(REPO, 'supabase', 'harness', 'verify_installed.sql'), 'utf8'))
+    const notPassing = report.rows.filter(r => !/^(PASS|INFO)/.test(r.verdict))
+    ok('the installed-state report reads PASS on a fully migrated database',
+      report.rows.length >= 10 && notPassing.length === 0,
+      notPassing.length === 0
+        ? `${report.rows.length} rows, all PASS`
+        : notPassing.map(r => r.check_name).join('; '))
   }
 
   await db2.close()
@@ -265,7 +291,7 @@ const LIVE_BATCH = ['012_correction_requests.sql',
 console.log(`\n${'='.repeat(78)}`)
 console.log(`MIGRATION CHAIN: ${checks - bad}/${checks} checks passed`)
 console.log(bad === 0
-  ? `001 → ${latest.slice(0, 3)} applies clean from empty, and the outstanding batch `
-    + `applies to a half-migrated project and lands in the same place`
+  ? `001 → ${latest.slice(0, 3)} applies clean from empty, and the batch `
+    + `applies to a project that predates it and lands in the same place`
   : `${bad} FAILURE(S)`)
 process.exit(bad === 0 ? 0 : 1)

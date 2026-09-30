@@ -1,5 +1,14 @@
 # Phase 1 runbook — what to run, in order
 
+> **SUPERSEDED — kept for the record, not for use.** This was written during
+> Phase 1, when the first thing to establish was that one employee cannot read
+> another's wages. That question has since been answered far more thoroughly:
+> the harness is `supabase/harness/rls_test.sql` (59 checks, run by
+> `npm run prove`), and the query to paste into Supabase today is
+> `supabase/harness/verify_installed.sql`. The counts below are from that
+> earlier, smaller harness — do not follow them.
+
+
 Everything here is done in **your browser**. The agent's sandbox has no network
 route to Supabase, so it cannot run any of these steps for you.
 
