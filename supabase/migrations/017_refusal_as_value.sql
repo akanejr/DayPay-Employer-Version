@@ -56,7 +56,7 @@
 -- The reverse order is not harmful to the data — nothing is written — but it
 -- would misinform the person doing the checking in.
 --
---- THIS FILE DROPS THE FUNCTION BEFORE RECREATING IT, AND THAT IS NOT OPTIONAL
+-- THIS FILE DROPS THE FUNCTION BEFORE RECREATING IT, AND THAT IS NOT OPTIONAL
 --
 -- `create or replace function` cannot change a return type — PostgreSQL refuses
 -- it outright with
