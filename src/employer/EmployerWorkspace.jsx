@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   EmployerError, ensureEmployer, listEmployees, createEmployee, updateEmployee,
+  accountStatus,
   archiveEmployee, restoreEmployee, listAllRatePeriods, addRatePeriod,
   deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
   issueInviteCode, myRoles, listContractors, setEmployeeContractor,
@@ -314,7 +315,26 @@ function Staff({ employees, contractors = [], contractorsOk = true, periods, loa
                 {hasRate
                   ? <span className="ew-rate">{formatNaira(rate.daily_rate)}/day</span>
                   : <span className="ew-rate-none">No rate set</span>}
-                {e.employee_user_id && <span className="ew-chip ew-chip-live">linked</span>}
+                {/* Phase 10 — §4. "Not registered" is a fact about a LOGIN,
+                    not about employment. An employer who reads it the other
+                    way will chase a worker who has no smartphone to create an
+                    account they do not need, so the word sits next to the
+                    hint rather than on its own. */}
+                {(() => {
+                  const st = accountStatus(e)
+                  // Registered is the green chip; Not registered is a PLAIN
+                  // one, not an amber one. Amber in this app means something is
+                  // wrong, and nothing is wrong — the worker simply has no
+                  // login yet, and is still on the roster and still paid.
+                  return (
+                    <span
+                      className={st.registered ? 'ew-chip ew-chip-live' : 'ew-chip'}
+                      title={st.hint}
+                    >
+                      {st.text}
+                    </span>
+                  )
+                })()}
                 {contractorName(e.contractor_id) && (
                   <span className="ew-chip">{contractorName(e.contractor_id)}</span>
                 )}
@@ -378,7 +398,7 @@ function Staff({ employees, contractors = [], contractorsOk = true, periods, loa
             {linked ? (
               <>
                 <p className="ew-invite-used" style={{ marginTop: 6 }}>
-                  This account is already linked — they signed in with a code.
+                  Registered. They have their own DayPay sign-in.
                 </p>
                 <p className="ew-hint" style={{ marginTop: 6 }}>
                   They can see their own days and pay, and nobody else's.
@@ -392,8 +412,15 @@ function Staff({ employees, contractors = [], contractorsOk = true, periods, loa
                     type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
                     disabled={busyInvite}
                     onClick={async () => {
+                      /* The steps in this message have to match the sign-up
+                         screen exactly. Since Phase 10 the code is entered
+                         WHILE creating the account (choose Employee), not
+                         after signing in — a message describing the old flow
+                         sends the worker looking for a box that is not there. */
+                      const where = (typeof window !== 'undefined' && window.location?.origin) || 'DayPay'
                       const text =
-                        `DayPay: sign in with your own email, then enter this code to see your days and pay — ${emp.invite_code}`
+                        `DayPay: create your account at ${where} — choose Employee and enter this code: ${emp.invite_code}\n`
+                        + `You only need the code once; after that you just sign in with your email.`
                       try {
                         if (navigator.share) await navigator.share({ text })
                         else await navigator.clipboard?.writeText(emp.invite_code)
@@ -407,9 +434,10 @@ function Staff({ employees, contractors = [], contractorsOk = true, periods, loa
                   </button>
                 </div>
                 <p className="ew-hint" style={{ marginTop: 8 }}>
-                  Give them this code. They sign in with their own email, enter
-                  it once, and can then see only their own days and pay. The
-                  code stops working the moment it is used.
+                  Give them this code. They create their own account, choose
+                  Employee, and enter it once — then they can see their own days
+                  and pay, and nobody else's. The code stops working the moment
+                  it is used, and they are never asked for it again.
                 </p>
                 <div className="ew-actions" style={{ marginTop: 9 }}>
                   <button

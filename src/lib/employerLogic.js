@@ -325,6 +325,76 @@ export function resolveRoles(input = {}) {
   }
 }
 
+// ── Phase 10: accounts, onboarding, and what the employer is told ───────────
+
+/* THE SIGN-UP CHOICE, AND HOW MUCH IT IS ALLOWED TO DECIDE.
+
+   The brief asks a new user to choose Employer or Employee. That choice routes
+   the first screen and nothing else. It is deliberately NOT written to the
+   database, because a stored choice would be a second source of truth about
+   who somebody is — and there is already one, the one the database itself
+   enforces: an `employers` row makes you an employer, `employees.employee_user_id`
+   makes you a worker. Two sources of truth about identity is exactly the
+   disagreement this project has avoided everywhere else. If the choice and the
+   rows ever disagree, the rows win, and the person is still in the right place.
+
+   The copy lives here rather than in the JSX so it is unit-tested: a sign-up
+   screen is the one screen every single user reads, and it is the easiest place
+   in the product to make a promise the code does not keep. */
+export const ACCOUNT_TYPES = [
+  {
+    id: 'employer',
+    label: 'Employer',
+    blurb: 'I run the business. I add workers, set rates, and confirm the days that were worked.',
+    next: 'Set up your business',
+  },
+  {
+    id: 'employee',
+    label: 'Employee',
+    blurb: 'I work on site. I want to record my attendance and see my own days and pay.',
+    next: 'Enter your invite code',
+  },
+]
+
+export function accountTypeById(id) {
+  return ACCOUNT_TYPES.find(t => t.id === id) || null
+}
+
+/* Which pane a signed-in account belongs on.
+
+   Straight from resolveRoles() above, so there is one rule and not two. An
+   employer's own business outranks their own work record: the owner of a
+   company who is also on the roster is an employer first, because that is the
+   pane with the work in it that nobody else can do. */
+export function homeViewFor(roles) {
+  if (!roles) return 'month'
+  if (roles.isBusiness) return 'staff'
+  if (roles.employee) return 'me'
+  return 'month'
+}
+
+/* §4 — the account status an employer sees against a worker's name.
+
+   "Not registered" means ONE thing: this person has not created their own
+   DayPay login. It does not mean they are not employed, not on site, or not
+   being paid. The hint says so out loud, because an employer who reads it the
+   other way will chase a worker to sign up who has no smartphone — and the
+   whole point of the kiosk is that they never have to.
+
+   The `hint` is written to be true both before and after the kiosk exists: the
+   record is kept either way, and only the sentence gains "at the site kiosk"
+   when there is a kiosk to name. */
+export function accountStatus(employee) {
+  const registered = !!employee?.employee_user_id
+  return {
+    registered,
+    text: registered ? 'Registered' : 'Not registered',
+    hint: registered
+      ? 'They have their own DayPay sign-in and can see their own days and pay.'
+      : 'No DayPay sign-in yet. They are still on your workforce and attendance is still recorded for them.',
+  }
+}
+
 /* Did this query fail because a column does not exist yet?
 
    PostgREST reports a missing column as 42703 ("undefined_column"). It matters

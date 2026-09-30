@@ -53,8 +53,9 @@ function JoinForm({ onJoined }) {
     <div className="ew-card">
       <h2 className="ew-title">Join a team</h2>
       <p className="ew-sub" style={{ marginBottom: 12 }}>
-        Your employer will have given you a short code. Enter it to see your own
-        days and pay.
+        Your employer will have given you a short code. Enter it once to link this
+        account to their workforce and see your own days and pay. You will not be
+        asked for it again — after this you just sign in.
       </p>
 
       <form className="ew-form" onSubmit={submit}>

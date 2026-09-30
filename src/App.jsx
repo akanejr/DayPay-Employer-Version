@@ -6,9 +6,11 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
 import EmployerWorkspace from './employer/EmployerWorkspace'
 import EmployeeView from './employer/EmployeeView'
+import AccountChoice from './AccountChoice.jsx'
 import {
   myRoles, myYear, recordsByDate, notebookMonthNote, ledgerTotals,
-  ledgerSourceLabel, EmployerError,
+  ledgerSourceLabel, EmployerError, redeemInvite, accountTypeById, ensureEmployer,
+  homeViewFor,
 } from './lib/employer'
 import { sortPeriods, migratePeriods, rateFor as rateForPeriod } from './lib/rates'
 import { normalizeReminder, nextReminder, buildReminderIcs } from './lib/reminders'
@@ -333,6 +335,15 @@ export default function App() {
   const [authForm, setAuthForm] = useState({ email: '', password: '', name: '' })
   const [authError, setAuthError] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
+  /* Phase 10. `authKind` is the Employer/Employee choice — the first thing a
+     new account is asked, and the only thing it changes is which screen comes
+     next. `joinCode` is the employer's invite code, collected at REGISTRATION
+     and never again; `accountMade` records that the sign-up half of a failed
+     attempt already succeeded, so pressing the button a second time retries
+     the code instead of trying to create the account twice. */
+  const [authKind, setAuthKind] = useState(null)
+  const [joinCode, setJoinCode] = useState('')
+  const [accountMade, setAccountMade] = useState(false)
   const [syncStatus, setSyncStatus] = useState('idle')
   const [cloudError, setCloudError] = useState('')
   const syncTimeoutRef = useRef(null)
@@ -644,12 +655,16 @@ export default function App() {
   /* Re-read roles after an action that can change them (joining a team,
      leaving one). A failure keeps whatever we already knew. */
   const refreshRoles = useCallback(() => {
-    myRoles()
+    // Returns the roles it read, so a caller that has just changed them (a
+    // sign-up that creates an employer row) can route on the NEW answer rather
+    // than the one this render is still holding. Existing callers ignore it.
+    return myRoles()
       .then(r => {
         setRoles(r)
         try { localStorage.setItem('dp_is_business', r.isBusiness ? '1' : '0') } catch { /* private mode */ }
+        return r
       })
-      .catch(() => {})
+      .catch(() => null)
   }, [])
 
   // The Staff tab can disappear when roles resolve. Never leave the view
@@ -657,6 +672,43 @@ export default function App() {
   useEffect(() => {
     if (view === 'staff' && roles && !roles.isBusiness) setView('month')
   }, [view, roles])
+
+  /* ── PHASE 10: land a worker on their work ────────────────────────────────
+     A linked worker's day begins with Check In and ends with their month —
+     both on the Me tab. Until now they signed in to the tracker's Month view
+     and had to find it. This opens the tab they actually came for.
+
+     Deliberately narrow, because "helpful" redirects are how an app starts
+     fighting the person using it:
+       * ONCE per sign-in. A ref keyed on the user id, so choosing another tab
+         afterwards is final and never overridden.
+       * Only from 'month' — the default nobody chose. If they are already
+         somewhere deliberate, nothing moves.
+       * Only for a worker with no business of their own. An employer still
+         lands where they always did, so nothing about the employer experience
+         changes. */
+  /* A half-finished sign-up must not survive the modal being closed.
+     `accountMade` is the one that bites: leave it set, reopen the modal, and
+     the next person to press Sign up skips creating the account and goes
+     straight to redeeming a code against whoever is signed in. */
+  useEffect(() => {
+    if (showAuth) return
+    setAuthKind(null)
+    setJoinCode('')
+    setAccountMade(false)
+  }, [showAuth])
+
+  const landedFor = useRef(null)
+  useEffect(() => {
+    if (!user || !roles) return
+    if (landedFor.current === user.id) return
+    landedFor.current = user.id
+    if (view !== 'month') return
+    // 'me' only. An employer's landing is unchanged on purpose: their Staff
+    // tab is one tap away and always has been, and this change is about the
+    // worker who had no obvious way to reach Check In.
+    if (homeViewFor(roles) === 'me') setView('me')
+  }, [user, roles, view])
 
   /* ── PHASE 5: which record this account's calendar shows ──────────────────
      A worker who has joined a workplace keeps everything: their notebook, the
@@ -1408,18 +1460,86 @@ export default function App() {
     setAuthBusy(true); setAuthError('')
     try{
       if(authMode==='signup'){
-        const { data, error } = await supabase.auth.signUp({
-          email: authForm.email, password: authForm.password,
-          options: { data: { full_name: authForm.name.trim() || authForm.email.split('@')[0] } }
-        })
-        if(error) throw error
-        if(data.user) {
-          setUser(data.user)
-          setProfileName(data.user.user_metadata?.full_name || authForm.name)
-          setShowAuth(false)
-          setAuthForm({email:'',password:'', name:''})
-          if (!startMonthKey) setStartMonthKey(monthKey(new Date().getFullYear(), new Date().getMonth()))
+        /* THE INVITE CODE IS AN ONBOARDING CREDENTIAL, NOT A LOGIN ONE.
+
+           It is asked for here, once, at registration — and after this the
+           worker signs in with their email and password like anybody else,
+           because redeeming it sets employees.employee_user_id. That column is
+           what makes them a worker for every screen and every policy in the
+           product, and once it is set there is nothing left for a code to do.
+           A joined worker is never shown this form again; the Join screen only
+           appears to an account with no workplace. */
+        if (!accountMade) {
+          const { data, error } = await supabase.auth.signUp({
+            email: authForm.email, password: authForm.password,
+            options: { data: { full_name: authForm.name.trim() || authForm.email.split('@')[0] } }
+          })
+          if(error) throw error
+
+          if(data.user && !data.session) {
+            /* This project has email confirmation switched on, so there is no
+               session yet and the invite code cannot be redeemed in this
+               request — the server would (correctly) refuse it. Say so plainly
+               instead of letting the worker watch a code fail for a reason that
+               has nothing to do with the code. */
+            setShowAuth(false)
+            setAccountMade(false); setAuthKind(null); setJoinCode('')
+            dpShowToast({
+              title: 'Account created',
+              sub: 'Confirm your email address, then sign in to finish joining.',
+            })
+            return
+          }
+
+          if(data.user) {
+            setUser(data.user)
+            setProfileName(data.user.user_metadata?.full_name || authForm.name)
+            setAccountMade(true)
+          }
         }
+
+        if (authKind === 'employer') {
+          /* ── PHASE 10: choosing Employer has to actually make you one ────
+             It did not, and could not. An `employers` row was created only by
+             ensureEmployer(), which is called only from inside the staff
+             workspace — and the workspace renders only for an account that
+             already has a row. The Staff tab is the only door in, and it is
+             locked from the inside, so a brand-new account could never become
+             an employer at all. Accounts that already had the row (created
+             before that gate existed) never noticed.
+
+             ensureEmployer() is unchanged and already tested. This calls it at
+             the one moment the intent is unambiguous: the person just told us
+             they run the business. A failure here is not fatal — the row is
+             also created on first load of the workspace — so it reports and
+             continues rather than blocking the sign-up. */
+          try { await ensureEmployer() } catch { /* the workspace retries this */ }
+        }
+
+        if (authKind === 'employee') {
+          try {
+            await redeemInvite(joinCode)
+          } catch (joinErr) {
+            /* The account is real and the session is live — only the code was
+               wrong. Keep everything they typed, name the problem, and leave
+               the button able to retry the code alone. */
+            const m = joinErr instanceof EmployerError ? joinErr : new EmployerError(String(joinErr))
+            setAuthError(`${m.message} Your account is ready — check the code and press Join again.`)
+            return
+          }
+        }
+
+        /* Both halves of the choice end here, and both land on the pane the
+           choice implies: the owner on their roster, the worker on their work.
+           homeViewFor() is the same rule the tab bar uses, so there is one
+           answer to "where does this account belong" and not two. */
+        const settled = await refreshRoles()
+        if (settled) setView(homeViewFor(settled))
+
+        setShowAuth(false)
+        setAuthForm({email:'',password:'', name:''})
+        setAuthKind(null); setJoinCode(''); setAccountMade(false)
+        if (!startMonthKey) setStartMonthKey(monthKey(new Date().getFullYear(), new Date().getMonth()))
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password })
         if(error) throw error
@@ -1427,6 +1547,7 @@ export default function App() {
         setProfileName(data.user.user_metadata?.full_name || '')
         setShowAuth(false)
         setAuthForm({email:'',password:'', name:''})
+        setAuthMode('signin'); setAuthKind(null); setJoinCode(''); setAccountMade(false)
       }
     } catch(err){ setAuthError(err.message || 'Authentication failed') } finally{ setAuthBusy(false) }
   }
@@ -3256,9 +3377,29 @@ export default function App() {
                 <div className="daypay-tagline">Know what your work is worth.</div>
               </div>
               {!showForgot ? (
+                authMode==='signup' && !authKind ? (
+                  /* ── PHASE 10: the first thing a new account is asked ────────
+                     Employer or Employee. Two cards, nothing else — no email
+                     box in sight, because answering this first is what keeps
+                     the rest of the form short: an employer is never asked for
+                     an invite code, and a worker is never asked for a business
+                     name. */
+                  <AccountChoice onChoose={id => { setAuthKind(id); setAuthError('') }} />
+                ) : (
                 <form onSubmit={handleAuthSubmit}>
                   {authMode==='signup' && (
                     <>
+                      <div className="acct-chosen">
+                        <span className="acct-chosen-label">
+                          {accountTypeById(authKind)?.label || 'Account'} account
+                        </span>
+                        <button
+                          type="button" className="link-btn acct-changed"
+                          onClick={() => { setAuthKind(null); setAuthError('') }}
+                        >
+                          Change
+                        </button>
+                      </div>
                       <label className="field-label">Full name</label>
                       <div className="field-wrap" style={{marginBottom:12}}>
                         <input className="field-input" type="text" required value={authForm.name} onChange={e=>setAuthForm({...authForm, name:e.target.value})} placeholder="e.g. John Doe" />
@@ -3273,15 +3414,37 @@ export default function App() {
                   <div className="field-wrap">
                     <input className="field-input" type="password" required minLength={6} value={authForm.password} onChange={e=>setAuthForm({...authForm, password:e.target.value})} placeholder="••••••••" />
                   </div>
+                  {authMode==='signup' && authKind==='employee' && (
+                    <>
+                      <label className="field-label" style={{marginTop:12}}>Employer invite code</label>
+                      <div className="field-wrap">
+                        <input
+                          className="field-input"
+                          type="text"
+                          required
+                          value={joinCode}
+                          onChange={e=>setJoinCode(e.target.value.toUpperCase())}
+                          placeholder="ABCD2345"
+                          autoComplete="off" autoCapitalize="characters" spellCheck="false" maxLength={16}
+                        />
+                      </div>
+                      <p className="field-hint">
+                        Your employer gives you this once, to link your account to
+                        their workforce. You will not be asked for it again — after
+                        today you just sign in with your email and password.
+                      </p>
+                    </>
+                  )}
                   {authMode==='signin' && (
                     <button type="button" className="link-btn" onClick={()=>{setShowForgot(true); setForgotEmail(authForm.email); setForgotSent(false); setAuthError('')}}>Forgot password?</button>
                   )}
                   {authError && <div className="auth-error">{authError}</div>}
                   <div className="modal-actions" style={{marginTop:18}}>
-                    <button type="button" className="btn-secondary" onClick={()=>setAuthMode(authMode==='signin'?'signup':'signin')}>{authMode==='signin' ? 'Need account? Sign up' : 'Have account? Sign in'}</button>
-                    <button type="submit" className="btn-primary" disabled={authBusy}>{authBusy ? 'Please wait…' : authMode==='signin' ? 'Sign in' : 'Sign up'}</button>
+                    <button type="button" className="btn-secondary" onClick={()=>{ if(authMode==='signup' && authKind){ setAuthKind(null); setAuthError('') } else { setAuthMode(authMode==='signin'?'signup':'signin'); setAuthError('') } }}>{authMode==='signin' ? 'Need account? Sign up' : authKind ? 'Back' : 'Have account? Sign in'}</button>
+                    <button type="submit" className="btn-primary" disabled={authBusy}>{authBusy ? 'Please wait…' : authMode==='signin' ? 'Sign in' : authKind==='employee' ? (accountMade ? 'Join' : 'Sign up and join') : 'Sign up'}</button>
                   </div>
                 </form>
+                )
               ) : (
                 <form onSubmit={handleForgotPassword}>
                   <label className="field-label">Reset password</label>

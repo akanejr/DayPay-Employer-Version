@@ -871,6 +871,27 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   text-decoration: underline; text-underline-offset: 3px; cursor: pointer; padding: var(--sp-2) 0 0; text-align: left;
 }
 .link-btn:hover { color: var(--text); }
+
+/* ── Phase 10: the account-type choice ──────────────────────────────────────
+   The first screen a new account sees. Every colour here is a theme variable,
+   so the dark theme needs no second rule — which is the same reason the rest
+   of the app does it this way. */
+.acct-choice { display: grid; gap: var(--sp-3); }
+.acct-card {
+  display: grid; gap: 3px; text-align: left; width: 100%;
+  padding: var(--sp-4); border-radius: 12px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  cursor: pointer; font: inherit; color: inherit;
+  transition: border-color .15s ease, background .15s ease;
+}
+.acct-card:hover { border-color: var(--daypay-green); background: var(--bg-cell-hover); }
+.acct-card:focus-visible { outline: 2px solid var(--daypay-green); outline-offset: 2px; }
+.acct-card-title { font-size: var(--fs-md); font-weight: 800; color: var(--text); }
+.acct-card-sub { font-size: var(--fs-xs); font-weight: 500; color: var(--text-3); line-height: 1.5; }
+.acct-card-next { margin-top: 2px; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--green-ink); }
+.acct-chosen { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-3); }
+.acct-chosen-label { font-size: var(--fs-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--green-ink); }
+.acct-changed { padding: 0; }
 .success-banner {
   padding: var(--sp-3) var(--sp-4); background: var(--green-wash); border: 1px solid var(--border-light);
   border-radius: 10px; color: var(--green-ink); font-size: var(--fs-sm); font-weight: 500; margin-top: var(--sp-2); line-height: 1.5;

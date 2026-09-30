@@ -32,6 +32,100 @@ const day = (employee_id, { amount = 16000, kind = 'work', status = 'claimed', m
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
+/* ── PHASE 10: accounts and onboarding ──────────────────────────────────────
+
+   The sign-up screen is the one screen every single user reads, and the easiest
+   place in a product to promise something the code does not do. These lock the
+   promises down.
+
+   The rule being tested throughout: the CHOICE a new account makes routes the
+   first screen and nothing else. Role comes from the database — an `employers`
+   row, or `employees.employee_user_id` — so the two can never disagree about
+   who somebody is. */
+
+import {
+  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus,
+} from '../src/lib/employerLogic.js'
+
+describe('the account-type choice', () => {
+  test('offers exactly the two roles the brief names', () => {
+    assert.deepEqual(ACCOUNT_TYPES.map(t => t.id), ['employer', 'employee'])
+    assert.deepEqual(ACCOUNT_TYPES.map(t => t.label), ['Employer', 'Employee'])
+  })
+
+  test('every choice explains itself and says what comes next', () => {
+    for (const t of ACCOUNT_TYPES) {
+      assert.ok(t.blurb.length > 20, `${t.id} needs a sentence a person can read`)
+      assert.ok(t.next.length > 0, `${t.id} needs to say what happens next`)
+    }
+  })
+
+  test('only an employee is asked for a code — the employer never is', () => {
+    // §2. An employer has no invite code to give, so offering them the field
+    // would be a dead end dressed up as a step.
+    assert.match(accountTypeById('employee').next, /invite code/i)
+    assert.doesNotMatch(accountTypeById('employer').next, /invite code/i)
+  })
+
+  test('an unknown or absent choice resolves to nothing, never to a role', () => {
+    // The failure mode worth guarding: defaulting an unknown choice to
+    // 'employer' would hand a worker the employer sign-up path.
+    assert.equal(accountTypeById('worker'), null)
+    assert.equal(accountTypeById(null), null)
+    assert.equal(accountTypeById(undefined), null)
+  })
+})
+
+describe('where a signed-in account lands', () => {
+  test('a linked worker lands on their work, which is where Check In is', () => {
+    assert.equal(homeViewFor({ isBusiness: false, employee: { id: 'e1' } }), 'me')
+  })
+
+  test('a business employer lands on the roster', () => {
+    assert.equal(homeViewFor({ isBusiness: true, employee: null }), 'staff')
+  })
+
+  test('an owner who is also on the roster is an employer first', () => {
+    // Both rows exist. The pane with work in it that nobody else can do wins.
+    assert.equal(homeViewFor({ isBusiness: true, employee: { id: 'e1' } }), 'staff')
+  })
+
+  test('the personal tracker is untouched — no workplace means no redirect', () => {
+    // Everyone who used DayPay before any of this existed.
+    assert.equal(homeViewFor({ isBusiness: false, employee: null }), 'month')
+    assert.equal(homeViewFor(null), 'month')
+  })
+})
+
+describe('the account status an employer sees (§4)', () => {
+  test('a worker with no login reads "Not registered"', () => {
+    const st = accountStatus({ id: 'e1', employee_user_id: null })
+    assert.equal(st.registered, false)
+    assert.equal(st.text, 'Not registered')
+  })
+
+  test('a worker with a login reads "Registered"', () => {
+    const st = accountStatus({ id: 'e1', employee_user_id: 'u1' })
+    assert.equal(st.registered, true)
+    assert.equal(st.text, 'Registered')
+  })
+
+  test('"Not registered" never reads as "not employed"', () => {
+    // The brief is explicit that these are different things, and an employer
+    // who reads it the other way chases a worker with no smartphone to create
+    // an account they do not need. The hint has to carry that.
+    const st = accountStatus({ id: 'e1', employee_user_id: null })
+    assert.match(st.hint, /workforce/i)
+    assert.doesNotMatch(st.hint, /not employed|no longer|removed|inactive/i)
+  })
+
+  test('a missing employee record cannot produce a misleading status', () => {
+    assert.equal(accountStatus(null).text, 'Not registered')
+    assert.equal(accountStatus(undefined).registered, false)
+    assert.equal(accountStatus({}).registered, false)
+  })
+})
+
 describe('formatNaira', () => {
   test('groups thousands deterministically', () => {
     assert.equal(formatNaira(0), '₦0')

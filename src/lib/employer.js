@@ -33,6 +33,7 @@ import {
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
   periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
+  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -52,6 +53,7 @@ export {
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
   periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
+  ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
