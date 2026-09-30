@@ -134,6 +134,23 @@ export function prepareEnv(root = process.cwd(), { quiet = false } = {}) {
      assert-config-shipped plugin checks against, so an override that points at
      a different project is verified against itself instead of against a file
      it has already replaced. */
+  /* A variable that EXISTS BUT IS EMPTY is not an override. It is the shape a
+     host's import screen produces when it prefills the variable names from the
+     committed .env.example and nobody fills the values in — a row, not a value.
+
+     It has to be removed from the environment, not merely ignored. Vite gives
+     process.env precedence over the .env file written below, so a blank
+     VITE_SUPABASE_URL would be compiled in as the empty string and the build
+     would fail on a configuration that is sitting in the repository, correct
+     and unread. Observed on Vercel's import screen; proved by the test that
+     builds with both names declared empty. */
+  for (const name of Object.keys(process.env)) {
+    if (!ALLOWED_PREFIXES.some((p) => name.startsWith(p))) continue
+    if (process.env[name] !== undefined && !process.env[name].trim()) {
+      delete process.env[name]
+    }
+  }
+
   const fromEnv = (...names) => {
     for (const name of names) {
       const v = process.env[name]

@@ -219,6 +219,27 @@ describe('a host that injects environment variables cannot poison the bundle', (
     assert.match(url, /crirzuoehbkzpnwokyxl/)
     assert.match(key, /^sb_publishable_/)
   })
+
+  /* The import screen on a host prefills the NAMES it finds in .env.example.
+     If those rows are added with no values, the build used to fail on a config
+     that was correct in the repository — because Vite prefers process.env over
+     the .env file this script writes, so a blank variable compiled in as "". */
+  test('a variable declared but left empty does not override the committed config', () => {
+    const root = tmpProject()
+    let leftBehind
+    const { url, key } = withEnv({
+      VITE_SUPABASE_URL: '',
+      VITE_SUPABASE_ANON_KEY: '   ',
+    }, () => {
+      const r = prepareEnv(root, { quiet: true })
+      leftBehind = process.env.VITE_SUPABASE_URL
+      return r
+    })
+    assert.match(url, /crirzuoehbkzpnwokyxl/, 'the committed URL must be used')
+    assert.match(key, /^sb_publishable_/, 'the committed key must be used')
+    assert.equal(leftBehind, undefined,
+      'a blank variable must be cleared from the environment, or Vite compiles in ""')
+  })
 })
 
 /* ── The build must not remember where it used to live ────────────────────
