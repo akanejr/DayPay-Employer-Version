@@ -25,7 +25,7 @@ export class EmployerError extends Error {
 const DAYS = [
   { id: 'd1', employee_id: 'e1', work_date: '2026-09-08', kind: 'work', status: 'confirmed',
     amount: 16000, rate: 16000, multiplier: 1, source: 'check_in',
-    checked_in_at: '2026-09-08T06:12:00Z', note: null },
+    checked_in_at: '2026-09-08T06:12:00Z', note: null, attendance_method: 'mobile' },
   { id: 'd2', employee_id: 'e1', work_date: '2026-09-12', kind: 'overtime', status: 'claimed',
     amount: 32000, rate: 16000, multiplier: 2, source: 'employer', note: 'Night shift' },
 ]
@@ -43,6 +43,16 @@ const EVENTS = [
   { id: 2, employee_id: 'e1', actor: 'x', action: 'amended', reason: 'Night shift', created_at: '2026-09-12T18:00:00Z' },
   { id: 3, employee_id: 'e1', actor: 'x', action: 'status:claimed->confirmed', reason: null, created_at: '2026-09-13T09:00:00Z' },
 ]
+
+/* A way to add one day for the length of one check, then take it away again.
+   The calendar check counts marked cells, so a fixture that stayed would make
+   an unrelated assertion fail — and a suite whose fixtures leak into each other
+   is a suite that fails for reasons nobody can see. */
+export function addMonthFixture(row) { DAYS.push(row) }
+export function removeMonthFixture(id) {
+  const i = DAYS.findIndex(d => d.id === id)
+  if (i >= 0) DAYS.splice(i, 1)
+}
 
 export const listEmployeeMonth = async () => DAYS
 export const listEmployeeCorrections = async () => REQUESTS

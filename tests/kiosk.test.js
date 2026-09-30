@@ -22,6 +22,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { dayOriginChip, ledgerSourceLabel } from '../src/lib/employerLogic.js'
 import {
   KIOSK_STEPS, nextStep, backStep, keypadPress, isComplete, masked, codeSlots,
   contractorChoices, peopleForContractor, filterPeople, kioskOutcome,
@@ -304,6 +305,43 @@ describe('the device list', () => {
 
   test('an unparseable moment is blank, not "Invalid Date"', () => {
     for (const bad of [null, '', 'not a date']) assert.equal(shortMoment(bad), '')
+  })
+})
+
+// ── §18: the employer can see how a day arrived ─────────────────────────────
+
+describe('the audit view says how a day was recorded, and never guesses', () => {
+  test('a kiosk day says kiosk', () => {
+    assert.equal(dayOriginChip({ source: 'check_in', attendance_method: 'kiosk' }), 'At the site kiosk')
+    assert.equal(ledgerSourceLabel('check_in', 'kiosk'), 'Recorded at the site kiosk')
+  })
+
+  test('a phone day says phone, in the wording that was already there', () => {
+    assert.equal(dayOriginChip({ source: 'check_in', attendance_method: 'mobile' }), 'Checked in on their phone')
+    assert.equal(ledgerSourceLabel('check_in', 'mobile'), 'Recorded with the work code')
+  })
+
+  test('a day from before 019 keeps the older sentence rather than inventing one', () => {
+    // Every check-in that existed before this phase has no method. Calling it
+    // "mobile" would be the audit trail making something up.
+    assert.equal(dayOriginChip({ source: 'check_in', attendance_method: null }), 'Checked in')
+    assert.equal(ledgerSourceLabel('check_in', null), 'Recorded with the work code')
+    assert.equal(ledgerSourceLabel('check_in'), 'Recorded with the work code')
+  })
+
+  test('an employer-marked day is still the employer’s, and a correction is still a correction', () => {
+    assert.equal(dayOriginChip({ source: 'employer' }), 'Marked by you')
+    assert.equal(dayOriginChip({ source: 'employer', attendance_method: 'kiosk' }), 'Marked by you',
+      'a method on an employer-marked day must not be believed')
+    assert.equal(dayOriginChip({ source: 'correction' }), 'From a correction')
+    assert.equal(ledgerSourceLabel('correction'), 'Corrected by your employer')
+    assert.equal(ledgerSourceLabel('employer'), 'Recorded by your employer')
+  })
+
+  test('a row with no source produces no chip, rather than an empty one', () => {
+    assert.equal(dayOriginChip({}), '')
+    assert.equal(dayOriginChip(null), '')
+    assert.equal(dayOriginChip(undefined), '')
   })
 })
 

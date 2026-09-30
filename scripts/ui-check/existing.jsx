@@ -28,8 +28,8 @@ let bad = 0
 const must = (label, html, needles) => {
   const missing = needles.filter(n => !html.includes(n))
   const faults = polishProblems(html)
-  if (missing.length) { bad++; console.log(`  FAIL  ${label} — missing: ${missing.join(' | ')}`) }
-  else if (faults.length) { bad++; console.log(`  FAIL  ${label} — polish: ${faults.join(' | ')}`) }
+  if (missing.length) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — missing: ${missing.join(' | ')}`) }
+  else if (faults.length) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — polish: ${faults.join(' | ')}`) }
   else console.log(`  PASS  ${label} (${html.length} chars)`)
 }
 
@@ -41,7 +41,7 @@ async function mount(label, el, needles, tabIndex = null) {
   await act(async () => { await new Promise(r => setTimeout(r, 25)) })
   if (tabIndex !== null) {
     const tabs = host.querySelectorAll('.ew-subtab')
-    if (!tabs[tabIndex]) { bad++; console.log(`  FAIL  ${label} — no tab ${tabIndex} of ${tabs.length}`) }
+    if (!tabs[tabIndex]) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — no tab ${tabIndex} of ${tabs.length}`) }
     else {
       await act(async () => { tabs[tabIndex].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
       await act(async () => { await new Promise(r => setTimeout(r, 25)) })
@@ -120,11 +120,10 @@ await mount('Check-in (worker)', <CheckIn employee={employee} onRecorded={() => 
   } catch (e) { failure = e }
   const problems = failure ? [`threw: ${failure.message}`] : polishProblems(html)
   if (!html.includes('app-root')) problems.push('rendered nothing into the root')
-  if (problems.length) { bad++; console.log(`  FAIL  The employee app — ${problems.join(' | ')}`) }
+  if (problems.length) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  The employee app — ${problems.join(' | ')}`) }
   else console.log(`  PASS  The employee app (${html.length} chars)`)
   await act(async () => { root.unmount() })
   host.remove()
 }
 
 console.log(bad === 0 ? '\nEXISTING SCREENS: ALL STILL RENDER' : `\nEXISTING SCREENS: ${bad} CHECK(S) FAILED`)
-globalThis.__bad = (globalThis.__bad || 0) + bad

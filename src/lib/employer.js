@@ -28,7 +28,7 @@ import {
   groupByContractor, contractorRollup, isMissingTable,
   endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
   timeLeftLabel, attendancePrompt, checkInError,
-  ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote,
+  ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote, dayOriginChip,
   CORRECTION_CHOICES, CORRECTION_LABELS, CORRECTION_STATUS,
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
@@ -49,7 +49,7 @@ export {
   groupByContractor, contractorRollup, isMissingTable,
   endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
   timeLeftLabel, attendancePrompt, checkInError,
-  ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote,
+  ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote, dayOriginChip,
   CORRECTION_CHOICES, CORRECTION_LABELS, CORRECTION_STATUS,
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
@@ -384,21 +384,43 @@ export async function deleteRatePeriod(id) {
 
 // ── Days ────────────────────────────────────────────────────────────────────
 
-const DAY_COLS = 'id, employee_id, work_date, kind, leave_type, leave_percent, rate, multiplier, amount, status, note, confirmed_at, disputed_at'
+const DAY_COLS_BASE = 'id, employee_id, work_date, kind, leave_type, leave_percent, rate, multiplier, amount, status, note, confirmed_at, disputed_at'
+
+/* Migration 019 adds attendance_method: how the day arrived — the worker's own
+   phone, the site kiosk, or nobody's device (NULL, an employer-marked day).
+
+   Asked for the same way contractor_id is, and for the same reason. A project
+   that has not run 019 yet must not lose its ledger because the app asked for a
+   column that is not there; it just cannot say how a day was recorded, which is
+   a smaller loss than every calendar in the product failing to load. One failed
+   round trip per session, then the flag remembers. */
+let methodColumnMissing = false
+
+const dayCols = () =>
+  methodColumnMissing ? DAY_COLS_BASE : `${DAY_COLS_BASE}, attendance_method`
+
+async function withDayCols(build) {
+  let res = await build(dayCols())
+  if (isMissingColumn(res.error, 'attendance_method')) {
+    methodColumnMissing = true
+    res = await build(DAY_COLS_BASE)
+  }
+  return res
+}
 
 /* Migration 012. Listed explicitly rather than `*` for the same reason as
-   DAY_COLS: the shape of a row is a decision, and a new column should be a
-   deliberate addition to this line. */
+   DAY_COLS_BASE: the shape of a row is a decision, and a new column should be a
+   deliberate addition to that line. */
 const CORRECTION_COLS = 'id, employee_id, work_date, day_record_id, request_kind, want_kind, leave_type, leave_percent, message, status, resolved_by, resolved_at, decision_note, created_at'
 
 
 export async function listEmployeeMonth(employeeId, year, monthIndex) {
   const { from, to } = monthBounds(year, monthIndex)
   return run(
-    client().from('day_records').select(DAY_COLS)
+    withDayCols(cols => client().from('day_records').select(cols)
       .eq('employee_id', employeeId)
       .gte('work_date', from).lte('work_date', to)
-      .order('work_date', { ascending: true }),
+      .order('work_date', { ascending: true })),
     'load this month',
   )
 }
@@ -408,9 +430,9 @@ export async function listEmployeeMonth(employeeId, year, monthIndex) {
 export async function listAllMonth(year, monthIndex) {
   const { from, to } = monthBounds(year, monthIndex)
   return run(
-    client().from('day_records').select(DAY_COLS)
+    withDayCols(cols => client().from('day_records').select(cols)
       .gte('work_date', from).lte('work_date', to)
-      .order('work_date', { ascending: true }),
+      .order('work_date', { ascending: true })),
     'load this month',
   )
 }
@@ -438,9 +460,9 @@ export async function setDay(employeeId, workDate, kind, {
   if (confirm) payload.status = 'confirmed'
 
   return run(
-    client().from('day_records')
+    withDayCols(cols => client().from('day_records')
       .upsert(payload, { onConflict: 'employee_id,work_date' })
-      .select(DAY_COLS).single(),
+      .select(cols).single()),
     'save this day',
   )
 }
@@ -455,24 +477,27 @@ export async function clearDay(employeeId, workDate) {
 
 export async function confirmDay(id) {
   return run(
-    client().from('day_records').update({ status: 'confirmed' }).eq('id', id)
-      .select(DAY_COLS).single(),
+    withDayCols(cols => client().from('day_records')
+      .update({ status: 'confirmed' }).eq('id', id)
+      .select(cols).single()),
     'confirm this day',
   )
 }
 
 export async function disputeDay(id, reason = null) {
   return run(
-    client().from('day_records').update({ status: 'disputed', note: reason }).eq('id', id)
-      .select(DAY_COLS).single(),
+    withDayCols(cols => client().from('day_records')
+      .update({ status: 'disputed', note: reason }).eq('id', id)
+      .select(cols).single()),
     'dispute this day',
   )
 }
 
 export async function reopenDay(id) {
   return run(
-    client().from('day_records').update({ status: 'claimed' }).eq('id', id)
-      .select(DAY_COLS).single(),
+    withDayCols(cols => client().from('day_records')
+      .update({ status: 'claimed' }).eq('id', id)
+      .select(cols).single()),
     'reopen this day',
   )
 }
@@ -710,12 +735,12 @@ export async function myMonth(employeeId, year, monthIndex) {
 export async function myYear(employeeId, year) {
   const y = Number(year)
   if (!employeeId || !isFinite(y)) return []
-  const res = await client().from('day_records')
-    .select(DAY_COLS)
+  const res = await withDayCols(cols => client().from('day_records')
+    .select(cols)
     .eq('employee_id', employeeId)
     .gte('work_date', `${y}-01-01`)
     .lte('work_date', `${y}-12-31`)
-    .order('work_date', { ascending: true })
+    .order('work_date', { ascending: true }))
 
   if (res.error) {
     if (isMissingTable(res.error, 'day_records')) return []

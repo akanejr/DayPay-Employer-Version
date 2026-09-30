@@ -25,7 +25,7 @@ import {
   formatNaira, initials, todayKey, prettyDateKey, monthLabelFor,
   KIND_LABELS, monthGrid, openRequestsByDate, workerMonthTotals,
   correctionSentence, correctionEffect, auditLabel, auditTone,
-  CORRECTION_STATUS, CORRECTION_LABELS, rateOn, multiplierFor,
+  CORRECTION_STATUS, CORRECTION_LABELS, rateOn, multiplierFor, dayOriginChip,
 } from '../lib/employer'
 
 const KINDS = ['work', 'weekend', 'overtime', 'holiday']
@@ -79,7 +79,7 @@ function DaySheet({ dateKey, record, request, period, busy, onKind, onConfirm,
             <span className={`ew-chip${record.status === 'confirmed' ? ' ew-chip-live' : record.status === 'disputed' ? ' ew-chip-warn' : ''}`}>
               {CORRECTION_STATUS[record.status]?.short || record.status}
             </span>
-            {record.source && <span className="ew-chip">{record.source === 'check_in' ? 'Checked in' : record.source === 'correction' ? 'From a correction' : 'Marked by you'}</span>}
+            {record.source && <span className="ew-chip">{dayOriginChip(record)}</span>}
             {record.checked_in_at && <span className="ew-mini-sub">at {String(record.checked_in_at).slice(11, 16)}</span>}
             {record.note && <span className="ew-mini-sub">{record.note}</span>}
           </div>

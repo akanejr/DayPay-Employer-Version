@@ -1023,6 +1023,24 @@ ok('kiosk and phone produce the same shape of record: same kind, same multiplier
   new Set(byMethod.map(r => `${r.kind}:${r.multiplier}`)).size === 1,
   byMethod.map(r => `${r.m}:${r.kind} ${r.multiplier}x ${fmtMoney(r.amount)}`).join(' | '))
 
+/* §18 — the employer's own read. Not a new report and not a new query: the
+   same month read the dashboard already performs, asked in the same shape, so
+   the audit chip can be drawn from the row the screen already has rather than
+   costing a second round trip per day. */
+const employerRead = (await asA(`
+  select d.work_date, d.kind, d.status, d.source, d.attendance_method
+    from public.day_records d
+    join public.employees e on e.id = d.employee_id
+   where e.employer_id = auth.uid()
+     and d.work_date between '${M_FROM}' and '${M_TO}'
+   order by d.work_date`)).rows
+ok('the employer’s existing month read carries the method, with no change to any report',
+  employerRead.length >= 4 && employerRead.every(r => 'attendance_method' in r),
+  `${employerRead.length} day(s), ${employerRead.filter(r => r.attendance_method === 'kiosk').length} from the kiosk`)
+ok('...and no figure anywhere depends on it — rate x multiplier is what the row says',
+  byMethod.every(r => Number(r.amount) === Number(r.rate) * Number(r.multiplier)),
+  byMethod.map(r => `${r.m}:${fmtMoney(r.amount)}`).join(' '))
+
 /* Revocation, the one control the employer has over a machine. Everything the
    machine recorded survives it; every door it had closes at once. */
 await asA(`update public.attendance_devices set status = 'revoked'

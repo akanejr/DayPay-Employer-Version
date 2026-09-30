@@ -33,10 +33,8 @@ const DevicePanel = (await import('../../src/employer/DevicePanel.jsx')).default
 const kioskLib = await import('../../src/lib/kiosk.js')
 const client = await import('./mock-supabase.js')
 
-let bad = 0
 const ok = (label, pass, detail) => {
-  if (!pass) bad++
-  globalThis.__bad = bad
+  if (!pass) globalThis.__bad = (globalThis.__bad || 0) + 1
   console.log(`  ${pass ? 'PASS' : 'FAIL'}  ${label}${detail ? '  -> ' + detail : ''}`)
 }
 

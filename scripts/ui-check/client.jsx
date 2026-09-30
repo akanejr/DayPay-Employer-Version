@@ -29,8 +29,8 @@ let bad = 0
 const must = (label, html, needles) => {
   const missing = needles.filter(n => !html.includes(n))
   const faults = polishProblems(html)
-  if (missing.length) { bad++; console.log(`  FAIL  ${label} — missing: ${missing.join(' | ')}`) }
-  else if (faults.length) { bad++; console.log(`  FAIL  ${label} — polish: ${faults.join(' | ')}`) }
+  if (missing.length) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — missing: ${missing.join(' | ')}`) }
+  else if (faults.length) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — polish: ${faults.join(' | ')}`) }
   else console.log(`  PASS  ${label} (${html.length} chars)`)
 }
 
@@ -44,7 +44,7 @@ async function mount(label, el, needles, tabIndex = null) {
 
   if (tabIndex !== null) {
     const tabs = host.querySelectorAll('.ew-subtab')
-    if (!tabs[tabIndex]) { bad++; console.log(`  FAIL  ${label} — no tab at index ${tabIndex} (has ${tabs.length})`) }
+    if (!tabs[tabIndex]) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — no tab at index ${tabIndex} (has ${tabs.length})`) }
     else {
       await act(async () => {
         tabs[tabIndex].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -128,5 +128,4 @@ function Detonator() {
 
 /* No process.exit here: the interaction pass runs after this file in the same
    bundle, so failures are accumulated and reported once, at the end. */
-globalThis.__bad = (globalThis.__bad || 0) + bad
 console.log(bad === 0 ? '\nCLIENT RENDER: EVERY SCREEN MOUNTED AND FILLED' : `\nCLIENT RENDER: ${bad} CHECK(S) FAILED`)

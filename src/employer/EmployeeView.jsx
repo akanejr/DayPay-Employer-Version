@@ -342,7 +342,7 @@ function MyMonth({ employee, onChanged }) {
                         do not recognise should be able to tell a check-in from
                         something their employer typed — without asking. */}
                     <div className="ew-dayrow-source">
-                      {ledgerSourceLabel(d.source || 'employer')}
+                      {ledgerSourceLabel(d.source || 'employer', d.attendance_method)}
                     </div>
                   </div>
                   <div className="ew-dayrow-actions">

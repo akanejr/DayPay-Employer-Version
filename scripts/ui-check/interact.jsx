@@ -19,8 +19,11 @@ const EmployerWorkspace = (await import('../../src/employer/EmployerWorkspace.js
 
 const employee = { id: 'e1', full_name: 'James Okon', job_title: 'Rigger', status: 'active' }
 let bad = 0
+/* Published on every check, not once halfway down the file. The run's final
+   badge reads this, so a check appended below the old publish point used to be
+   able to FAIL while the suite still reported ALL GREEN. */
 const ok = (label, pass, detail) => {
-  if (!pass) bad++
+  if (!pass) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1 }
   console.log(`  ${pass ? 'PASS' : 'FAIL'}  ${label}${detail ? '  -> ' + detail : ''}`)
 }
 
@@ -199,8 +202,6 @@ async function mount(el) {
   host.remove()
 }
 
-console.log(bad === 0 ? '\nINTERACTION: ALL CHECKS PASSED' : `\nINTERACTION: ${bad} CHECK(S) FAILED`)
-globalThis.__bad = (globalThis.__bad || 0) + bad
 
 // ── a period that is completely billed must say so, not "Not yet billed ₦0" ──
 // The card used to read "Not yet billed · ₦0" above "everything has been
@@ -346,3 +347,31 @@ globalThis.__bad = (globalThis.__bad || 0) + bad
   await act(async () => { root.unmount() })
   host.remove()
 }
+
+// ── §18: the day sheet says how the day was recorded ────────────────────────
+{
+  const kioskDay = {
+    id: 'd9', employee_id: 'e1', work_date: '2026-09-10', kind: 'work', status: 'claimed',
+    amount: 16000, rate: 16000, multiplier: 1, source: 'check_in',
+    checked_in_at: '2026-09-10T06:05:00Z', note: null, attendance_method: 'kiosk',
+  }
+  mock.addMonthFixture(kioskDay)
+  const { host } = await mount(<WorkerView employee={employee} onBack={() => {}} onChanged={() => {}} />)
+
+  const tenth = [...host.querySelectorAll('.ew-mgrid-cell.is-marked')]
+    .find(c => c.textContent.trim() === '10')
+  await click(tenth)
+  const sheet = host.querySelector('.ew-sheet')
+  ok('the employer can see a kiosk day was recorded at the machine, not on a phone',
+    !!sheet && sheet.textContent.includes('At the site kiosk'),
+    sheet ? sheet.textContent.slice(0, 90) : 'no sheet')
+  const chip = [...(sheet?.querySelectorAll('.ew-chip') || [])]
+    .find(c => /kiosk/i.test(c.textContent))
+  ok('...and the chip names the method without ever carrying a figure',
+    !!chip && !/₦|[0-9]/.test(chip.textContent), chip?.textContent)
+  mock.removeMonthFixture('d9')
+}
+
+console.log(bad === 0
+  ? '\nINTERACTION: ALL CHECKS PASSED'
+  : `\nINTERACTION: ${bad} CHECK(S) FAILED`)

@@ -832,10 +832,32 @@ export function ledgerTotals(rows) {
 /* Where a day came from, in words, for the cell's tooltip. The point is that a
    worker can always answer "who put this here?" — the code they typed, their
    employer, or a correction. */
-export function ledgerSourceLabel(source) {
-  if (source === 'check_in') return 'Recorded with the work code'
+export function ledgerSourceLabel(source, method) {
+  if (source === 'check_in') {
+    /* §18: where the method is known, say it — it is the difference between
+       "somebody typed a code" and "they stood at the machine at the gate".
+       Both are the same day and the same money; this is only about how it
+       arrived. A row recorded before 019, or on a project without it, has no
+       method and keeps the original sentence rather than guessing one. */
+    if (method === 'kiosk') return 'Recorded at the site kiosk'
+    if (method === 'mobile') return 'Recorded with the work code'
+    return 'Recorded with the work code'
+  }
   if (source === 'correction') return 'Corrected by your employer'
   return 'Recorded by your employer'
+}
+
+/* The chip on the employer's day sheet. Three words where they will fit, and
+   the count of what can be known about the day: who created it, and — since
+   019 — how. Kept here rather than inline in the component so the wording can
+   be asserted without rendering anything. */
+export function dayOriginChip(record) {
+  if (!record || !record.source) return ''
+  if (record.source === 'correction') return 'From a correction'
+  if (record.source !== 'check_in') return 'Marked by you'
+  if (record.attendance_method === 'kiosk') return 'At the site kiosk'
+  if (record.attendance_method === 'mobile') return 'Checked in on their phone'
+  return 'Checked in'
 }
 
 /* The personal notebook, summarised for one month — or null when it holds
