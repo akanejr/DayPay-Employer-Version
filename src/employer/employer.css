@@ -1,0 +1,1733 @@
+/* DayPay Employer Version — employer workspace.
+   Uses the app's existing theme tokens, so it follows Light / Dark / Glass
+   automatically without duplicating any colours. */
+
+.ew {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 40px;
+}
+
+/* ── Section headers ─────────────────────────────────────────────────────── */
+
+.ew-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+/* Without min-width:0 a long roster summary can push the Add button off a
+   narrow phone screen. The button is non-shrinkable so it always stays put. */
+.ew-head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ew-head > .ew-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.ew-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.ew-sub {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+
+.ew-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.ew-card + .ew-card { margin-top: 10px; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.ew-btn {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  padding: 9px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter .15s ease, background .15s ease;
+}
+
+.ew-btn:active { transform: translateY(0.5px); }
+.ew-btn:disabled { opacity: .5; cursor: default; }
+
+.ew-btn-primary { background: var(--daypay-green); color: #fff; }
+.ew-btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+.ew-btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+  border-color: var(--border-strong);
+}
+.ew-btn-ghost:hover:not(:disabled) { background: var(--bg-cell-hover); }
+
+.ew-btn-danger { background: transparent; color: var(--danger); border-color: var(--border-strong); }
+.ew-btn-sm { font-size: 12.5px; padding: 6px 11px; }
+
+/* ── Employee rows ───────────────────────────────────────────────────────── */
+
+.ew-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.ew-person + .ew-person { margin-top: 9px; }
+
+.ew-avatar {
+  flex: 0 0 auto;
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--daypay-green-light);
+  color: var(--daypay-green);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: .02em;
+}
+
+.ew-person-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ew-meta {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.ew-rate {
+  font-weight: 700;
+  color: var(--daypay-green);
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-rate-none { color: var(--amber); font-weight: 700; }
+
+.ew-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2.5px 7px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  border: 1px solid var(--border-light);
+}
+
+.ew-chip-live { background: var(--daypay-green-light); color: var(--daypay-green); border-color: transparent; }
+.ew-chip-warn { background: var(--amber-wash); color: var(--amber); border-color: transparent; }
+
+.ew-person-actions { flex: 0 0 auto; display: flex; gap: 6px; }
+
+/* ── Form ────────────────────────────────────────────────────────────────── */
+
+.ew-form { display: flex; flex-direction: column; gap: 11px; }
+
+.ew-field { display: flex; flex-direction: column; gap: 5px; }
+
+.ew-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.ew-input {
+  font: inherit;
+  font-size: 15px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-sunken);
+  color: var(--text);
+  width: 100%;
+}
+
+.ew-input:focus { outline: 2px solid var(--daypay-green); outline-offset: -1px; background: var(--bg-elevated); }
+
+.ew-hint { font-size: 12px; color: var(--text-4); }
+
+.ew-row { display: flex; gap: 9px; }
+.ew-row > * { flex: 1 1 0; min-width: 0; }
+
+.ew-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 2px; }
+
+/* ── Messages ────────────────────────────────────────────────────────────── */
+
+.ew-msg {
+  border-radius: 11px;
+  padding: 11px 13px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.ew-msg-error { background: #FEE2E2; color: #7F1D1D; border: 1px solid #FCA5A5; }
+.ew-msg-ok    { background: var(--daypay-green-light); color: var(--daypay-green); border: 1px solid #86EFAC; }
+.ew-msg-warn  { background: var(--amber-wash); color: var(--amber); border: 1px solid #FCD34D; }
+.ew-msg-hint { display: block; margin-top: 3px; opacity: .85; font-size: 12.5px; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.ew-empty {
+  text-align: center;
+  padding: 34px 20px;
+  color: var(--text-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  background: var(--bg-sunken);
+}
+
+.ew-empty-title { font-size: 15px; font-weight: 700; color: var(--text-2); margin-bottom: 5px; }
+.ew-empty-body { font-size: 13px; line-height: 1.5; max-width: 34ch; margin: 0 auto; }
+
+.ew-loading { text-align: center; padding: 26px; color: var(--text-3); font-size: 13.5px; }
+
+/* ── Rate history ────────────────────────────────────────────────────────── */
+
+.ew-rates { margin-top: 9px; border-top: 1px solid var(--border-light); padding-top: 9px; }
+
+.ew-rate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 5px 0;
+}
+
+.ew-rate-row + .ew-rate-row { border-top: 1px dashed var(--border-light); }
+.ew-rate-when { color: var(--text-3); }
+.ew-rate-amt { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ── Summary strip ───────────────────────────────────────────────────────── */
+
+.ew-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 9px;
+}
+
+.ew-stat {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 12px;
+}
+
+.ew-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); }
+.ew-stat-value { font-size: 19px; font-weight: 800; color: var(--text); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.ew-stat-money .ew-stat-value { color: var(--daypay-green); }
+
+/* ── Invite code ─────────────────────────────────────────────────────────── */
+
+.ew-invite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: var(--daypay-navy);
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  padding: 8px 11px;
+  user-select: all;
+}
+
+/* ── Sub-tabs inside the Staff view ──────────────────────────────────────── */
+
+.ew-subtabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 3px;
+}
+
+.ew-subtab {
+  flex: 1 1 0;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.ew-subtab.active { background: var(--bg-elevated); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+
+/* ── Date stepper ────────────────────────────────────────────────────────── */
+
+.ew-datebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+}
+
+.ew-datebar-step {
+  flex: 0 0 auto;
+  width: 42px; height: 42px;
+  font-size: 22px;
+  line-height: 1;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.ew-datebar-step:disabled { opacity: .45; cursor: default; }
+
+.ew-datebar-mid { flex: 1 1 auto; text-align: center; min-width: 0; }
+
+.ew-datebar-day {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ew-datebar-today {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--daypay-green);
+  background: none;
+  border: 0;
+  padding: 2px 0 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ── Quick strip ─────────────────────────────────────────────────────────── */
+
+.ew-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 2px 0;
+}
+
+.ew-strip-day { font-size: 12.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
+
+/* ── Day rows ────────────────────────────────────────────────────────────── */
+
+.ew-dayrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px 13px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.ew-dayrow + .ew-dayrow { margin-top: 8px; }
+.ew-dayrow.is-marked { border-color: var(--daypay-green); background: var(--daypay-green-light); }
+
+.ew-dayrow-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-muted { color: var(--text-4); font-size: 12.5px; }
+
+.ew-kinds { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+
+.ew-kindchip {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.ew-kindchip.active { background: var(--daypay-navy); color: #fff; border-color: var(--daypay-navy); }
+.ew-kindchip:disabled { opacity: .5; cursor: default; }
+
+.ew-toggle {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 66px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--daypay-green);
+  background: transparent;
+  color: var(--daypay-green);
+  cursor: pointer;
+}
+
+.ew-toggle.is-on { background: var(--daypay-green); color: #fff; }
+.ew-toggle:disabled { opacity: .5; cursor: default; }
+
+/* ── Month footer ────────────────────────────────────────────────────────── */
+
+.ew-monthfoot { margin-top: 14px; }
+.ew-monthfoot-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--text-2); }
+.ew-monthfoot-row strong { font-size: 19px; color: var(--daypay-green); font-variant-numeric: tabular-nums; }
+
+/* ── Month bar (summary) ─────────────────────────────────────────────────── */
+
+.ew-monthbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+}
+
+/* ── The headline figure ─────────────────────────────────────────────────── */
+
+.ew-owe {
+  background: var(--daypay-navy);
+  border-radius: 16px;
+  padding: 18px 16px;
+  color: #fff;
+}
+
+.ew-owe-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; opacity: .72; }
+
+.ew-owe-figure {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  color: #4ADE80;
+  line-height: 1.1;
+  word-break: break-word;
+}
+
+.ew-owe-sub { font-size: 13px; opacity: .8; margin-top: 6px; }
+
+.ew-owe-flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.ew-owe-flags .ew-chip { background: rgba(255,255,255,.16); color: #FDE68A; border-color: transparent; }
+
+/* ── Payroll rows ────────────────────────────────────────────────────────── */
+
+.ew-pay {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ew-pay + .ew-pay { margin-top: 9px; }
+
+.ew-pay-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 12px 13px;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.ew-pay-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-pay-amount { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+
+.ew-pay-figure {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--daypay-green);
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-pay-chev { color: var(--text-4); font-size: 12px; }
+
+.ew-pay-detail {
+  border-top: 1px dashed var(--border-light);
+  padding: 11px 13px 13px;
+  background: var(--bg-sunken);
+}
+
+.ew-pay-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+  padding: 3px 0;
+}
+
+.ew-pay-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+
+/* ── Disputed days ───────────────────────────────────────────────────────── */
+
+.ew-disputed { margin: 6px 0 0 13px; padding-left: 11px; border-left: 2px solid var(--amber); }
+
+.ew-disputed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  padding: 5px 0;
+}
+
+/* ── Month-end actions ───────────────────────────────────────────────────── */
+
+.ew-monthend { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+
+.ew-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+
+/* ── Employee view ───────────────────────────────────────────────────────── */
+
+.ew-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.ew-foldhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-2);
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ew-leave { display: flex; justify-content: center; margin-top: 6px; }
+
+/* ── Invite code in the roster ───────────────────────────────────────────── */
+
+.ew-invite-wrap { margin-top: 9px; border-top: 1px solid var(--border-light); padding-top: 10px; }
+
+.ew-invite-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.ew-invite-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: var(--daypay-navy);
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  padding: 7px 12px;
+  user-select: all;
+}
+
+.ew-invite-used { font-size: 12.5px; color: var(--text-3); }
+
+/* ── Dashboard ───────────────────────────────────────────────────────────── */
+
+.ew-dash { display: flex; flex-direction: column; gap: 10px; }
+
+.ew-board-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 9px;
+}
+
+.ew-board-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-3);
+}
+
+.ew-board-date {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text);
+  margin-top: 2px;
+  letter-spacing: -.01em;
+}
+
+.ew-stat-good .ew-stat-value { color: var(--daypay-green); }
+.ew-stat-warn .ew-stat-value { color: var(--amber); }
+
+.ew-dash-money {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 9px;
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.ew-dash-money-label { font-size: 12.5px; color: var(--text-3); }
+.ew-dash-money-value {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--daypay-green);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The missing-by-name list ────────────────────────────────────────────── */
+
+.ew-dash-block { margin-top: 12px; }
+
+.ew-dash-block-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+
+.ew-dash-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--amber-wash);
+  color: var(--amber);
+  font-size: 11.5px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.ew-mini-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 7px;
+}
+
+.ew-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.ew-avatar-sm {
+  width: 26px;
+  height: 26px;
+  font-size: 10.5px;
+  border-radius: 9px;
+}
+
+.ew-mini-body { min-width: 0; flex: 1 1 auto; }
+
+.ew-mini-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ew-mini-sub {
+  font-size: 11.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Notes, chips, footers ───────────────────────────────────────────────── */
+
+.ew-dash-note {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.ew-dash-done { color: var(--daypay-green); font-weight: 600; }
+
+.ew-dash-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.ew-dash-foot {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-4);
+  margin: 11px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* An inline link that reads as part of a sentence, not a button. */
+.ew-linkbtn {
+  margin-left: 5px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--daypay-green);
+  cursor: pointer;
+}
+.ew-linkbtn:hover { text-decoration: underline; }
+
+/* ── Needs attention ─────────────────────────────────────────────────────── */
+
+.ew-card-attention { border-color: var(--border-strong); }
+
+.ew-attention + .ew-attention {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.ew-attention-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 7px;
+}
+
+.ew-attention-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+  margin: 5px 0 0;
+}
+
+@media (max-width: 420px) {
+  .ew-mini-list { grid-template-columns: 1fr; }
+}
+
+/* A one-line explanation at the top of a pane that is not the daily routine. */
+.ew-pane-note {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-4);
+  margin: 0 0 11px;
+  padding: 9px 11px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+/* Four stats in a row is a lopsided 3+1 on a narrow phone. Two by two. */
+@media (max-width: 420px) {
+  .ew-dash .ew-summary { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Contractors ─────────────────────────────────────────────────────────── */
+
+.ew-contractors { margin-top: 11px; }
+
+.ew-contractor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 11px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.ew-contractor-row + .ew-contractor-row { margin-top: 7px; }
+.ew-contractor-row:hover { background: var(--bg-cell-hover); }
+
+.ew-contractor-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-contractor-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-contractor-present { font-size: 16px; font-weight: 800; color: var(--daypay-green); }
+.ew-contractor-sep { font-size: 13px; color: var(--text-4); }
+.ew-contractor-expected { font-size: 13px; font-weight: 700; color: var(--text-3); }
+.ew-contractor-cap {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-4);
+  margin-left: 3px;
+}
+
+/* ── Contractor detail ───────────────────────────────────────────────────── */
+
+.ew-contractor { display: flex; flex-direction: column; gap: 10px; }
+
+.ew-back {
+  align-self: flex-start;
+  padding: 5px 2px;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--daypay-green);
+  cursor: pointer;
+}
+.ew-back:hover { text-decoration: underline; }
+
+.ew-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-3);
+  margin-top: 3px;
+}
+
+/* ── Worker card ─────────────────────────────────────────────────────────── */
+
+.ew-worker {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 11px;
+}
+.ew-worker.is-present { border-color: var(--daypay-green); }
+
+.ew-worker-head { display: flex; align-items: center; gap: 9px; }
+.ew-worker-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-worker-today {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.ew-worker-figures {
+  display: flex;
+  gap: 16px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+
+.ew-worker-figure { display: flex; flex-direction: column; gap: 1px; }
+
+.ew-worker-num {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.ew-worker-num-quiet { color: var(--text-3); }
+
+.ew-worker-cap {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-4);
+}
+
+/* ── Selects ─────────────────────────────────────────────────────────────── */
+
+.ew-select {
+  padding: 7px 9px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  max-width: 100%;
+}
+.ew-select:focus { outline: 2px solid var(--daypay-green); outline-offset: -1px; }
+.ew-select:disabled { opacity: .5; }
+
+.ew-select-sm {
+  font-size: 12.5px;
+  padding: 6px 7px;
+  max-width: 116px;
+}
+
+/* A filename or identifier quoted inside a sentence. */
+.ew-code-inline {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bg-cell-hover);
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+/* ── Attendance: the employer's daily code ───────────────────────────────── */
+
+.ew-btn-secondary {
+  background: var(--bg-cell-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.ew-btn-secondary:hover:not(:disabled) { filter: brightness(.97); }
+
+.ew-att-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* The code exists to be read out loud across a site or copied onto a board.
+   It is the one place in this app where big and plain is the whole design. */
+.ew-codebox {
+  margin-top: 12px;
+  padding: 15px 13px;
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: 13px;
+  text-align: center;
+}
+
+.ew-code-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-3);
+}
+
+.ew-code-big {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  line-height: 1.15;
+  color: var(--daypay-green);
+  margin: 7px 0 5px;
+  font-variant-numeric: tabular-nums;
+  /* The letter-spacing pushes the last digit off-centre; nudge it back. */
+  text-indent: .18em;
+}
+
+.ew-code-sub {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-4);
+  max-width: 32ch;
+  margin: 0 auto;
+}
+
+.ew-att-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+/* ── Attendance: the worker checking in ──────────────────────────────────── */
+
+.ew-checkin-q {
+  font-size: 16.5px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -.01em;
+}
+
+.ew-checkin-sub {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.ew-code-entry {
+  display: flex;
+  gap: 8px;
+  margin-top: 13px;
+  align-items: stretch;
+}
+
+.ew-code-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 11px 12px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  text-align: center;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ew-code-input::placeholder { color: var(--text-4); letter-spacing: .22em; }
+.ew-code-input:focus { outline: 2px solid var(--daypay-green); outline-offset: -1px; }
+.ew-code-input:disabled { opacity: .6; }
+
+/* A wrong code is an ordinary event, not a crash. It reads as a sentence. */
+.ew-checkin-refusal {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 11px;
+  padding: 9px 11px;
+  background: var(--amber-wash);
+  border: 1px solid var(--amber);
+  border-radius: 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.ew-checkin-x { color: var(--amber); font-weight: 800; flex: 0 0 auto; }
+
+/* ── Attendance: success ─────────────────────────────────────────────────── */
+
+.ew-checkin-done { text-align: center; }
+
+.ew-checkin-tick {
+  width: 44px;
+  height: 44px;
+  margin: 2px auto 9px;
+  border-radius: 50%;
+  background: var(--daypay-green-light);
+  color: var(--daypay-green);
+  font-size: 23px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ew-checkin-title { font-size: 17px; font-weight: 800; color: var(--text); }
+.ew-checkin-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-4);
+  margin: 7px 0 0;
+}
+
+@media (max-width: 420px) {
+  .ew-code-big { font-size: 36px; }
+  .ew-code-entry { flex-direction: column; }
+  .ew-code-entry .ew-btn { width: 100%; }
+}
+
+/* ── Crash screen ────────────────────────────────────────────────────────── */
+
+/* Shown when one pane throws during render. Blank would be worse: the
+   employer cannot tell a crash from a network problem from a broken login. */
+
+.ew-crash { border-color: var(--danger); }
+
+.ew-crash-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ew-crash-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+  margin: 6px 0 0;
+}
+
+.ew-crash-detail {
+  margin: 11px 0 0;
+  padding: 9px 11px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ew-crash-hint {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-4);
+  margin: 11px 0 0;
+}
+
+/* ── Phase 6: corrections, the worker's calendar, overtime, audit ─────────── */
+/*
+ * Everything below uses the tokens above and nothing else, so the dark theme
+ * keeps working without a second set of rules. The grid deliberately matches
+ * the worker's own calendar: two people looking at the same month should not
+ * have to learn two layouts.
+ */
+
+/* The month grid, shared by the worker's screen and the employer's. */
+.ew-mgrid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0 4px;
+}
+
+.ew-mgrid-head,
+.ew-mgrid-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.ew-mgrid-dow {
+  text-align: center;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  padding-bottom: 2px;
+}
+
+.ew-mgrid-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-elevated-2);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+
+.ew-mgrid-cell.is-blank {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+.ew-mgrid-cell.is-marked {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Settled days are solid; claims are dashed. One glance tells an employer
+   whether what they are looking at has been confirmed. */
+.ew-mgrid-cell.is-confirmed {
+  background: var(--daypay-navy);
+  border-color: var(--daypay-navy);
+  color: #fff;
+}
+
+.ew-mgrid-cell.is-unconfirmed {
+  border-style: dashed;
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.ew-mgrid-cell.is-disputed {
+  border-style: dashed;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.ew-mgrid-cell.is-overtime { box-shadow: inset 0 -3px 0 var(--amber); }
+.ew-mgrid-cell.is-weekend  { box-shadow: inset 0 -3px 0 var(--daypay-green); }
+.ew-mgrid-cell.is-holiday  { box-shadow: inset 0 -3px 0 var(--stamp-ot-bg); }
+.ew-mgrid-cell.is-leave    { box-shadow: inset 0 -3px 0 var(--text-4); }
+
+.ew-mgrid-cell:hover:not(.is-blank) { background: var(--bg-cell-hover); }
+.ew-mgrid-cell.is-confirmed:hover { background: var(--daypay-navy-light); }
+
+/* A correction is waiting on this day. The dot, not a border, so it cannot be
+   confused with the status the border already carries. */
+.ew-mgrid-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.ew-mgrid-cell.is-confirmed .ew-mgrid-dot { background: #FDE68A; }
+
+.ew-mgrid-day { pointer-events: none; }
+
+/* ── The worker's request form ───────────────────────────────────────────── */
+
+.ew-corr-tools { display: flex; gap: 8px; margin: 12px 0 4px; }
+
+.ew-corr-form { margin-top: 12px; }
+
+.ew-choice-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+
+.ew-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ew-choice.is-chosen {
+  border-color: var(--daypay-navy);
+  background: var(--bg-cell-hover);
+}
+
+.ew-choice-label { font-size: 13px; font-weight: 600; }
+.ew-choice-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.4; }
+
+.ew-datestep { display: flex; align-items: center; gap: 6px; }
+.ew-inline-fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; }
+
+.ew-corr-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+
+/* ── Requests, as read by either party ───────────────────────────────────── */
+
+.ew-corr-row,
+.ew-corr-card {
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 9px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: var(--bg-elevated);
+}
+
+.ew-corr-card.status-open { border-left-color: var(--amber); }
+.ew-corr-card.status-approved { border-left-color: var(--daypay-green); }
+.ew-corr-card.status-rejected { border-left-color: var(--danger); }
+
+.ew-corr-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ew-corr-msg { font-size: 12.5px; line-height: 1.5; color: var(--text-2); margin: 6px 0 0; }
+.ew-corr-effect { font-size: 11.5px; line-height: 1.45; color: var(--text-3); margin: 6px 0 0; }
+.ew-corr-decision { font-size: 12px; line-height: 1.5; color: var(--text-2); margin: 6px 0 0; }
+.ew-corr-decision-label {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+.ew-corrections-meta { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+
+.ew-dayrow.is-asked { border-left: 3px solid var(--amber); }
+.ew-dayrow-source { font-size: 11px; color: var(--text-4); margin-top: 3px; }
+.ew-dayrow-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+
+/* ── Worker detail ───────────────────────────────────────────────────────── */
+
+.ew-worker-view { display: flex; flex-direction: column; gap: 11px; }
+
+.ew-worker-btn {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  position: relative;
+}
+
+.ew-worker-btn:hover { background: var(--bg-cell-hover); }
+
+.ew-worker-open {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.ew-sheet {
+  border: 1px solid var(--daypay-navy);
+  border-radius: 12px;
+  padding: 12px 13px;
+  background: var(--bg-elevated);
+}
+
+.ew-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ew-sheet-figures { display: flex; gap: 18px; margin: 10px 0 8px; flex-wrap: wrap; }
+.ew-sheet-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.ew-sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+
+/* Overtime assignment: four taps, one row changed, clearly reversible. */
+.ew-kind-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+.ew-kind-btn {
+  padding: 6px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ew-kind-btn.is-on {
+  background: var(--daypay-navy);
+  border-color: var(--daypay-navy);
+  color: #fff;
+  font-weight: 600;
+}
+
+.ew-kind-btn:disabled { opacity: .55; cursor: default; }
+
+/* ── Audit trail ─────────────────────────────────────────────────────────── */
+
+.ew-audit { display: flex; flex-direction: column; }
+
+.ew-audit-row {
+  display: grid;
+  grid-template-columns: 118px 1fr;
+  gap: 4px 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 12px;
+}
+
+.ew-audit-row:last-child { border-bottom: 0; }
+.ew-audit-when { color: var(--text-4); font-variant-numeric: tabular-nums; }
+.ew-audit-what { color: var(--text); font-weight: 600; }
+.ew-audit-why { grid-column: 2; color: var(--text-3); font-size: 11.5px; }
+
+.ew-audit-row.tone-create .ew-audit-what { color: var(--daypay-green); }
+.ew-audit-row.tone-good   .ew-audit-what { color: var(--daypay-green); }
+.ew-audit-row.tone-warn   .ew-audit-what { color: var(--amber); }
+.ew-audit-row.tone-amend  .ew-audit-what { color: var(--text); }
+
+@media (max-width: 420px) {
+  .ew-audit-row { grid-template-columns: 1fr; }
+  .ew-audit-why { grid-column: 1; }
+  .ew-mgrid-cell { font-size: 11.5px; border-radius: 7px; }
+}
+
+/* ── Phase 7 — billing ───────────────────────────────────────────────────────
+   Two shapes only: a contractor row you can bill, and the document that comes
+   out of it. The document is deliberately the calmer of the two — it is the
+   thing that gets printed and handed to somebody. */
+
+.ew-bill-row {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 13px;
+}
+
+.ew-bill-row + .ew-bill-row { margin-top: 9px; }
+
+.ew-bill-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.ew-bill-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-bill-amount {
+  flex: 0 0 auto;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--daypay-green);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ew-bill-flags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 9px;
+}
+
+.ew-bill-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 11px;
+}
+
+.ew-bill-note {
+  margin: 0;
+  flex: 1 1 100%;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* ── An issued document ── */
+
+.ew-inv {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 13px;
+}
+
+.ew-inv + .ew-inv { margin-top: 9px; }
+
+/* A voided invoice must never be mistakeable for a live one at a glance. */
+.ew-inv-void {
+  border-style: dashed;
+  background: var(--bg-sunken);
+}
+
+.ew-inv-void .ew-bill-amount {
+  color: var(--text-4);
+  text-decoration: line-through;
+}
+
+.ew-inv-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.ew-inv-body { flex: 1 1 auto; min-width: 0; }
+
+.ew-inv-number {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-inv-void-note {
+  margin: 9px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+.ew-inv-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 11px;
+}
+
+/* On a phone the four columns still fit; anything tighter scrolls rather than
+   squashing the amounts into two lines. */
+.ew-inv-table-wrap {
+  margin-top: 11px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ew-inv-table {
+  width: 100%;
+  min-width: 300px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.ew-inv-table th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-4);
+  padding: 0 6px 5px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ew-inv-table td {
+  padding: 7px 6px 7px 0;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-2);
+  vertical-align: top;
+}
+
+.ew-inv-table th:not(:first-child),
+.ew-inv-table td:not(:first-child) {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ew-inv-table tfoot td {
+  border-bottom: 0;
+  border-top: 1.5px solid var(--border-strong);
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ew-inv-job {
+  display: block;
+  font-size: 11px;
+  color: var(--text-4);
+  margin-top: 1px;
+}
+
+.ew-inv-money { color: var(--text); font-weight: 600; }
+
+/* ── Voiding ── */
+
+.ew-void-form { padding: 14px; }
+
+.ew-void-label {
+  display: block;
+  margin: 12px 0 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.ew-void-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.ew-void-input:focus {
+  outline: 2px solid var(--daypay-green);
+  outline-offset: 1px;
+}
+
+.ew-void-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+@media (max-width: 420px) {
+  .ew-bill-amount { font-size: 15px; }
+  .ew-inv-number { font-size: 14px; }
+}
+
+/* ── Phase 11: the personal attendance PIN ──────────────────────────────────
+   The PIN is shown once and then never again, so its one appearance has to be
+   unmissable: large, monospaced, and set apart from the card around it. This
+   is the same reasoning as the site code in the attendance panel — a number
+   somebody has to read off a screen and write down or say out loud is a
+   typographic job, not a data job. */
+.ew-pin-fresh {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg-sunken, #F7F8FA);
+  border: 1px solid var(--border);
+}
+
+.ew-pin-caption {
+  margin: 0 0 6px;
+  font-size: var(--fs-label, 11px);
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.ew-pin-value {
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: .26em;
+  line-height: 1.1;
+  color: var(--text);
+  /* The tracking pushes the last digit right by one gap; pull it back so the
+     number sits optically centred rather than visibly off to the left. */
+  margin-left: -.26em;
+  padding: 2px 0 6px;
+  user-select: all;
+}
+
+.ew-pin-warn {
+  margin: 0 0 10px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+@media (max-width: 420px) {
+  .ew-pin-value { font-size: 28px; }
+}
+/* The "give them a PIN" opt-in on the add-worker form. Its own class so the
+   label can hold a sentence of explanation without the checkbox drifting away
+   from the words it belongs to — the existing .ew-label is uppercase and
+   micro-sized, which is right for a field name and wrong for a promise. */
+.ew-check {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin-top: 12px;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.ew-check input {
+  flex: none;
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--daypay-green);
+}
+
+.ew-check-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+/* ── Phase 12: the machine at the worksite ──────────────────────────────────
+   One row per kiosk: what it is called, whether it is linked, and one button
+   that stops it. Laid out like a person row in the roster rather than like a
+   card, because it is the same kind of thing — a thing on this site that has a
+   status and an action. */
+.ew-device {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--border-light);
+  margin-top: 10px;
+}
+
+.ew-device:first-of-type { border-top: 0; }
+
+.ew-device-body { min-width: 0; flex: 1; }
+
+.ew-device-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ew-device-hint {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  line-height: 1.5;
+}

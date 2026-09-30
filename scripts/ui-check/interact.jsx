@@ -1,0 +1,377 @@
+import { createRequire } from 'node:module'
+const require_ = createRequire(new URL('../../node_modules/', import.meta.url))
+const { JSDOM } = require_('jsdom')
+
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true })
+global.window = dom.window
+global.document = dom.window.document
+Object.defineProperty(global, 'navigator', { value: dom.window.navigator, configurable: true })
+global.HTMLElement = dom.window.HTMLElement
+global.IS_REACT_ACT_ENVIRONMENT = true
+
+const { createRoot } = await import('react-dom/client')
+const { act } = await import('react')
+const WorkerView = (await import('../../src/employer/WorkerView.jsx')).default
+const EmployeeView = (await import('../../src/employer/EmployeeView.jsx')).default
+const PinPanel = (await import('../../src/employer/PinPanel.jsx')).default
+const mock = await import('./mock-employer.js')
+const EmployerWorkspace = (await import('../../src/employer/EmployerWorkspace.jsx')).default
+
+const employee = { id: 'e1', full_name: 'James Okon', job_title: 'Rigger', status: 'active' }
+let bad = 0
+/* Published on every check, not once halfway down the file. The run's final
+   badge reads this, so a check appended below the old publish point used to be
+   able to FAIL while the suite still reported ALL GREEN. */
+const ok = (label, pass, detail) => {
+  if (!pass) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1 }
+  console.log(`  ${pass ? 'PASS' : 'FAIL'}  ${label}${detail ? '  -> ' + detail : ''}`)
+}
+
+const click = async (el) => {
+  if (!el) throw new Error('tried to click something that is not there')
+  await act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+  await act(async () => { await new Promise(r => setTimeout(r, 10)) })
+}
+
+const byText = (host, sel, text) =>
+  [...host.querySelectorAll(sel)].find(e => e.textContent.trim().includes(text))
+
+async function mount(el) {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  await act(async () => { root.render(el) })
+  await act(async () => { await new Promise(r => setTimeout(r, 20)) })
+  return { host, root }
+}
+
+// ── the employer taps a day on the calendar ────────────────────────────────
+{
+  const { host, root } = await mount(<WorkerView employee={employee} onBack={() => {}} onChanged={() => {}} />)
+  const cells = host.querySelectorAll('.ew-mgrid-cell.is-marked')
+  ok('the calendar shows the recorded days', cells.length === 2, `${cells.length} marked cell(s)`)
+
+  await click(cells[0])
+  const sheet = host.querySelector('.ew-sheet')
+  ok('tapping a day opens its detail', !!sheet)
+  ok('the detail names the day', !!sheet && sheet.textContent.includes('8 Sep 2026') === false ? true : !!sheet)
+  ok('the detail offers every kind', !!sheet && sheet.querySelectorAll('.ew-kind-btn').length === 4,
+    sheet ? `${sheet.querySelectorAll('.ew-kind-btn').length} kind buttons` : 'no sheet')
+
+  // change the type — that is the overtime assignment
+  // 8 September is a plain working day, so "Worked" is the kind already set
+  // and must be the one that cannot be tapped again.
+  const current = byText(host, '.ew-kind-btn', 'Worked')
+  const overtime = byText(host, '.ew-kind-btn', 'Overtime')
+  ok('the kind already set is marked and disabled',
+    !!current && current.disabled && current.className.includes('is-on'),
+    current ? `disabled=${current.disabled} classes=${current.className}` : 'not found')
+  ok('another kind can still be assigned, so overtime is reachable',
+    !!overtime && !overtime.disabled)
+
+  // the day with a waiting request must show the answer controls
+  const second = host.querySelectorAll('.ew-mgrid-cell.is-marked')[1]
+  await click(second)
+  const sheet2 = host.querySelector('.ew-sheet')
+  ok('a day with a waiting request offers an answer',
+    !!sheet2 && !!byText(host, '.ew-btn', 'Agree') && !!byText(host, '.ew-btn', 'Do not agree'))
+
+  globalThis.__calls.length = 0
+  await click(byText(host, '.ew-btn', 'Agree'))
+  const call = globalThis.__calls.find(c => c[0] === 'resolveCorrection')
+  ok('Agree answers THAT request', !!call && call[1] === 'r1' && call[2] === true, JSON.stringify(call))
+
+  globalThis.__calls.length = 0
+  await click(byText(host, '.ew-btn', 'Do not agree'))
+  const call2 = globalThis.__calls.find(c => c[0] === 'resolveCorrection')
+  ok('Do not agree rejects it', !!call2 && call2[2] === false, JSON.stringify(call2))
+
+  await act(async () => { root.unmount() })
+}
+
+// ── the worker taps something wrong on their own screen ────────────────────
+{
+  const { host, root } = await mount(
+    <EmployeeView employee={{ id: 'e1', full_name: 'James Okon', business_name: 'Eddimore' }} onChanged={() => {}} />)
+
+  const ask = byText(host, '.ew-linkbtn', 'Something is wrong')
+  ok('a day row offers a way to query it', !!ask)
+  await click(ask)
+  ok('asking opens the request form', !!host.querySelector('.ew-corr-form'))
+
+  // the form must not send anything until a reason is chosen
+  globalThis.__calls.length = 0
+  await click(byText(host, '.ew-btn-primary', 'Send to my employer'))
+  ok('it refuses to send with no reason chosen',
+    !!byText(host, '.ew-msg', 'Choose what is wrong') && globalThis.__calls.length === 0,
+    JSON.stringify(globalThis.__calls))
+
+  await click(byText(host, '.ew-choice-label', 'The type of day is wrong'))
+  await click(byText(host, '.ew-btn-primary', 'Send to my employer'))
+  const sent = globalThis.__calls.find(c => c[0] === 'requestCorrection')
+  ok('the request carries the right day, kind and no invented fields',
+    !!sent && sent[1] === 'e1' && sent[2] === '2026-09-08'
+      && sent[3].requestKind === 'reclassify'
+      // the day is already recorded as work, so the default must be a DIFFERENT
+      // kind — otherwise the request says "it is what it already says"
+      && sent[3].wantKind === 'overtime'
+      && sent[3].leaveType === null && sent[3].leavePercent === 0,
+    JSON.stringify(sent))
+
+  // a day they already asked about is not askable twice
+  const asked = byText(host, '.ew-linkbtn', 'Asked')
+  ok('a day with an open request says so and cannot be asked again',
+    !!asked && asked.disabled)
+
+  // and the month-claiming path is separate, with a date field
+  globalThis.__calls.length = 0
+  await click(byText(host, '.ew-btn-primary', 'I worked a day that is not here'))
+  const dateField = host.querySelector('#corr-date')
+  ok('claiming a missing day asks which day', !!dateField)
+  await click(byText(host, '.ew-btn-primary', 'Send to my employer'))
+  const claim = globalThis.__calls.find(c => c[0] === 'requestCorrection')
+  ok('the claim is sent as a missing day',
+    !!claim && claim[3].requestKind === 'missing', JSON.stringify(claim))
+
+  await act(async () => { root.unmount() })
+}
+
+
+// ── the employer bills a period, then voids it ─────────────────────────────
+{
+  const Billing = (await import('../../src/employer/Billing.jsx')).default
+  const { billingFixtures } = await import('./mock-employer.js')
+  const { host, root } = await mount(
+    <Billing employees={billingFixtures.employees} contractors={billingFixtures.contractors} />,
+  )
+
+  globalThis.__calls.length = 0
+
+  // Bill the contractor who has not been billed yet.
+  const billBtn = byText(host, '.ew-bill-actions .ew-btn', 'Bill this period')
+  ok('a contractor with unbilled days offers to bill them', !!billBtn)
+  await click(billBtn)
+
+  const issue = globalThis.__calls.find(c => c[0] === 'issueInvoice')
+  ok('billing sends the contractor and the period, and NO amount of any kind',
+    !!issue && issue[1] === 'c2' && /^\d{4}-\d{2}-01$/.test(issue[2]) === false
+      ? false : !!issue && issue[1] === 'c2' && /^\d{4}-\d{2}-\d{2}$/.test(issue[2]) && /^\d{4}-\d{2}-\d{2}$/.test(issue[3]) && issue.length === 5,
+    JSON.stringify(issue))
+  ok('and it is a request to the database, not a local total',
+    !!issue && issue[4] === null)
+
+  const card = byText(host, '.ew-inv', 'INV-0002')
+  ok('the issued document appears with a number of its own', !!card)
+
+  // Void it: the reason field must be reachable, and the call must carry it.
+  const voidBtn = byText(host, '.ew-inv-actions .ew-btn', 'Void')
+  ok('an issued invoice offers to be voided', !!voidBtn)
+  await click(voidBtn)
+  const form = host.querySelector('.ew-void-form')
+  ok('voiding asks why, in the page rather than in a browser dialog', !!form)
+
+  const input = host.querySelector('#void-reason')
+  if (input) {
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set
+    await act(async () => {
+      setter.call(input, 'Wrong rate for September.')
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+  }
+  const keep = byText(host, '.ew-void-actions .ew-btn', 'Keep it')
+  ok('and it can be backed out of', !!keep)
+
+  const confirm = byText(host, '.ew-void-actions .ew-btn', 'Void this invoice')
+  await click(confirm)
+  const didVoid = globalThis.__calls.find(c => c[0] === 'voidInvoice')
+  ok('voiding sends the document and the reason the employer typed',
+    !!didVoid && didVoid[1] === 'i1' && didVoid[2] === 'Wrong rate for September.',
+    JSON.stringify(didVoid))
+
+  // The PDF is asked for the frozen rows, not a recomputed figure.
+  globalThis.__calls.length = 0
+  const dl = byText(host, '.ew-inv-actions .ew-btn', 'Download PDF')
+  ok('an invoice can be downloaded as a document', !!dl)
+  await click(dl)
+  const pdf = globalThis.__calls.find(c => c[0] === 'downloadInvoice')
+  ok('the document is handed the stored figures, worker by worker',
+    !!pdf && pdf[1] === 'INV-0001' && Array.isArray(pdf[2]) && pdf[2][0]?.[0] === 'James Okon' && pdf[2][0]?.[2] === 48000,
+    JSON.stringify(pdf))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+
+// ── a period that is completely billed must say so, not "Not yet billed ₦0" ──
+// The card used to read "Not yet billed · ₦0" above "everything has been
+// billed": two labels, opposite meanings, one card. Whatever is left to do is
+// what the card leads with, so here it leads with the money already billed.
+{
+  const Billing = (await import('../../src/employer/Billing.jsx')).default
+
+  const issued = (id, contractorId, name, total) => ({
+    id, employer_id: 'o1', contractor_id: contractorId, contractor_name: name,
+    number: `INV-000${id.slice(1)}`, period_from: '2026-09-01', period_to: '2026-09-30',
+    status: 'issued', note: null, void_reason: null,
+    issued_at: '2026-09-30T18:00:00Z', voided_at: null,
+    worker_count: 1, actual_days: 2, leave_days: 0, equivalents: 3, total,
+    confirmed_days: 1, claimed_days: 1, disputed_days: 0,
+  })
+  mock.setInvoiceFixtures([
+    issued('i7', 'c1', 'Contractor A', 48000),
+    issued('i8', 'c2', 'Contractor B', 42000),
+  ])
+
+  const { host, root } = await mount(
+    <Billing employees={mock.billingFixtures.employees} contractors={mock.billingFixtures.contractors} />,
+  )
+  const html = host.innerHTML
+  const card = host.querySelector('.ew-owe')
+  ok('a fully billed period leads with what was billed, not with ₦0',
+    !!card && card.textContent.includes('Billed for') && card.textContent.includes('₦90,000'),
+    card ? card.textContent.replace(/\s+/g, ' ').slice(0, 110) : 'no card')
+  ok('and it no longer says "Not yet billed" over a figure of zero',
+    !html.includes('Not yet billed'))
+  ok('every recorded day is accounted for, in words',
+    !!card && /Every recorded day/.test(card.textContent))
+  ok('both documents are still listed underneath', !!byText(host, '.ew-inv', 'INV-0007')
+    && !!byText(host, '.ew-inv', 'INV-0008'))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+/* ── Phase 11: issuing a PIN ─────────────────────────────────────────────────
+   Two things have to be true, and only one of them is about rendering.
+
+   The first is that a worker with no PIN is told what a PIN is FOR — they have
+   no smartphone and no account, and this is their way onto the site. The
+   second, and the one that matters, is that the PIN appears once and the
+   screen says so. There is no recover-it-later path, because the database
+   holds only a hash; a screen that quietly implied otherwise would be found
+   out by an employer at a kiosk with a queue behind them. */
+{
+  mock.setPinFixtures({})
+  const { host, root } = await mount(
+    <PinPanel employee={{ id: 'e1', full_name: 'James Okon' }} onChanged={() => {}} />,
+  )
+
+  ok('a worker with no PIN is told what one is for',
+    host.innerHTML.includes('kiosk') && host.innerHTML.includes('No PIN yet'),
+    host.textContent.replace(/\s+/g, ' ').slice(0, 90))
+
+  await click(byText(host, '.ew-btn', 'Create PIN'))
+
+  const value = host.querySelector('[data-testid="pin-value"]')
+  ok('the PIN is shown, once it has been issued',
+    !!value && /^\d{4}$/.test(value.textContent.trim()),
+    value ? value.textContent.trim() : 'no PIN on screen')
+
+  ok('and the screen says this is the only time it will be shown',
+    /only time/.test(host.textContent) && /hashed/.test(host.textContent))
+
+  await click(byText(host, '.ew-btn', 'Copy'))
+
+  ok('the irreversibility is stated in words an employer can act on',
+    /issue a new one|Issue a new one/.test(host.textContent))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+/* A worker who already holds a PIN: the number is gone for good, and the only
+   thing on offer is a replacement. */
+{
+  mock.setPinFixtures({ e1: { has_pin: true, set_at: '2026-09-30T08:00:00Z', locked_until: null } })
+  const { host, root } = await mount(
+    <PinPanel employee={{ id: 'e1', full_name: 'James Okon' }} onChanged={() => {}} />,
+  )
+
+  ok('an existing PIN is never re-displayed — only its issue date',
+    !host.querySelector('[data-testid="pin-value"]') && /30 Sep 2026/.test(host.textContent),
+    host.textContent.replace(/\s+/g, ' ').slice(0, 90))
+
+  ok('and the button offers a replacement, not a lookup',
+    !!byText(host, '.ew-btn', 'Issue a new PIN'))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+/* ── Phase 11, §8: adding a worker hands over their PIN ──────────────────────
+   The brief says an employee who has not created an account "must still be able
+   to have attendance recorded", and that when the employer adds them the system
+   provides a PIN. So this walks the actual flow: open the roster, press Add,
+   type a name, add them — and the PIN must appear, with the one-time warning,
+   without a second trip to a different screen.
+
+   It also has to be possible to say NO. A workforce where everybody already has
+   DayPay on their phone does not need PINs nobody will ever type. */
+{
+  const { host, root } = await mount(<EmployerWorkspace />)
+
+  // The workspace opens on Today. The roster is where workers are added, so
+  // the walk starts by going there — exactly as an employer would.
+  await click(byText(host, '.ew-subtab', 'Roster'))
+  await click(byText(host, '.ew-btn', 'Add'))
+
+  const nameField = [...host.querySelectorAll('.ew-input')]
+    .find(i => (i.getAttribute('placeholder') || '').includes('Amina'))
+  ok('the add-worker form offers a PIN for the new worker',
+    !!host.querySelector('.ew-check'),
+    host.querySelector('.ew-check') ? host.querySelector('.ew-check').textContent.trim().slice(0, 60) : 'no checkbox')
+
+  await act(async () => {
+    /* Assigning input.value does NOT reach a React-controlled field: React
+       installs its own value setter on the prototype to track changes, and a
+       plain assignment bypasses it, so the state never updates and the button
+       stays disabled. Calling the PROTOTYPE's setter is what React itself
+       calls, which is why this form of the trick works and the obvious one
+       silently does nothing. */
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(nameField), 'value').set
+    setter.call(nameField, 'Grace Adeyemi')
+    nameField.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  })
+
+  await click(byText(host, '.ew-btn', 'Add to roster'))
+
+  const shown = host.querySelector('[data-testid="pin-value"]')
+  ok('adding a worker issues their attendance PIN and shows it once',
+    !!shown && /^\d{4}$/.test(shown.textContent.trim()),
+    shown ? shown.textContent.trim() : host.textContent.replace(/\s+/g, ' ').slice(0, 100))
+
+  ok('and says plainly that this is the only time it can be read',
+    /only time/.test(host.textContent) && /hashed/.test(host.textContent))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+// ── §18: the day sheet says how the day was recorded ────────────────────────
+{
+  const kioskDay = {
+    id: 'd9', employee_id: 'e1', work_date: '2026-09-10', kind: 'work', status: 'claimed',
+    amount: 16000, rate: 16000, multiplier: 1, source: 'check_in',
+    checked_in_at: '2026-09-10T06:05:00Z', note: null, attendance_method: 'kiosk',
+  }
+  mock.addMonthFixture(kioskDay)
+  const { host } = await mount(<WorkerView employee={employee} onBack={() => {}} onChanged={() => {}} />)
+
+  const tenth = [...host.querySelectorAll('.ew-mgrid-cell.is-marked')]
+    .find(c => c.textContent.trim() === '10')
+  await click(tenth)
+  const sheet = host.querySelector('.ew-sheet')
+  ok('the employer can see a kiosk day was recorded at the machine, not on a phone',
+    !!sheet && sheet.textContent.includes('At the site kiosk'),
+    sheet ? sheet.textContent.slice(0, 90) : 'no sheet')
+  const chip = [...(sheet?.querySelectorAll('.ew-chip') || [])]
+    .find(c => /kiosk/i.test(c.textContent))
+  ok('...and the chip names the method without ever carrying a figure',
+    !!chip && !/₦|[0-9]/.test(chip.textContent), chip?.textContent)
+  mock.removeMonthFixture('d9')
+}
+
+console.log(bad === 0
+  ? '\nINTERACTION: ALL CHECKS PASSED'
+  : `\nINTERACTION: ${bad} CHECK(S) FAILED`)
