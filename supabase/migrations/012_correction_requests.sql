@@ -50,11 +50,12 @@
 -- SAFE TO APPLY: creates one table and one function, adds policies and grants.
 -- Re-running it is harmless — every statement is guarded.
 --
--- NOTE ON NUMBERING: the refusal-as-value change offered earlier under the
--- name "012" still has no SQL, and the number went to invoices. It is not
--- forgotten — it is the fix for a real defect found in Phase 9 (a refusal
--- currently rolls back its own attempt record, so the five-attempt cap never
--- fires). It is waiting on a decision, not on an author.
+-- NOTE ON NUMBERING: the refusal-as-value change once offered under this
+-- number has no home here — the number went to invoices. It was written as
+-- migration 017, which RETURNS a refusal instead of raising it, so a wrong
+-- code stops erasing its own attempt record and the five-attempt cap can fire
+-- at last. Order: this file, then 016, then 017 — and deploy the app before
+-- 017, because the newer build understands both shapes of refusal.
 
 begin;
 
