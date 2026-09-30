@@ -20,7 +20,7 @@ import {
   archiveEmployee, restoreEmployee, listAllRatePeriods, addRatePeriod,
   deleteRatePeriod, rateOn, formatNaira, initials, todayKey,
   issueInviteCode, myRoles, listContractors, setEmployeeContractor,
-  resetSchemaProbes, contractorsAvailable,
+  resetSchemaProbes, contractorsAvailable, setAttendancePin,
 } from '../lib/employer'
 import Dashboard from './Dashboard'
 import ContractorEditor from './ContractorEditor'
@@ -170,20 +170,112 @@ function AddEmployee({ onCreated, onCancel }) {
   const [name, setName] = useState('')
   const [job, setJob] = useState('')
   const [email, setEmail] = useState('')
+  /* §8: a worker who will never have a login still has to be able to record
+     attendance, so adding somebody to the roster issues their kiosk PIN at the
+     same time. Ticked by default, because the common case is a site full of
+     people with no smartphones — but not forced, because a workforce where
+     everybody already has DayPay on their phone does not need fifty PINs
+     nobody will ever type. */
+  const [withPin, setWithPin] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  const [created, setCreated] = useState(null)   // { name, pin, pinFailed }
 
   async function save() {
     setBusy(true); setErr(null)
     try {
-      await createEmployee({ fullName: name, jobTitle: job, email })
+      const row = await createEmployee({ fullName: name, jobTitle: job, email })
+
+      /* The worker exists at this point, and that must not be undone by a
+         failure in the second call. If the PIN cannot be issued they are still
+         on the roster with everything else intact, and the notice says so —
+         there is a button on their row that will do it again. */
+      let pin = null
+      let pinFailed = false
+      if (withPin) {
+        try { pin = await setAttendancePin(row.id) } catch { pinFailed = true }
+      }
+
+      /* Deliberately NOT calling onCreated() here. The parent's handler is
+         `setAdding(false)` followed by a reload — and setAdding(false) unmounts
+         this component, taking `created` with it. The PIN would be issued,
+         stored, and never once displayed: the employer would press "Add to
+         roster" and see the roster, with a secret they never read.
+
+         Caught by the ui-check walk in scripts/ui-check/interact.jsx, which
+         presses the real button and then looks for the number. So the card
+         stays up until the employer dismisses it, and THAT is when the form
+         closes and the roster refreshes. */
+      setCreated({ name: row.full_name || name, pin, pinFailed })
       setName(''); setJob(''); setEmail('')
-      await onCreated()
     } catch (e) {
       setErr(e instanceof EmployerError ? e : new EmployerError(String(e)))
     } finally {
       setBusy(false)
     }
+  }
+
+  /* ── What just happened, and the one number that will not come back ──────
+     The PIN is shown here because this is the only moment it exists in the
+     clear. The card stays until the employer dismisses it, and says plainly
+     that it is the last chance to write it down — an employer who taps away
+     without reading has not lost the worker, only the number. */
+  if (created) {
+    return (
+      <div className="ew-card">
+        <div className="ew-label">{created.name} is on the roster</div>
+
+        {created.pin && (
+          <div className="ew-pin-fresh">
+            <p className="ew-pin-caption">Their site attendance PIN</p>
+            <div className="ew-pin-value" data-testid="pin-value">{created.pin}</div>
+            <p className="ew-pin-warn">
+              Write this down and give it to {created.name}. It is the only time
+              it will be shown — it is stored hashed, so nobody can read it
+              back. They will also need the site code on the day, which you
+              issue from the Today screen.
+            </p>
+          </div>
+        )}
+
+        {created.pinFailed && (
+          <div className="ew-msg ew-msg-warn">
+            Added, but the attendance PIN could not be issued.
+            <span className="ew-msg-hint">
+              Nothing else was affected — press PIN on their row to try again.
+            </span>
+          </div>
+        )}
+
+        {!created.pin && !created.pinFailed && (
+          <p className="ew-hint" style={{ marginTop: 8 }}>
+            They have no PIN, so they record attendance by signing in. You can
+            issue one from their row at any time.
+          </p>
+        )}
+
+        {!created.pin && created.pinFailed ? (
+          <div className="ew-actions">
+            <button type="button" className="ew-btn ew-btn-primary ew-btn-sm" onClick={onCreated}>
+              Done
+            </button>
+          </div>
+        ) : (
+          <div className="ew-actions">
+            <button
+              type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
+              onClick={() => { navigator.clipboard?.writeText(created.pin || '').catch(() => {}) }}
+              disabled={!created.pin}
+            >
+              Copy PIN
+            </button>
+            <button type="button" className="ew-btn ew-btn-primary ew-btn-sm" onClick={onCreated}>
+              Done
+            </button>
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -203,6 +295,16 @@ function AddEmployee({ onCreated, onCancel }) {
             <input className="ew-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="for inviting them later" />
           </div>
         </div>
+        <label className="ew-check">
+          <input type="checkbox" checked={withPin} onChange={e => setWithPin(e.target.checked)} />
+          <span>
+            Give them a site attendance PIN
+            <span className="ew-check-sub">
+              For recording attendance at the worksite kiosk — no smartphone and
+              no DayPay account needed. You will see the PIN once, to hand over.
+            </span>
+          </span>
+        </label>
       </div>
 
       {err && (

@@ -15,6 +15,7 @@ const WorkerView = (await import('../../src/employer/WorkerView.jsx')).default
 const EmployeeView = (await import('../../src/employer/EmployeeView.jsx')).default
 const PinPanel = (await import('../../src/employer/PinPanel.jsx')).default
 const mock = await import('./mock-employer.js')
+const EmployerWorkspace = (await import('../../src/employer/EmployerWorkspace.jsx')).default
 
 const employee = { id: 'e1', full_name: 'James Okon', job_title: 'Rigger', status: 'active' }
 let bad = 0
@@ -292,6 +293,55 @@ globalThis.__bad = (globalThis.__bad || 0) + bad
 
   ok('and the button offers a replacement, not a lookup',
     !!byText(host, '.ew-btn', 'Issue a new PIN'))
+
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+/* ── Phase 11, §8: adding a worker hands over their PIN ──────────────────────
+   The brief says an employee who has not created an account "must still be able
+   to have attendance recorded", and that when the employer adds them the system
+   provides a PIN. So this walks the actual flow: open the roster, press Add,
+   type a name, add them — and the PIN must appear, with the one-time warning,
+   without a second trip to a different screen.
+
+   It also has to be possible to say NO. A workforce where everybody already has
+   DayPay on their phone does not need PINs nobody will ever type. */
+{
+  const { host, root } = await mount(<EmployerWorkspace />)
+
+  // The workspace opens on Today. The roster is where workers are added, so
+  // the walk starts by going there — exactly as an employer would.
+  await click(byText(host, '.ew-subtab', 'Roster'))
+  await click(byText(host, '.ew-btn', 'Add'))
+
+  const nameField = [...host.querySelectorAll('.ew-input')]
+    .find(i => (i.getAttribute('placeholder') || '').includes('Amina'))
+  ok('the add-worker form offers a PIN for the new worker',
+    !!host.querySelector('.ew-check'),
+    host.querySelector('.ew-check') ? host.querySelector('.ew-check').textContent.trim().slice(0, 60) : 'no checkbox')
+
+  await act(async () => {
+    /* Assigning input.value does NOT reach a React-controlled field: React
+       installs its own value setter on the prototype to track changes, and a
+       plain assignment bypasses it, so the state never updates and the button
+       stays disabled. Calling the PROTOTYPE's setter is what React itself
+       calls, which is why this form of the trick works and the obvious one
+       silently does nothing. */
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(nameField), 'value').set
+    setter.call(nameField, 'Grace Adeyemi')
+    nameField.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  })
+
+  await click(byText(host, '.ew-btn', 'Add to roster'))
+
+  const shown = host.querySelector('[data-testid="pin-value"]')
+  ok('adding a worker issues their attendance PIN and shows it once',
+    !!shown && /^\d{4}$/.test(shown.textContent.trim()),
+    shown ? shown.textContent.trim() : host.textContent.replace(/\s+/g, ' ').slice(0, 100))
+
+  ok('and says plainly that this is the only time it can be read',
+    /only time/.test(host.textContent) && /hashed/.test(host.textContent))
 
   await act(async () => { root.unmount() })
   host.remove()
