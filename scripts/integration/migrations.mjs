@@ -159,17 +159,49 @@ ok('day_records still computes its own money and guards its own changes',
 /* ── The pending batch, against the state your database is actually in ──────
    A fresh chain is not the situation anyone is in. A real project is part-way
    through: some migrations applied, some not, and the ones not yet run have to
-   work on top of what IS there. That is a different test from "does 001..015
+   work on top of what IS there. That is a different test from "does 001..017
    apply in order", and it is the one that catches a pending file which only
    works on a clean database.
 
-   The state below is the live project as of Phase 9: everything up to 009,
-   then 011, then 013 applied; 010, 012, 014 and 015 outstanding.
+   ONE PGLLITE INSTANCE AT A TIME. Two live instances in one process share the
+   WebAssembly module, and the second one corrupts the first — the run dies with
+   "current transaction is aborted", which is a symptom of the harness, not of
+   any migration. So the fresh chain's answers are read and the instance closed
+   before the half-migrated one is opened, and the two are compared afterwards
+   as plain data. */
+const functionShape = async (d) => (await d.query(
+  `select p.proname, md5(pg_get_functiondef(p.oid)) d from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname in ('check_in_with_code','my_attendance_status')
+    order by p.proname`)).rows
 
-   Note what makes this worth doing: 010 ALSO replaces check_in_with_code, and
-   it carries the two OLD refusal sentences. Run after 014/015 it silently puts
-   them back. That is exactly the kind of ordering fault a full-chain test can
-   never see, because in a chain 010 happens to run before them. */
+const fresh = await functionShape(db)
+const freshAttendance = (await db.query(
+  `select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'my_attendance_status'`)).rows[0].d
+await db.close()
+
+/* The LIVE state, written out rather than derived, because a derived state
+   quietly re-derives itself when a new file is added and stops modelling
+   anything. As of Phase 9 the live project has run 001-009, 011 and 013.
+   Everything else is outstanding. */
+const LIVE_APPLIED = ['001', '002', '003', '004', '005', '006', '007', '008', '009',
+  '011', '013']
+
+/* The recommended batch, by name. NOTE WHAT IS ABSENT AND WHY:
+     010  its check_in_with_code is already installed by 011 (identical md5),
+          and it carries the OLD refusal sentences — 016 replaces the only part
+          of 010 that is still missing.
+     014  folded into 015, which is in turn superseded by 017 below.
+     015  replaces check_in_with_code with the same sentences but the OLD return
+          shape. 017 replaces the same function and carries the same sentences,
+          so 015 has nothing left to add — and running it AFTER 017 fails
+          outright with "cannot change return type", which this test
+          demonstrated before the file was ever handed over. */
+const LIVE_BATCH = ['012_correction_requests.sql',
+  '016_attendance_status_tiebreak.sql',
+  '017_refusal_as_value.sql']
+
 {
   const db2 = new PGlite({ parsers: { 1082: (v) => v } })
   await db2.exec(`create role anon; create role authenticated; create schema auth;
@@ -179,41 +211,53 @@ ok('day_records still computes its own money and guards its own changes',
       $f$ select (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid $f$;
     grant usage on schema auth to authenticated, anon;`)
 
-  const applied = files.filter(f => !/^(010|012|014|015)/.test(f))
-  const pending = files.filter(f => /^(012|015|016)/.test(f))   // the recommended path; 014 is folded into 015, 010 by 011+016
-  for (const f of applied) await db2.exec(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8'))
-
+  const applied = files.filter(f => LIVE_APPLIED.includes(f.slice(0, 3)))
   let broke = null
-  for (const f of pending) {
+  for (const f of applied) {
     try { await db2.exec(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8')) }
-    catch (e) { broke = `${f}: ${e.message.split('\n')[0]}`; break }
+    catch (e) { broke = `applying the existing ${f}: ${e.message.split('\n')[0]}`; break }
   }
-  ok(`the ${pending.length} outstanding migrations apply on top of a half-migrated project`,
-    !broke, broke || `after ${applied.length} already applied (${pending.map(f => f.slice(0, 3)).join(', ')})`)
 
-  // …and land in the same place as the full chain, not merely without erroring
-  const shape = async (d) => (await d.query(
-    `select p.proname, md5(pg_get_functiondef(p.oid)) d from pg_proc p
-       join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname in ('check_in_with_code','my_attendance_status')
-      order by p.proname`)).rows
-  const fresh = await shape(db)
-  const patched = await shape(db2)
-  ok('the half-migrated project ends up identical to a freshly built one',
-    JSON.stringify(fresh) === JSON.stringify(patched),
-    fresh.map(r => `${r.proname}=${r.d.slice(0, 8)}`).join(' '))
+  if (!broke) {
+    for (const f of LIVE_BATCH) {
+      try { await db2.exec(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8')) }
+      catch (e) { broke = `${f}: ${e.message.split('\n')[0]}`; break }
+    }
+  }
 
-  /* 016 exists so that 010 does NOT have to be run — 010's check-in half is
-     already installed by 011, and its old refusal sentences must not come back.
-     That trade is only safe if 016 installs the same my_attendance_status that
-     010 would have. Proven against 010's own text, not against my memory of it. */
-  const fromTen = (await db.query(
-    `select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname = 'my_attendance_status'`)).rows[0].d
-  const tenSrc = fs.readFileSync(path.join(MIGRATIONS, '010_any_live_code_covers.sql'), 'utf8')
-  ok('016 installs exactly the my_attendance_status that 010 carries',
-    tenSrc.includes('order by (s.contractor_id is null)') && /order by \(s\.contractor_id is null\)/.test(fromTen),
-    'same deterministic order as 010')
+  ok(`the ${LIVE_BATCH.length} outstanding migrations apply on top of a half-migrated project`,
+    !broke, broke || `after ${applied.length} already applied (${LIVE_BATCH.map(f => f.slice(0, 3)).join(' → ')})`)
+
+  if (!broke) {
+    const patched = await functionShape(db2)
+    ok('the half-migrated project ends up identical to a freshly built one',
+      JSON.stringify(fresh) === JSON.stringify(patched),
+      fresh.map(r => `${r.proname}=${r.d.slice(0, 8)}`).join(' '))
+
+    /* 016 exists so that 010 does NOT have to be run — 010's check-in half is
+       already installed by 011, and its old refusal sentences must not come
+       back. That trade is only safe if 016 installs the same
+       my_attendance_status that 010 carries. Checked against 010's own text,
+       not against my memory of it. */
+    const patchedAttendance = (await db2.query(
+      `select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'my_attendance_status'`)).rows[0].d
+    const tenSrc = fs.readFileSync(path.join(MIGRATIONS, '010_any_live_code_covers.sql'), 'utf8')
+    ok('016 installs exactly the my_attendance_status that 010 carries',
+      tenSrc.includes('order by (s.contractor_id is null)')
+        && /order by \(s\.contractor_id is null\)/.test(patchedAttendance)
+        && patchedAttendance === freshAttendance,
+      'same deterministic order as 010, and the same body as the fresh chain')
+
+    /* And 017's contract must be the one that reaches the live project. A
+       refusal the worker never sees is the defect this migration exists for. */
+    const liveCheckIn = (await db2.query(
+      `select pg_get_function_result(p.oid) r from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'check_in_with_code'`)).rows[0].r
+    ok('after the batch, a refusal has an (ok, message) contract to travel in',
+      /ok boolean/.test(liveCheckIn) && /message text/.test(liveCheckIn),
+      liveCheckIn.slice(0, 62) + '…')
+  }
 
   await db2.close()
 }

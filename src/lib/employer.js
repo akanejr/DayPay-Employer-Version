@@ -793,7 +793,20 @@ export async function myAttendanceStatus() {
  *
  * Returns { ok: true, day, already } or { ok: false, message } — a refusal is
  * an expected outcome here, not an exception, because "wrong code" is a thing
- * that happens every day on a real site and must not read as a crash. */
+ * that happens every day on a real site and must not read as a crash.
+ *
+ * THIS FUNCTION UNDERSTANDS TWO CONTRACTS ON PURPOSE, so that the app and the
+ * database can be deployed in either order without a worker being misled.
+ * Migration 017 made the server RETURN a refusal (ok=false, message) instead of
+ * raising one, because an exception rolled back the attempt record it had just
+ * written — which is why the five-attempt cap never fired. The older server
+ * raises instead, and arrives here as `error`.
+ *
+ *   new server + this build   -> row.ok === false, message read from the row
+ *   new server + older build  -> would read a refusal as a success. Deploy
+ *                                this build BEFORE running 017.
+ *   old server + this build   -> error path below, exactly as before
+ */
 export async function checkIn(code) {
   const cleaned = String(code ?? '').trim()
 
@@ -806,6 +819,12 @@ export async function checkIn(code) {
 
   const row = Array.isArray(data) ? data[0] : data
   if (!row) return { ok: false, message: 'Attendance was not recorded. Try again.' }
+
+  // A refusal the server chose to return rather than raise: a wrong code, the
+  // five-attempt lockout, or attendance that is closed or not yet open.
+  if (row.ok === false) {
+    return { ok: false, message: row.message || 'Attendance was not recorded. Try again.' }
+  }
 
   return { ok: true, day: row, already: !!row.already }
 }

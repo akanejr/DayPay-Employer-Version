@@ -63,7 +63,24 @@ await mount('Workspace · Summary', <EmployerWorkspace />, ['James Okon'], 3)
 await mount('Workspace · Roster', <EmployerWorkspace />, ['James Okon', 'Contractor A'], 2)
 
 // the panes on their own
-await mount('StaffDays', <StaffDays employees={[employee]} />, ['James Okon'])
+await mount('StaffDays', <StaffDays employees={[employee]} contractors={[]} />, ['James Okon'])
+
+/* ── Two workers with the same name must be tellable apart ─────────────────
+   This screen writes attendance into the ledger and used to list people by
+   name alone. The owner's roster genuinely contains a James the Welder under
+   Topher and a James the Electric under Eddimore, both active, both with days
+   that month — which rendered as two identical rows. initials('James') is 'JA'
+   for both, so even the avatar matched. Marking the wrong one pays the wrong
+   person and lands in the wrong contractor's invoice a month later. */
+await mount('Mark days, two workers called James',
+  <StaffDays
+    employees={[
+      { ...employee, id: 'e1', full_name: 'James', job_title: 'Welder', contractor_id: 'c1' },
+      { ...employee, id: 'e2', full_name: 'James', job_title: 'Electric', contractor_id: 'c2' },
+    ]}
+    contractors={[{ id: 'c1', name: 'Topher' }, { id: 'c2', name: 'Eddimore' }]}
+  />,
+  ['Welder · Topher', 'Electric · Eddimore', 'James'])
 await mount('Summary pane', <Summary employees={[employee]} />, ['James Okon'])
 await mount('Attendance panel', <AttendancePanel contractors={[{ id: 'c1', name: 'Contractor A', status: 'active' }]} onChanged={() => {}} />, ['Attendance'])
 // attendance is not open in these fixtures, so the pane shows its "checking"

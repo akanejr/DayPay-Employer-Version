@@ -113,7 +113,8 @@ const applied = fs.readdirSync(MIGRATIONS).filter(f => f.endsWith('.sql')).sort(
 const tableCount = (await db.query(
   `select count(*)::int n from information_schema.tables
     where table_schema='public' and table_type='BASE TABLE'`)).rows[0].n
-ok(`all ${applied.length} migrations apply, 001 through 013`, true, applied.join(' '))
+ok(`all ${applied.length} migrations apply, 001 through ${applied[applied.length - 1].slice(0, 3)}`,
+  true, applied.join(' '))
 ok('the workforce tables are present', tableCount >= 8, `${tableCount} tables in public`)
 
 /* Actors. Two employers, so isolation is tested with a real neighbour rather
@@ -222,6 +223,34 @@ const attempt = async (uid, sql) => {
   finally { try { await db.exec('rollback') } catch { /* already closed */ } }
 }
 
+/* A check-in, read the way the app now reads it.
+ *
+ * Migration 017 made a refusal a RETURNED value (ok = false, message) instead
+ * of a raised exception, so `attempt` — which only knows about errors — cannot
+ * see one. A refusal that raised is precisely what used to roll back the
+ * attempt record, which is why the five-attempt cap never fired.
+ *
+ * commit: true is needed to observe anything the function WROTE. Without it the
+ * rollback at the end undoes the attempt rows, and the test would be measuring
+ * its own wrapper rather than the product. */
+const checkInAttempt = async (uid, code, { commit = false } = {}) => {
+  await db.exec('begin')
+  await db.exec(`set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"${uid}","role":"authenticated"}', true);`)
+  try {
+    const rows = (await db.query(`select * from public.check_in_with_code('${code}')`)).rows
+    const r = rows[0]
+    if (commit) await db.exec('commit')
+    if (!r) return { ok: false, message: null, note: 'the function returned no row at all' }
+    return { ok: r.ok === true, message: r.message, row: r }
+  } catch (e) {
+    /* Not a refusal — a refusal is a row now. This is either an older server,
+       which still raises, or a genuine fault. Both are reported as they are. */
+    try { await db.exec('rollback') } catch { /* already closed */ }
+    return { ok: false, message: e.message.split('\n')[0], raised: e.message.split('\n')[0] }
+  }
+}
+
 /* The employer's month rows, read exactly the way the app reads them. */
 const readMonth = async () => {
   const { rows } = await asA(`
@@ -267,15 +296,19 @@ step(2, 'The linked worker checks in with it')
    nobody and a code that is merely stale must look the same, or the endpoint
    becomes a way to ask "was that number real?" */
 const REFUSAL = 'Code not correct, visit the site.'
-const wrong = await attempt(USER.james, `select * from public.check_in_with_code('0001')`)
-const wrong2 = await attempt(USER.james, `select * from public.check_in_with_code('9998')`)
+const CAP = 'Too many wrong codes. Try again in a few minutes.'
 const said = (m) => (m || '').split('\n')[0].replace(/^ERROR:\s*/, '').trim()
-ok('a wrong code is refused in exactly the words we agreed',
-  said(wrong) === REFUSAL, `"${said(wrong)}"`)
-ok('and the refusal names nobody — no worker, no contractor, no hint the number was real',
-  !!wrong && !/james|okon|timothy|samuel|grace|contractor/i.test(wrong), said(wrong))
+
+const wrong = await checkInAttempt(USER.james, '0001')
+const wrong2 = await checkInAttempt(USER.james, '9998')
+ok('a wrong code comes back as an ANSWER, not an exception (ok=false + message)',
+  wrong.ok === false && !!wrong.message && !wrong.raised,
+  `ok=${wrong.ok} raised=${wrong.raised || 'no'} "${said(wrong.message)}"`)
+ok('in exactly the words we agreed', said(wrong.message) === REFUSAL, `"${said(wrong.message)}"`)
+ok('and it names nobody — no worker, no contractor, no hint the number was real',
+  !/james|okon|timothy|samuel|grace|contractor/i.test(wrong.message || ''), said(wrong.message))
 ok('a different wrong code gets a byte-identical answer (the endpoint is not an oracle)',
-  said(wrong2) === said(wrong), `"${said(wrong2)}"`)
+  said(wrong2.message) === said(wrong.message), `"${said(wrong2.message)}"`)
 
 const checked = (await as(USER.james, `select * from public.check_in_with_code('${CODE}')`, { commit: true })).rows[0]
 ok('the right code records the day', !!checked && checked.work_date === TODAY, JSON.stringify(checked?.work_date))
@@ -322,22 +355,32 @@ ok('exactly one row, because the ledger is a ledger', rowsToday === 1, `${rowsTo
    underneath a green suite. Reported to the owner; not fixed in this phase,
    because switching the refusal from an exception to a return value changes
    the worker's screen and every refusal path in the product. */
-await attempt(USER.james, `select * from public.check_in_with_code('0001')`)
-await attempt(USER.james, `select * from public.check_in_with_code('0002')`)
-await attempt(USER.james, `select * from public.check_in_with_code('0003')`)
-await attempt(USER.james, `select * from public.check_in_with_code('0004')`)
-await attempt(USER.james, `select * from public.check_in_with_code('0005')`)
-const capped = await attempt(USER.james, `select * from public.check_in_with_code('0006')`)
-const recorded = (await asA(
+for (const c of ['0001', '0002', '0003', '0004', '0005']) {
+  await checkInAttempt(USER.james, c, { commit: true })
+}
+/* Read as the OWNER, not as the employer, and that is not a workaround.
+   check_in_attempts carries no SELECT policy for either role, so both the
+   employer and the worker see zero rows — which is right: the log of who tried
+   what should not be legible to the person being rate-limited, nor a way for an
+   employer to watch a worker fumble a code. The first version of this check
+   asked as the employer, read 0, and reported the fix as broken while the cap
+   was demonstrably working — the number in front of it was a permission, not a
+   fact. */
+const recorded = (await db.query(
   `select count(*)::int n from public.check_in_attempts where user_id = '${USER.james}'`)).rows[0].n
+ok('five wrong codes leave FIVE recorded attempts — a refusal no longer erases its own evidence',
+  recorded === 5, `${recorded} row(s) in check_in_attempts`)
 
-ok('KNOWN GAP — six wrong codes leave ZERO attempt records: a refusal rolls back its own evidence',
-  recorded === 0, `${recorded} rows in check_in_attempts`)
-ok('KNOWN GAP — so the lockout never fires, and the sixth wrong code is refused as if it were the first',
-  said(capped) === REFUSAL, `"${said(capped)}"`)
+const capped = await checkInAttempt(USER.james, '0006', { commit: true })
+ok('so the sixth is refused for the cap, in the agreed words',
+  said(capped.message) === CAP, `"${said(capped.message)}"`)
+ok('and the lockout does not send them to a contractor either — it names the one useful fact',
+  !/contractor/i.test(capped.message || ''), said(capped.message))
 
-// Nothing to clear: the attempts roll themselves back. Left explicit because
-// the counter IS reachable once the fix lands.
+/* The five attempts stay in the table for the rest of this run, deliberately:
+   the cap is per worker per session and this is the last check-in in the walk.
+   An earlier version of this block cleared them and claimed they cleared
+   themselves — they do not, any more, and that is the point of the fix. */
 
 // ── 3. Dashboard ────────────────────────────────────────────────────────────
 step(3, 'The dashboard the employer sees')

@@ -17,8 +17,15 @@
  *                   the Phase 8 mandate.
  *
  *   harness.mjs     Can an employee see another employee's wages? It runs the
- *                   shipped supabase/harness/rls_test.sql, all 58 checks, in
- *                   one go, and reports the file's own verdict.
+ *                   shipped supabase/harness/rls_test.sql in one go and reports
+ *                   the file's own verdict.
+ *
+ *   lockout-probe.mjs
+ *                   Does five wrong codes actually lock anybody out? It did not
+ *                   for three phases: the refusal was raised, which rolled back
+ *                   the attempt record it had just written. Migration 017 fixed
+ *                   it. This measures the fixed behaviour and exits non-zero if
+ *                   the cap ever stops working again.
  *
  * Each exits non-zero on failure, so the runner does too.
  *
@@ -32,7 +39,8 @@ const here = fileURLToPath(new URL('./', import.meta.url))
 const scripts = [
   ['migrations.mjs', 'THE SCHEMA — 001 to 013, from empty'],
   ['e2e.mjs', 'THE FIGURES — every layer reconciles with the one below it'],
-  ['harness.mjs', 'THE PERMISSIONS — the shipped RLS harness, all 58 checks'],
+  ['harness.mjs', 'THE PERMISSIONS — the shipped RLS harness, every check'],
+  ['lockout-probe.mjs', 'THE LOCKOUT — five wrong codes recorded, the sixth refused'],
 ]
 
 const failed = []

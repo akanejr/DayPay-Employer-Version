@@ -1,8 +1,19 @@
 -- ============================================================================
--- DayPay Employer Version — RLS verification harness (v10)
+-- DayPay Employer Version — RLS verification harness (v11)
 -- ============================================================================
 -- Proves an employee cannot read another employee's wages.
 -- Seeds test data, runs the checks, then ROLLS BACK. Safe to re-run.
+--
+-- NEW IN v11 — A REFUSAL IS READ, NOT CAUGHT.
+--
+-- Migration 017 turned the wrong-code refusal from a raised exception into a
+-- returned row (ok = false, message). The reason was not tidiness: raising it
+-- rolled back the attempt record the function had just written, so the
+-- five-attempt cap could not count anything and had never fired on any
+-- database. This file caught the old shape, so checks 21-28 now read `ok` and
+-- `message` off the returned row, and check 58 is new — it asserts that three
+-- wrong codes leave three recorded attempts, which is the property that was
+-- silently false for three phases.
 --
 -- NEW IN v10 — THE FILE NOW ACTUALLY RUNS. It had never been executed
 -- end-to-end from top to bottom: Phases 6 and 7 verified their sections by
@@ -574,39 +585,44 @@ end $$;
 -- (three of five), leaving room for the correct-code check that follows.
 do $$
 declare
+  r_stale record; r_other record; r_junk record;
   msg_stale text;   -- a well-formed code whose session ended yesterday
   msg_other text;   -- a LIVE code belonging to a different contractor
   msg_junk  text;   -- a code that is nobody's
   shot      text;
 begin
-  begin perform public.check_in_with_code('0000');
-  exception when others then msg_stale := sqlerrm; end;
-
-  begin perform public.check_in_with_code('1357');
-  exception when others then msg_other := sqlerrm; end;
-
-  begin perform public.check_in_with_code('9999');
-  exception when others then msg_junk := sqlerrm; end;
+  /* v11: these used to be caught as exceptions. Migration 017 made a refusal a
+     RETURNED value, because raising one rolled back the attempt record the
+     function had just written — which is why the five-attempt cap never fired.
+     A refusal is `ok = false` with a message; nothing is thrown. */
+  select * into r_stale from public.check_in_with_code('0000');
+  msg_stale := r_stale.message;
+  select * into r_other from public.check_in_with_code('1357');
+  msg_other := r_other.message;
+  select * into r_junk from public.check_in_with_code('9999');
+  msg_junk := r_junk.message;
 
   perform public._harness_record(
     21, 'SESSIONS', 'yesterday''s code is refused',
-    'refused', coalesce(msg_stale, 'ACCEPTED — a stale code recorded a day'),
-    msg_stale is not null);
+    'refused (ok=false)', coalesce(msg_stale, 'ACCEPTED — a stale code recorded a day'),
+    r_stale.ok is false and msg_stale is not null);
 
   perform public._harness_record(
     22, 'SESSIONS', 'another contractor''s code is refused',
-    'refused', coalesce(msg_other, 'ACCEPTED — the code worked for the wrong contractor'),
-    msg_other is not null);
+    'refused (ok=false)', coalesce(msg_other, 'ACCEPTED — the code worked for the wrong contractor'),
+    r_other.ok is false and msg_other is not null);
 
   perform public._harness_record(
     23, 'SESSIONS', 'a code that is nobody''s is refused',
-    'refused', coalesce(msg_junk, 'ACCEPTED — a guessed code worked'),
-    msg_junk is not null);
+    'refused (ok=false)', coalesce(msg_junk, 'ACCEPTED — a guessed code worked'),
+    r_junk.ok is false and msg_junk is not null);
 
   /* The check that actually tests the leak. If a wrong-but-real code and a
      wrong-and-fake code produce the same sentence, there is nothing to learn
      from probing. If they differ at all, the oracle is back. */
   select case
+           when r_stale.ok is not false or r_other.ok is not false or r_junk.ok is not false
+             then 'one or more calls were ACCEPTED'
            when msg_stale is null or msg_other is null or msg_junk is null
              then 'one or more calls were ACCEPTED'
            when msg_stale = msg_other and msg_other = msg_junk
@@ -620,7 +636,8 @@ begin
     24, 'SESSIONS', 'a real code for another contractor reads EXACTLY like a fake one',
     'identical messages for all three',
     shot,
-    msg_stale is not null and msg_stale = msg_other and msg_other = msg_junk);
+    r_stale.ok is false and r_other.ok is false and r_junk.ok is false
+      and msg_stale is not null and msg_stale = msg_other and msg_other = msg_junk);
 
   /* Belt and braces: no contractor's name may appear in the refusal, whatever
      the text happens to say. */
@@ -628,9 +645,37 @@ begin
     25, 'SESSIONS', 'the refusal never names another contractor',
     'no contractor name in the message',
     coalesce(msg_other, '(none)'),
-    msg_other is not null
+    r_other.ok is false
       and position('Harness Contractor A' in msg_other) = 0
       and position('Harness Contractor B' in msg_other) = 0);
+end $$;
+
+/* ── THE FIX ITSELF ─────────────────────────────────────────────────────────
+   Every check above passed for three phases while the cap was dead, because
+   each one only asked whether a refusal happened — and it did. None asked
+   whether the attempt was RECORDED, and it never was: raising the refusal
+   rolled back the insert that came before it, so six wrong codes left the
+   table empty and the count could never reach five.
+
+   Three wrong codes have been made at this point in the file, so three rows
+   must be sitting there. This is the check that would have caught it, and it
+   is here rather than at the end so that it sits beside the refusals it
+   belongs to. Numbered 58 because inserting a number in the middle would
+   renumber every check after it; the number is an id, not a position. */
+reset role;
+select public._harness_record(
+  58, 'SESSIONS', 'each wrong code is RECORDED, so the cap can reach five',
+  '3 rows', (select count(*)::text from public.check_in_attempts),
+  (select count(*) from public.check_in_attempts) = 3);
+set local role authenticated;
+do $$
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
 end $$;
 
 
@@ -642,7 +687,7 @@ begin
   perform public._harness_record(
     26, 'SESSIONS', 'the correct code records the day',
     'work', coalesce(r.kind,'(none)'),
-    r.kind = 'work' and r.work_date = current_date);
+    r.ok is true and r.kind = 'work' and r.work_date = current_date);
 exception when others then
   perform public._harness_record(
     26, 'SESSIONS', 'the correct code records the day', 'work', 'ERROR: ' || sqlerrm, false);
@@ -694,7 +739,7 @@ begin
     28, 'SESSIONS', 'the OTHER live code covering the worker is accepted, not refused',
     'accepted (already=true), 1 day',
     'accepted=' || coalesce(r.already::text,'?') || ', ' || n || ' day(s)',
-    r.already is true and n = 1);
+    r.ok is true and r.already is true and n = 1);
 exception when others then
   perform public._harness_record(
     28, 'SESSIONS', 'the OTHER live code covering the worker is accepted, not refused',

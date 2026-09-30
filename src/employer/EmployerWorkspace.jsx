@@ -630,7 +630,7 @@ export default function EmployerWorkspace() {
           />
         )}
 
-        {pane === 'days' && <StaffDays employees={employees} />}
+        {pane === 'days' && <StaffDays employees={employees} contractors={contractors} />}
 
         {pane === 'summary' && <Summary employees={employees} />}
 

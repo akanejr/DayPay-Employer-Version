@@ -1,22 +1,24 @@
 /* Does the five-attempt lockout actually lock anybody out?
  *
- * This exists because a test asserted the lockout message and got the ordinary
- * wrong-code message instead. Either the test was wrong or the lockout is. The
- * suspicion is transactional, and it is worth stating plainly:
+ * THE BUG THIS WAS WRITTEN TO PROVE, AND STILL GUARDS AGAINST
  *
- *   check_in_with_code() inserts a row into check_in_attempts and THEN raises
- *   the refusal. In PostgreSQL an exception aborts the transaction it is raised
- *   in, and everything that transaction wrote is undone — including the row
- *   that was just inserted. So every wrong code erases its own evidence, the
- *   count never reaches five, and the cap never fires.
+ * check_in_with_code() used to insert a row into check_in_attempts and THEN
+ * raise the refusal. An exception aborts the transaction it is raised in, so
+ * the row that had just been written was rolled back with it — every wrong code
+ * erased its own evidence. The count never reached five, the cap never fired,
+ * and the endpoint was brute-forceable: 10,000 codes, no limit, no record.
  *
- * That would make the endpoint brute-forceable: 10,000 codes, no limit, no
- * record. This script measures it instead of arguing about it, because the
- * difference between "the cap works" and "the cap is dead code" is the
- * difference between a guard and a comforting comment.
+ * Migration 017 returns the refusal as a value instead, so the write stands.
+ * This script measures the whole path rather than trusting the migration's own
+ * proof block, and it prints the numbers so the difference between "the cap
+ * works" and "the cap is a comforting comment" is a measurement, not an
+ * opinion.
  *
- * Read-only in intent: it seeds its own fixtures and prints what it finds. It
- * changes nothing in the product.
+ * It also checks the property that made the bug possible to miss for three
+ * phases: the refusals must still be INDISTINGUISHABLE from one another, and
+ * the cap's sentence must still name nobody.
+ *
+ * It seeds its own fixtures and changes nothing else.
  *
  *     node scripts/integration/lockout-probe.mjs
  *
@@ -59,21 +61,23 @@ insert into public.attendance_sessions (employer_id, work_date, code, expires_at
 
 const claims = `select set_config('request.jwt.claims', '{"sub":"${UID}","role":"authenticated"}', true)`
 
-/* The committed path. This is the important part: a wrapped-in-rollback probe
-   could not answer this question at all, because it would undo the attempt row
-   itself and manufacture the very result under investigation. */
+/* The committed path — the real one. A wrapper that rolled back could not
+   answer this question at all, because it would undo the attempt row itself and
+   manufacture the very result under investigation. */
 async function wrongCode(code) {
   await db.exec('begin')
   await db.exec(`set local role authenticated; ${claims}`)
   try {
-    await db.query(`select * from public.check_in_with_code('${code}')`)
+    const row = (await db.query(`select * from public.check_in_with_code('${code}')`)).rows[0]
     await db.exec('commit')
-    return null
+    /* A refusal is a returned row now. An older server raises instead, and a
+       genuine fault does too, so both are still handled — the point is to see
+       which one this database does. */
+    if (!row) return 'NO ROW RETURNED'
+    return row.ok === false ? row.message : `ACCEPTED — ${row.kind} recorded`
   } catch (e) {
-    /* The transaction is aborted, so this is a rollback whatever it is called.
-       Committing here would be a no-op; being explicit keeps it obvious. */
     try { await db.exec('rollback') } catch { /* already closed */ }
-    return e.message.split('\n')[0]
+    return 'RAISED: ' + e.message.split('\n')[0]
   }
 }
 
@@ -87,19 +91,30 @@ for (let i = 0; i < 6; i++) {
 }
 
 const recorded = (await db.query('select count(*)::int n from public.check_in_attempts')).rows[0].n
+const identical = new Set(said.slice(0, 5)).size === 1
+const lockedOut = /Too many wrong codes/.test(said[5] || '')
+
 console.log(`\n  rows left in check_in_attempts after six wrong codes: ${recorded}`)
-console.log(`  every refusal identical:                              ${new Set(said).size === 1}`)
-console.log(`  the lockout was ever reached:                          ${said.some(m => /Too many wrong codes/.test(m))}`)
+console.log(`  every refusal identical until the cap:                ${identical}`)
+console.log(`  the sixth is refused FOR THE CAP:                     ${lockedOut}`)
+console.log(`  the cap names no contractor:                          ${!/contractor/i.test(said[5] || '')}`)
 
-/* And the other half of the question: can the cap fire at all, if the rows are
-   put there by something that commits? This separates "the counter is broken"
-   from "the transaction is broken" — they need different fixes. */
-await db.exec(`insert into public.check_in_attempts (session_id, user_id)
-  select s.id, '${UID}' from public.attendance_sessions s, generate_series(1,5) g`)
-const forced = await wrongCode('7000')
-console.log(`\n  with five attempts committed by hand, the next call says:`)
-console.log(`    "${forced}"`)
-console.log(`  so the counter itself works:                           ${/Too many wrong codes/.test(forced || '')}`)
-console.log(`  what fails is that a refusal erases its own record.\n`)
-
-process.exit(0)
+/* ── The verdict ─────────────────────────────────────────────────────────────
+   Pass/fail on the four properties that matter, so this can be run as a check
+   rather than read as prose. */
+const verdict = [
+  ['wrong codes are recorded', recorded === 5, `${recorded} of 5`],
+  ['the refusals are indistinguishable', identical, 'one sentence for all five'],
+  ['the cap fires on the sixth', lockedOut, lockedOut ? 'locked out' : 'NOT LOCKED OUT'],
+  ['nothing names a contractor', !/contractor/i.test(said[5] || ''), 'no names'],
+]
+console.log('')
+let failed = 0
+for (const [what, pass, detail] of verdict) {
+  if (!pass) failed++
+  console.log(`  ${pass ? 'PASS' : 'FAIL'}  ${what}  -> ${detail}`)
+}
+console.log(failed === 0
+  ? '\nTHE LOCKOUT WORKS: five wrong codes are recorded, and the sixth is refused.\n'
+  : `\n${failed} PROPERTY FAILED — the cap is not protecting anything.\n`)
+process.exit(failed === 0 ? 0 : 1)

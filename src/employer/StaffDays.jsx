@@ -61,7 +61,37 @@ function DateBar({ value, onChange, busy }) {
 
 // ── One employee, one day ───────────────────────────────────────────────────
 
-function DayRow({ employee, record, kind, busy, onToggle, onKind }) {
+/* The trade and the contractor, under the name.
+ *
+ * WHY THIS EXISTS. This is the only screen that writes attendance into the
+ * ledger, and it listed people by name alone. Two workers called James — one a
+ * Welder under Topher, one an Electric under Eddimore, both active, both with
+ * days recorded that month — rendered as:
+ *
+ *     [JA] James        [JA] James
+ *          not marked        not marked
+ *
+ * Identical. initials('James') is 'JA' for both, because a one-word name gives
+ * its first two letters. Marking the wrong row is not a cosmetic slip: it puts
+ * a paid day against the wrong person, under the wrong contractor, and it
+ * surfaces a month later in that contractor's invoice. The employer cannot tell
+ * from this screen which James is standing in front of them.
+ *
+ * Every other screen already shows the job title — Today, Roster, the
+ * contractor list, the worker detail, even invoice lines. This one did not,
+ * which is why the gap survived: it looked handled everywhere else.
+ *
+ * The contractor name is what settles it, since two workers can share a trade
+ * but the money belongs to a contractor. 'Unassigned' is spelled out rather
+ * than left blank, because an empty line reads as missing data. */
+function whoLabel(employee, contractorName) {
+  const parts = []
+  if (employee.job_title) parts.push(employee.job_title)
+  parts.push(contractorName || 'Unassigned')
+  return parts.join(' · ')
+}
+
+function DayRow({ employee, contractorName, record, kind, busy, onToggle, onKind }) {
   const marked = !!record
   const shownKind = record?.kind || kind
 
@@ -71,6 +101,7 @@ function DayRow({ employee, record, kind, busy, onToggle, onKind }) {
 
       <div className="ew-dayrow-body">
         <div className="ew-name">{employee.full_name}</div>
+        <div className="ew-mini-sub">{whoLabel(employee, contractorName)}</div>
         <div className="ew-meta">
           {marked ? (
             <>
@@ -117,7 +148,7 @@ function DayRow({ employee, record, kind, busy, onToggle, onKind }) {
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 
-export default function StaffDays({ employees }) {
+export default function StaffDays({ employees, contractors }) {
   const [date, setDate] = useState(todayKey())
   const [monthDays, setMonthDays] = useState([])
   const [loading, setLoading] = useState(true)
@@ -130,6 +161,14 @@ export default function StaffDays({ employees }) {
     () => (employees || []).filter(e => e.status === 'active'),
     [employees],
   )
+
+  /* id -> name, so a row can say who the money belongs to. Built from the
+     contractor list the workspace already loaded; no new query. */
+  const contractorNames = useMemo(() => {
+    const map = new Map()
+    for (const c of contractors || []) map.set(c.id, c.name)
+    return map
+  }, [contractors])
 
   const [viewYear, viewMonth] = useMemo(() => {
     const [y, m] = date.split('-').map(Number)
@@ -297,6 +336,7 @@ export default function StaffDays({ employees }) {
           <DayRow
             key={e.id}
             employee={e}
+            contractorName={contractorNames.get(e.contractor_id)}
             record={byEmployee.get(e.id)}
             kind={kindForDate}
             busy={busyId === e.id}

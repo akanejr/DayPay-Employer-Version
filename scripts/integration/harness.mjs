@@ -113,6 +113,6 @@ console.log(`\n  areas: ${areas.join(', ')}`)
 console.log(`  checks: ${rows.length} — ${rows.length - failed.length} passed, ${failed.length} failed`)
 console.log(`  the harness's own REPORT ran without error (${report})`)
 console.log(failed.length === 0 && rows.length >= 58
-  ? '\nTHE SHIPPED HARNESS PASSES END TO END — all 58 checks, in one run'
+  ? `\nTHE SHIPPED HARNESS PASSES END TO END — all ${rows.length} checks, in one run`
   : `\n*** ${failed.length} CHECK(S) FAILED — the shipped harness is not trustworthy as it stands ***`)
 process.exit(failed.length === 0 && rows.length >= 58 ? 0 : 1)
