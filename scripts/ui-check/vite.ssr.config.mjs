@@ -20,6 +20,11 @@ export default {
     alias: [
       // every component in src/employer imports the data layer by this path
       { find: /^\.\.\/lib\/employer$/, replacement: `${here}mock-employer.js` },
+      // the kiosk client (lib/kiosk.js) is exercised for real, so the alias is
+      // on the socket rather than on the module: only ./supabase is replaced,
+      // which means the walk tests the shipping error folding, rpc names and
+      // argument names instead of a mock's idea of them
+      { find: /^\.\/supabase$/, replacement: `${here}mock-supabase.js` },
       // the PDF layer draws with jsPDF; the check records the call instead
       { find: /^\.\.\/lib\/invoicePdf$/, replacement: `${here}mock-invoice-pdf.js` },
       // the check files themselves live outside src/, so their bare imports

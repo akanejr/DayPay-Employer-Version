@@ -216,7 +216,7 @@ const LIVE_BATCH = ['012_correction_requests.sql',
    one file behind the repository. This is the ordinary state of a project
    between phases, and it is the one that catches a migration written against
    the latest schema instead of against the schema it will actually meet. */
-const LIVE_NEXT = ['018_attendance_pin.sql']
+const LIVE_NEXT = ['018_attendance_pin.sql', '019_site_kiosk.sql']
 
 {
   const db2 = new PGlite({ parsers: { 1082: (v) => v } })

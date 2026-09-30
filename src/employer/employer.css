@@ -1694,3 +1694,40 @@
   color: var(--text-3);
   line-height: 1.5;
 }
+
+/* ── Phase 12: the machine at the worksite ──────────────────────────────────
+   One row per kiosk: what it is called, whether it is linked, and one button
+   that stops it. Laid out like a person row in the roster rather than like a
+   card, because it is the same kind of thing — a thing on this site that has a
+   status and an action. */
+.ew-device {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--border-light);
+  margin-top: 10px;
+}
+
+.ew-device:first-of-type { border-top: 0; }
+
+.ew-device-body { min-width: 0; flex: 1; }
+
+.ew-device-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ew-device-hint {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  line-height: 1.5;
+}

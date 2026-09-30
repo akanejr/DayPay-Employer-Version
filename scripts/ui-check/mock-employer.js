@@ -224,3 +224,54 @@ export function setInvoiceFixtures(next) {
   INVOICES.length = 0
   for (const row of next || []) INVOICES.push(row)
 }
+
+// ── the site kiosks (Phase 12) ──────────────────────────────────────────────
+
+const DEVICES = [
+  { id: 'dv1', label: 'Gate kiosk', status: 'active', link_code: null,
+    device_user_id: 'kiosk-account', created_at: '2026-09-28T07:00:00Z',
+    linked_at: '2026-09-28T07:04:00Z', revoked_at: null, last_seen_at: '2026-09-30T06:31:00Z' },
+  { id: 'dv2', label: 'Site kiosk', status: 'pending', link_code: 'K7QM24RD',
+    device_user_id: null, created_at: '2026-09-30T06:00:00Z',
+    linked_at: null, revoked_at: null, last_seen_at: null },
+]
+
+export function setDeviceFixtures(next) {
+  DEVICES.length = 0
+  for (const row of next || []) DEVICES.push(row)
+}
+
+// `null` is the honest answer for a project that has not run migration 019, and
+// the panel has a screen for it — so the check has to be able to ask for it.
+export function setDevicesMissing(yes) { DEVICES_MISSING = !!yes }
+let DEVICES_MISSING = false
+
+export const listDevices = async () => {
+  globalThis.__calls.push(['listDevices'])
+  if (DEVICES_MISSING) return null
+  return DEVICES.map(d => ({ ...d }))
+}
+
+/* The code is a one-time credential, so it is minted once and then only ever
+   read. A mock that re-randomised it on every render would hide a screen that
+   flickers, which is one of the things this card must not do. */
+export const createDevice = async (label = 'Site kiosk') => {
+  globalThis.__calls.push(['createDevice', label])
+  const row = {
+    id: `dv${DEVICES.length + 1}`, label, status: 'pending', link_code: 'NEW24RD' + DEVICES.length,
+    device_user_id: null, created_at: '2026-09-30T07:00:00Z',
+    linked_at: null, revoked_at: null, last_seen_at: null,
+  }
+  DEVICES.unshift(row)
+  return { ...row }
+}
+
+export const revokeDevice = async (id) => {
+  globalThis.__calls.push(['revokeDevice', id])
+  const row = DEVICES.find(d => d.id === id)
+  if (row) {
+    row.status = 'revoked'; row.link_code = null
+    row.device_user_id = null; row.revoked_at = '2026-09-30T07:30:00Z'
+  }
+  return row ? { ...row } : {}
+}

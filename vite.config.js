@@ -54,12 +54,25 @@ function assertConfigShipped() {
 
 export default defineConfig({
   plugins: [react(), assertConfigShipped()],
+  /* TWO ENTRIES, ON PURPOSE. index.html is the DayPay application — employer
+     and employee. kiosk.html is the machine at the worksite, and it is a
+     separate entry because §20 requires the kiosk to expose nothing else.
+     A separate entry point is what makes that structural: the kiosk's own
+     bundle is built from src/kiosk/main.jsx, which imports the kiosk and
+     nothing that reaches back into the application. There is no route, flag or
+     role check to get wrong — the employer's screens are not in the file. */
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      input: {
+        main: path.resolve(process.cwd(), 'index.html'),
+        kiosk: path.resolve(process.cwd(), 'kiosk.html'),
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,
     allowedHosts: true,
-  },
-  build: {
-    outDir: 'dist',
   },
 })

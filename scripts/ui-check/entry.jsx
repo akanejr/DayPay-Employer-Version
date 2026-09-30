@@ -1,6 +1,7 @@
 import './client.jsx'
 import './interact.jsx'
 import './existing.jsx'
+import './kiosk.jsx'
 
 const total = globalThis.__bad || 0
 console.log(total === 0

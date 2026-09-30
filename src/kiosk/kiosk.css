@@ -1,0 +1,311 @@
+/* DayPay Site Attendance — the machine at the worksite.
+ *
+ * SIZING IS THE WHOLE DESIGN. This screen is read standing up, at arm's
+ * length, by somebody who wants to get to work. Every measurement below is
+ * deliberately larger than the same thing in the phone app:
+ *
+ *   - targets are 64px minimum, because a finger at a kiosk is less precise
+ *     than a thumb on a phone you are holding;
+ *   - the keypad digits are 30px, because that is a number somebody taps fifty
+ *     times a day and never once looks for;
+ *   - the result is 44px and colour-coded, because the answer has to be legible
+ *     from a metre back with a queue behind you.
+ *
+ * No framework, no dark mode toggle: a worksite machine is lit or it is not,
+ * and one theme is one thing to get right rather than two things to get half
+ * right. The palette is the app's own navy and green.
+ *
+ * Copyright © 2026 Akaninyene. All rights reserved.
+ */
+
+:root {
+  --ks-navy: #0B1B32;
+  --ks-green: #15803D;
+  --ks-amber: #B45309;
+  --ks-red: #B91C1C;
+  --ks-ink: #0B1B32;
+  --ks-ink-2: #3D4A63;
+  --ks-ink-3: #6B7280;
+  --ks-line: #E2E5E9;
+  --ks-surface: #FFFFFF;
+  --ks-sunken: #F4F6F8;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--ks-sunken);
+  color: var(--ks-ink);
+  font-family: Manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ks {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ks-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 28px;
+  background: var(--ks-navy);
+  color: #fff;
+}
+
+.ks-mark { display: flex; }
+.ks-brand { display: flex; flex-direction: column; line-height: 1.15; }
+.ks-wordmark { font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
+.ks-sub { font-size: 13px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #9FB3CC; }
+
+.ks-body {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 34px 28px 28px;
+}
+
+.ks-panel {
+  width: 100%;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* The sign-in and linking panels are the only narrow ones: they hold a form,
+   not a choice of people. */
+.ks-narrow { max-width: 460px; }
+
+.ks-question {
+  margin: 0;
+  font-size: clamp(26px, 3.4vw, 40px);
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+.ks-help { margin: 0; font-size: 17px; font-weight: 500; color: var(--ks-ink-2); line-height: 1.5; }
+.ks-dim { color: var(--ks-ink-3); font-size: 15px; }
+
+.ks-form { display: flex; flex-direction: column; gap: 12px; }
+
+.ks-input {
+  width: 100%;
+  padding: 18px 20px;
+  font-size: 19px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--ks-ink);
+  background: var(--ks-surface);
+  border: 2px solid var(--ks-line);
+  border-radius: 12px;
+}
+.ks-input:focus { outline: none; border-color: var(--ks-green); }
+
+.ks-input-code {
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 26px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.ks-search { max-width: 460px; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────────
+   64px minimum. A kiosk tap is a jab with a knuckle by somebody in a hurry. */
+.ks-btn {
+  min-height: 64px;
+  padding: 16px 22px;
+  font-size: 20px;
+  font-weight: 800;
+  font-family: inherit;
+  color: var(--ks-ink);
+  background: var(--ks-surface);
+  border: 2px solid var(--ks-line);
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+.ks-btn:disabled { opacity: .5; cursor: default; }
+.ks-btn:active:not(:disabled) { transform: translateY(1px); }
+
+.ks-btn-primary {
+  background: var(--ks-green);
+  border-color: var(--ks-green);
+  color: #fff;
+  text-align: center;
+  align-items: center;
+}
+.ks-btn-choice { width: 100%; }
+
+.ks-btn-main { font-size: 21px; font-weight: 800; }
+.ks-btn-sub { font-size: 14px; font-weight: 600; color: var(--ks-ink-3); }
+.ks-btn-primary .ks-btn-sub { color: rgba(255,255,255,.85); }
+
+/* A worker with no PIN cannot check in, and letting them tap through four
+   screens to be told so wastes their time and the queue's. */
+.ks-btn-choice.is-nopin { background: var(--ks-sunken); }
+.ks-btn-choice.is-nopin .ks-btn-main { color: var(--ks-ink-3); }
+
+.ks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.ks-grid-people { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+
+.ks-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+
+.ks-wide { width: 100%; }
+
+.ks-link {
+  align-self: flex-start;
+  padding: 10px 0;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--ks-ink-2);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+
+/* ── The two secrets ────────────────────────────────────────────────────────
+   The PIN is drawn as dots and the site code as digits, and the difference is
+   deliberate: one is a secret, the other is written on a wall. */
+.ks-dots, .ks-slots {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.ks-dot {
+  font-size: 44px;
+  line-height: 1;
+  color: #C9CED6;
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+.ks-dot.is-set { color: var(--ks-navy); }
+
+.ks-slot {
+  width: 68px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 44px;
+  font-weight: 700;
+  color: #C9CED6;
+  background: var(--ks-surface);
+  border: 2px solid var(--ks-line);
+  border-radius: 12px;
+}
+.ks-slot.is-set { color: var(--ks-navy); border-color: var(--ks-navy); }
+
+.ks-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  max-width: 460px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.ks-key {
+  min-height: 76px;
+  font-size: 30px;
+  font-weight: 800;
+  font-family: inherit;
+  color: var(--ks-ink);
+  background: var(--ks-surface);
+  border: 2px solid var(--ks-line);
+  border-radius: 14px;
+  cursor: pointer;
+}
+.ks-key:active:not(:disabled) { background: var(--ks-sunken); }
+.ks-key-fn { font-size: 18px; font-weight: 700; color: var(--ks-ink-2); }
+
+/* ── The answer ─────────────────────────────────────────────────────────────
+   Four tones, and each one means something different:
+     ok       green  — recorded
+     already  amber  — on the record, and that is fine, not a failure
+     refused  red    — not recorded, and here is what to do
+     error    red    — the machine could not ask the question */
+.ks-result {
+  max-width: 720px;
+  margin: 4vh auto 0;
+  padding: 40px 34px;
+  border-radius: 20px;
+  background: var(--ks-surface);
+  border: 3px solid var(--ks-line);
+  text-align: center;
+  align-items: center;
+  gap: 10px;
+}
+.ks-ok { border-color: var(--ks-green); background: #F1F9F3; }
+.ks-already { border-color: var(--ks-amber); background: #FDF6EC; }
+.ks-refused, .ks-error { border-color: var(--ks-red); background: #FDF2F2; }
+
+.ks-result-title {
+  font-size: clamp(32px, 4.4vw, 46px);
+  font-weight: 800;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+}
+.ks-ok .ks-result-title { color: var(--ks-green); }
+.ks-already .ks-result-title { color: var(--ks-amber); }
+.ks-refused .ks-result-title, .ks-error .ks-result-title { color: var(--ks-red); }
+
+.ks-result-body { font-size: 22px; font-weight: 600; color: var(--ks-ink-2); }
+.ks-result-meta { font-size: 16px; font-weight: 600; color: var(--ks-ink-3); margin-bottom: 10px; }
+
+.ks-error {
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 2px solid var(--ks-red);
+  background: #FDF2F2;
+  color: var(--ks-red);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ks-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 28px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ks-ink-3);
+}
+.ks-site { display: flex; flex-direction: column; gap: 2px; }
+.ks-site-name { color: var(--ks-ink); font-size: 17px; }
+.ks-site-device { color: var(--ks-ink-3); font-weight: 600; font-size: 14px; }
+
+/* A tablet held in landscape at the gate, and a desktop in the site office.
+   Above that the grid simply fills more columns, which is what a wall-mounted
+   screen wants. */
+@media (max-width: 620px) {
+  .ks-body { padding: 20px 14px; }
+  .ks-head { padding: 14px 16px; }
+  .ks-keypad { max-width: none; }
+  .ks-slot { width: 56px; height: 70px; font-size: 34px; }
+  .ks-dot { font-size: 36px; }
+}

@@ -25,6 +25,7 @@ import {
 import Dashboard from './Dashboard'
 import ContractorEditor from './ContractorEditor'
 import PinPanel from './PinPanel'
+import DevicePanel from './DevicePanel'
 import PaneErrorBoundary from './PaneErrorBoundary'
 import StaffDays from './StaffDays'
 import Summary from './Summary'
@@ -659,6 +660,11 @@ function Staff({ employees, contractors = [], contractorsOk = true, periods, loa
       {/* Contractor management sits at the FOOT of the roster, not in its own
           tab. Organising workers is a roster act, and the brief is explicit
           about not overcrowding the navigation. */}
+      {/* The kiosk lives at the foot of the roster beside contractor
+          management, for the same reason that does: both are "how the site is
+          organised", and neither earns a tab of its own. */}
+      {rateFor === null && !adding && <DevicePanel />}
+
       {rateFor === null && !adding && (
         <ContractorEditor
           contractors={contractors}

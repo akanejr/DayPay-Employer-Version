@@ -564,6 +564,61 @@ export async function redeemInvite(code) {
   return row
 }
 
+/* ── Phase 12: the machine at the worksite ───────────────────────────────────
+   An employer reads a code out to whoever is setting the kiosk up. The machine
+   signs in with its own account, enters the code, and is linked — once.
+
+   These are plain table operations, not functions, because the employer already
+   has a policy that scopes them to their own rows (devices_employer_all). A
+   SECURITY DEFINER function here would be a second way to write the same row,
+   and the point of the policies is that there is one. */
+
+/* The device list is absent until migration 019 is run, and the Staff pane has
+   to keep working without it — the roster is the busiest screen in the app and
+   it must not depend on the newest SQL. */
+export async function listDevices() {
+  const uid = await currentUserId()
+  const res = await client().from('attendance_devices')
+    .select('id, label, status, link_code, device_user_id, created_at, linked_at, revoked_at, last_seen_at')
+    .eq('employer_id', uid)
+    .order('created_at', { ascending: false })
+
+  if (res.error) {
+    if (isMissingTable(res.error, 'attendance_devices')) return null
+    throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  }
+  return res.data || []
+}
+
+export async function createDevice(label = 'Site kiosk') {
+  const uid = await currentUserId()
+  const res = await client().from('attendance_devices')
+    .insert({
+      employer_id: uid,
+      label: (label || '').trim() || 'Site kiosk',
+      link_code: makeInviteCode(),
+      status: 'pending',
+    })
+    .select('id, label, status, link_code, created_at')
+    .single()
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data
+}
+
+/* Revoking clears the link code as well as the status. A revoked device that
+   still held a usable code would be one "restore" away from being a device
+   again, and the employer's intent when they press this is "that machine is
+   finished", not "pause it". */
+export async function revokeDevice(id) {
+  const res = await client().from('attendance_devices')
+    .update({ status: 'revoked', revoked_at: new Date().toISOString(), link_code: null, device_user_id: null })
+    .eq('id', id)
+    .select('id, label, status')
+    .single()
+  if (res.error) throw new EmployerError(describe(res.error).message, { code: res.error.code, cause: res.error })
+  return res.data
+}
+
 /* ── Phase 11: the personal attendance PIN ───────────────────────────────────
    The kiosk's half of "prove it is you". A worker with no smartphone, or no
    network today, has no account to sign in with, so the site proves who they

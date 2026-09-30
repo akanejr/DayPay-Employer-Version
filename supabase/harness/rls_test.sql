@@ -248,6 +248,11 @@ begin
     raise exception
       'The personal attendance PIN is not installed. Run supabase/migrations/018_attendance_pin.sql, then re-run this harness.';
   end if;
+
+  if to_regclass('public.attendance_devices') is null then
+    raise exception
+      'The site kiosk is not installed. Run supabase/migrations/019_site_kiosk.sql, then re-run this harness.';
+  end if;
 end $$;
 
 -- ── Seed ───────────────────────────────────────────────────────────────────
@@ -1819,6 +1824,318 @@ exception when others then
   perform public._harness_record(
     63, 'PIN', 'the right PIN verifies as ok',
     'ok', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+
+-- ============================================================================
+-- THE SITE KIOSK (migration 019)
+-- ============================================================================
+-- The kiosk is the one surface a stranger can walk up to, so its checks are the
+-- ones that matter most. Everything below runs as a LINKED DEVICE or as an
+-- account that is deliberately not one.
+--
+-- Numbered from 67. The number is an id, not a position.
+
+-- ── Setup, as the owner ────────────────────────────────────────────────────
+-- A device account is an ordinary account that has been linked. The harness
+-- uses the employee account as the machine, which also proves the point: being
+-- a device does not make you an employer, and being a worker does not let you
+-- use the kiosk until somebody links you to one.
+reset role;
+insert into public.attendance_devices (id, employer_id, label, device_user_id, status, linked_at)
+select '99999999-9999-4999-8999-999999999999', employer_uid, 'Harness Site Kiosk',
+       employee_uid, 'active', now()
+from _ids;
+
+-- Known PINs for both workers, and the lock left over from the PIN phase
+-- cleared — that lock was the point of check 65 and would otherwise fail every
+-- kiosk check below for reasons that have nothing to do with the kiosk.
+update public.employees
+   set pin_salt = 'harnesskiosksalt', pin_hash = public.pin_hash('4321', 'harnesskiosksalt'),
+       pin_fails = 0, pin_locked_until = null
+ where id = '11111111-1111-4111-8111-111111111111';
+
+update public.employees
+   set pin_salt = 'harnesskiosksalt2', pin_hash = public.pin_hash('2468', 'harnesskiosksalt2'),
+       pin_fails = 0, pin_locked_until = null
+ where id = '22222222-2222-4222-8222-222222222222';
+
+/* A second employer with a worker of their own — the "somebody else's site"
+   case. Before the kiosk existed there was no path where one employer's machine
+   named another employer's worker, so this fixture is new.
+
+   The account row comes first, and it is not optional: employers.user_id is a
+   foreign key into auth.users, so inserting the business without its account
+   fails with a constraint violation before any check runs. It is inserted
+   AFTER _ids was materialised at the top of the file, so it cannot disturb the
+   "two most recent accounts" the rest of the harness picks. */
+insert into auth.users (id, email)
+values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'other-employer@example.com');
+
+insert into public.employers (user_id, business_name)
+values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'Other Employer Ltd');
+
+insert into public.employees (id, employer_id, full_name, email, employee_user_id)
+values ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'Someone Else''s Worker', 'elsewhere@example.com', null);
+
+-- ── 67. An account that is not a linked device cannot use the kiosk ───────
+-- The employer is a signed-in account with no device row. If this were allowed,
+-- the kiosk functions would be a public attendance API.
+do $$
+declare r record;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employer_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select * into r from public.kiosk_check_in(
+    '22222222-2222-4222-8222-222222222222', null, '2468', '8642');
+
+  perform public._harness_record(
+    67, 'KIOSK', 'an account that is not a linked device cannot use the kiosk',
+    'refused', coalesce(r.message, '(allowed!)'),
+    r.ok is false and r.message like '%not linked%');
+end $$;
+
+-- ── 68. A linked device sees its roster, and no money in it ───────────────
+do $$
+declare r record; payload text;
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select * into r from public.kiosk_roster();
+  payload := coalesce(r.people::text, '') || coalesce(r.contractors::text, '');
+
+  perform public._harness_record(
+    68, 'KIOSK', 'the kiosk gets the roster — and nothing about pay',
+    'people + contractors, no rate/amount',
+    jsonb_array_length(r.people) || ' people, ' || jsonb_array_length(r.contractors) || ' contractors',
+    jsonb_array_length(r.people) >= 2
+      and jsonb_array_length(r.contractors) >= 1
+      and position('rate' in payload) = 0
+      and position('amount' in payload) = 0
+      and position('₦' in payload) = 0);
+exception when others then
+  perform public._harness_record(
+    68, 'KIOSK', 'the kiosk gets the roster — and nothing about pay',
+    'people + contractors', 'ERROR: ' || sqlerrm, false);
+end $$;
+
+-- ── 69. The wrong contractor ──────────────────────────────────────────────
+-- Worker 1111 belongs to Contractor A. The kiosk passes Contractor B, because
+-- that is what somebody would do to try to check in under a different crew.
+do $$
+declare r record;
+begin
+  select * into r from public.kiosk_check_in(
+    '11111111-1111-4111-8111-111111111111', '44444444-4444-4444-8444-444444444444',
+    '4321', '1357');
+
+  perform public._harness_record(
+    69, 'KIOSK', 'a worker CANNOT check in under a contractor they are not assigned to',
+    'refused', coalesce(r.message, '(allowed!)'),
+    r.ok is false and r.message like '%not listed under that contractor%');
+end $$;
+
+-- ── 70. A wrong PIN, and the counter it must leave behind ─────────────────
+do $$
+declare r record; n int;
+begin
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select * into r from public.kiosk_check_in(
+    '22222222-2222-4222-8222-222222222222', null, '0000', '8642');
+
+  /* Read the counter as the OWNER. The device is employee 1111's account, and
+     employees_self_select lets a worker see only their own row — so counting
+     2222's failures from here returns no rows at all. That is a permission, not
+     a fact, and the difference is exactly what made the old check-in lockout
+     look broken for three phases. */
+  reset role;
+  select pin_fails into n from public.employees
+   where id = '22222222-2222-4222-8222-222222222222';
+
+  perform public._harness_record(
+    70, 'KIOSK', 'a wrong PIN is refused AND written down, so the PIN cap can count',
+    'wrong, 1 recorded', coalesce(r.message, '(none)') || ' / ' || coalesce(n::text, '?'),
+    r.ok is false and r.message like '%PIN is not correct%' and n = 1);
+end $$;
+
+-- ── 71. A code from yesterday ─────────────────────────────────────────────
+do $$
+declare r record;
+begin
+  select * into r from public.kiosk_check_in(
+    '22222222-2222-4222-8222-222222222222', null, '2468', '0000');
+
+  perform public._harness_record(
+    71, 'KIOSK', 'a site code from yesterday cannot be used today',
+    'refused', coalesce(r.message, '(allowed!)'),
+    r.ok is false and r.message like '%not valid now%');
+end $$;
+
+-- ── 72. Everything right ──────────────────────────────────────────────────
+do $$
+declare r record;
+begin
+  select * into r from public.kiosk_check_in(
+    '22222222-2222-4222-8222-222222222222', null, '2468', '8642');
+
+  perform public._harness_record(
+    72, 'KIOSK', 'the right worker, PIN and site code records the day as kiosk',
+    'ok, kiosk', coalesce(r.kind, '(none)') || ' / ' || coalesce(r.method, '(none)'),
+    r.ok is true and r.already is false and r.method = 'kiosk' and r.work_date = current_date);
+end $$;
+
+-- ── 73. The same person, again ────────────────────────────────────────────
+do $$
+declare r record; n int;
+begin
+  select * into r from public.kiosk_check_in(
+    '22222222-2222-4222-8222-222222222222', null, '2468', '8642');
+
+  -- As the owner, for the same reason as check 70: a worker cannot count
+  -- another worker's days, so counting from the device would always read 0.
+  reset role;
+  select count(*) into n from public.day_records
+   where employee_id = '22222222-2222-4222-8222-222222222222' and work_date = current_date;
+
+  perform public._harness_record(
+    73, 'KIOSK', 'checking in twice creates no second day',
+    'already, 1 row', 'already=' || r.already::text || ', ' || n || ' row(s)',
+    r.ok is true and r.already is true and n = 1);
+end $$;
+
+-- ── 74. Somebody else's worker ────────────────────────────────────────────
+-- The id is real, the PIN is real, the code is real. The worker belongs to a
+-- different employer, and that is the whole of the reason this must fail.
+reset role;
+update public.employees
+   set pin_salt = 'foreignsalt', pin_hash = public.pin_hash('1111', 'foreignsalt'),
+       pin_fails = 0, pin_locked_until = null
+ where id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+do $$
+declare r record; n int;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select * into r from public.kiosk_check_in(
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', null, '1111', '8642');
+
+  select count(*) into n from public.day_records
+   where employee_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  perform public._harness_record(
+    74, 'KIOSK', 'a device CANNOT record attendance for another employer''s worker',
+    'refused, 0 rows', coalesce(r.message, '(allowed!)'),
+    r.ok is false and r.message like '%not on this site%' and n = 0);
+end $$;
+
+-- ── 75. §19: the method cannot change the money ───────────────────────────
+-- The kiosk row and the phone row are the same day, recorded two ways. If
+-- attendance_method ever reached the money, this is where it would show.
+--
+-- The phone day is recorded HERE rather than borrowed from check 26, because
+-- check 41 withdraws that day on purpose (a worker deleting their own
+-- unconfirmed day) and the row is gone by now. Recording a fresh one also makes
+-- the comparison honest: both rows are created inside this phase, minutes
+-- apart, on the same date, by the two different routes.
+do $$
+declare r record;
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  select * into r from public.check_in_with_code('7429');
+  perform public._harness_record(
+    75, 'KIOSK', 'the phone route still works after the kiosk was added',
+    'ok', coalesce(r.kind, '(none)') || ' via ' || case when r.ok then 'check_in' else coalesce(r.message,'?') end,
+    r.ok is true);
+end $$;
+
+reset role;
+do $$
+declare
+  k record;
+  m record;
+begin
+  select amount, rate, multiplier, kind into k
+    from public.day_records
+   where employee_id = '22222222-2222-4222-8222-222222222222' and work_date = current_date;
+
+  select amount, rate, multiplier, kind into m
+    from public.day_records
+   where employee_id = '11111111-1111-4111-8111-111111111111' and work_date = current_date;
+
+  perform public._harness_record(
+    76, 'KIOSK', 'a kiosk day and a phone day of the same kind are the same money',
+    'amount = rate x multiplier on both, same multiplier',
+    'kiosk ' || coalesce(k.rate::text,'?') || 'x' || coalesce(k.multiplier::text,'?') || '=' || coalesce(k.amount::text,'?')
+      || ' / phone ' || coalesce(m.rate::text,'?') || 'x' || coalesce(m.multiplier::text,'?') || '=' || coalesce(m.amount::text,'?'),
+    k.amount = k.rate * k.multiplier
+      and m.amount = m.rate * m.multiplier
+      and k.kind = m.kind
+      and k.multiplier = m.multiplier);
+end $$;
+
+-- ── 77. Revocation is immediate ───────────────────────────────────────────
+reset role;
+update public.attendance_devices
+   set status = 'revoked', revoked_at = now()
+ where id = '99999999-9999-4999-8999-999999999999';
+
+do $$
+declare r record; roster_err text := 'no error — a revoked device read the roster';
+begin
+  set local role authenticated;
+  perform set_config(
+    'request.jwt.claims',
+    (select json_build_object('sub', employee_uid::text, 'role', 'authenticated')::text
+       from _ids),
+    true
+  );
+
+  begin
+    perform * from public.kiosk_roster();
+  exception when others then
+    roster_err := sqlerrm;
+  end;
+
+  select * into r from public.kiosk_check_in(
+    '22222222-2222-4222-8222-222222222222', null, '2468', '8642');
+
+  perform public._harness_record(
+    77, 'KIOSK', 'revoking a device stops it at once, with no cached access',
+    'roster refused and check-in refused',
+    left(roster_err, 44) || ' / ' || coalesce(r.message, '(none)'),
+    position('not linked' in roster_err) > 0 and r.ok is false);
 end $$;
 
 

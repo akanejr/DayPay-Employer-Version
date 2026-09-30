@@ -708,10 +708,337 @@ const afterDelete = (await asA(
     where employee_id = '${W.james}' and work_date = '${WORK_DAY}'`)).rows[0].n
 ok('nor delete a confirmed day that has been paid for', afterDelete === 1, `${afterDelete} row(s) left`)
 
+// ── 10. The site kiosk, and the eight scenarios of §23 ──────────────────────
+step(10, 'The site kiosk: the same day, recorded from a machine at the gate')
+
+/* A kiosk is an ordinary account, and that is the entire security model: it can
+   be revoked, it can be audited, and it holds no secret worth stealing. It is
+   signed in once by whoever sets the machine up. After that the workers use it
+   with no account of their own at all — which is the whole point, because the
+   people who most need it are the ones who have no smartphone. */
+const KIOSK = '55555555-5555-4555-8555-555555555555'
+const NEWBIE = '66666666-6666-4666-8666-666666666666'
+const W_NEW = 'cccccccc-0000-0000-0000-000000000005'
+const C3 = 'dddddddd-0000-0000-0000-000000000003'
+const LINK = 'KIOSK9QA'
+
+/* The sentences, asserted to the character. Every one of them is what a worker
+   reads at the gate, so they are a contract, not a detail — and each is written
+   to name nobody: not the worker's own code, not the contractor's code, not the
+   rate, not another crew. */
+const KIOSK_BAD_CODE = "That site code is not valid now. Ask for today's code."
+const KIOSK_BAD_CONTRACTOR = 'You are not listed under that contractor. Check with your supervisor.'
+const KIOSK_BAD_PIN = 'That PIN is not correct.'
+const KIOSK_NO_PIN = 'No PIN has been set for you yet. Ask your employer for one.'
+
+/* One trip through the kiosk, in the kiosk's own transaction, as the machine's
+   account — because the device is half of the security model and a check that
+   ran as the employer would not be testing the thing that ships. */
+const kioskTry = async (employeeId, contractorId, pin, code, { commit = false } = {}) => {
+  await db.exec('begin')
+  await db.exec(`set local role authenticated;
+    select set_config('request.jwt.claims', '{"sub":"${KIOSK}","role":"authenticated"}', true);`)
+  try {
+    const rows = (await db.query(
+      `select * from public.kiosk_check_in('${employeeId}', ${contractorId ? `'${contractorId}'` : 'null'},
+                                           '${pin}', '${code}')`)).rows
+    if (commit) await db.exec('commit')
+    return rows[0] || { ok: false, message: 'the function returned no row at all', note: true }
+  } catch (e) {
+    try { await db.exec('rollback') } catch { /* already closed */ }
+    return { ok: false, message: e.message.split('\n')[0], raised: e.message.split('\n')[0] }
+  }
+}
+
+const dayOf = async (employeeId, dateKey = TODAY) => (await asA(
+  `select * from public.day_records where employee_id = '${employeeId}' and work_date = '${dateKey}'`)).rows[0]
+const dayCount = async (employeeId, dateKey = TODAY) => (await asA(
+  `select count(*)::int n from public.day_records where employee_id = '${employeeId}' and work_date = '${dateKey}'`)).rows[0].n
+const pinFor = async (employeeId) => (await asA(
+  `select public.set_attendance_pin('${employeeId}') p`, { commit: true })).rows[0].p
+
+await db.exec(`insert into auth.users (id, email) values
+  ('${KIOSK}','kiosk@site.test'), ('${NEWBIE}','blessing@worker.test');`)
+
+/* 1. The employer creates the machine, and reads its code out once. */
+const machine = (await asA(`insert into public.attendance_devices (employer_id, label, link_code)
+  values (auth.uid(), 'Gate kiosk', '${LINK}') returning id, status`, { commit: true })).rows[0]
+ok('the employer creates a machine, which starts waiting to be linked',
+  machine?.status === 'pending', machine?.id)
+
+const claimedDevice = (await as(KIOSK,
+  `select * from public.claim_attendance_device('${LINK}')`, { commit: true })).rows[0]
+ok('the machine links itself with that code, once, and is told which site it belongs to',
+  claimedDevice?.business_name === 'Eddimore' && !!claimedDevice?.device_id,
+  `${claimedDevice?.label} at ${claimedDevice?.business_name}`)
+
+const reuseCode = await attempt(KIOSK, `select * from public.claim_attendance_device('${LINK}')`)
+ok('the link code is spent the moment it is used, so a bystander who read it cannot join later',
+  !!reuseCode && /not recognised/i.test(reuseCode), said(reuseCode))
+
+await asA(`insert into public.attendance_devices (employer_id, label, link_code)
+  values (auth.uid(), 'Second kiosk', 'OTHER24RD')`, { commit: true })
+const secondClaim = await attempt(KIOSK, `select * from public.claim_attendance_device('OTHER24RD')`)
+ok('and one account cannot be two machines, even with a code the employer really issued',
+  !!secondClaim && /already linked/i.test(secondClaim), said(secondClaim))
+
+/* 2. What the machine can read. This is §20 measured rather than promised: the
+      roster is money-free by SHAPE, so there is nothing to leak even if the
+      machine is stolen and its console opened. */
+const parsed = (v) => (typeof v === 'string' ? JSON.parse(v) : v)
+const rosterRow = (await as(KIOSK, `select * from public.kiosk_roster()`)).rows[0]
+const kioskPeople = parsed(rosterRow.people)
+const kioskContractors = parsed(rosterRow.contractors)
+ok('the machine can name the site and list the crew it may record for',
+  rosterRow.business_name === 'Eddimore' && kioskPeople.map(p => p.name).sort().join(', ') ===
+    'James Okon, Samuel Etim, Timothy Bassey',
+  `${kioskPeople.map(p => p.name).join(', ')}`)
+ok('...and not one name, contractor or rate from the company next door',
+  !JSON.stringify(rosterRow).includes('Other Crew') &&
+  !JSON.stringify(rosterRow).includes('Grace Effiong') &&
+  kioskContractors.map(c => c.name).join(', ') === 'Eddimore Crew',
+  kioskContractors.map(c => c.name).join(', '))
+ok('the roster carries no rate, no amount and no money at all (§20)',
+  !/rate|amount|amount|₦|salary|payslip/i.test(JSON.stringify(rosterRow)),
+  Object.keys(kioskPeople[0] || {}).join(', '))
+ok('it flags which workers can actually use the kiosk, so nobody is sent round in circles',
+  kioskPeople.every(p => 'has_pin' in p) && kioskPeople.some(p => p.has_pin === false),
+  `${kioskPeople.filter(p => !p.has_pin).length} of ${kioskPeople.length} have no PIN yet`)
+
+/* ── A. The invite code, used once, at registration, and never again ───────── */
+await asA(`
+  insert into public.employees (id, employer_id, full_name, job_title, contractor_id, invite_code, status)
+  values ('${W_NEW}', auth.uid(), 'Blessing Eze', 'Painter', '${C1}', 'JOIN1234', 'active')`, { commit: true })
+await asA(`insert into public.employee_rate_periods
+  (employee_id, effective_from, daily_rate, weekend_multiplier, holiday_multiplier)
+  values ('${W_NEW}', '${YEAR}-01-01', 12000, 2, 2)`, { commit: true })
+
+const joined = (await as(NEWBIE, `select * from public.redeem_invite(' join 1234 ')`, { commit: true })).rows[0]
+ok('A — a new account joins the workforce with the employer’s invite code, typed with a stray space and still accepted',
+  joined?.full_name === 'Blessing Eze' && joined?.business_name === 'Eddimore',
+  `${joined?.full_name} at ${joined?.business_name}`)
+
+const burned = (await asA(
+  `select employee_user_id, invite_code from public.employees where id = '${W_NEW}'`)).rows[0]
+ok('...and the code is burned in the same act, so it cannot be passed to anybody else',
+  burned.employee_user_id === NEWBIE && burned.invite_code === null,
+  `linked=${burned.employee_user_id === NEWBIE} code=${burned.invite_code}`)
+
+const reusedInvite = await attempt(NEWBIE, `select * from public.redeem_invite('JOIN1234')`)
+ok('...and redeeming it twice is impossible, because the roster no longer carries it',
+  !!reusedInvite && /not recognised/i.test(reusedInvite), said(reusedInvite))
+
+/* The structural half of §2: the daily route has ONE parameter. There is no
+   argument an invite code could even be passed in, which is a stronger promise
+   than a screen that does not ask for one. */
+const codeArgs = (await asA(`select pg_get_function_arguments(p.oid) args
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public' and p.proname = 'check_in_with_code'`)).rows[0].args.trim()
+ok('A — the daily route takes the site code and nothing else, so no invite can be asked for again',
+  codeArgs === 'p_code text', codeArgs)
+
+/* ── C. A registered worker, no network, at the kiosk ─────────────────────── */
+const newPin = await pinFor(W_NEW)
+ok('the employer issues a personal attendance PIN, four digits, shown once at issue',
+  /^[0-9]{4}$/.test(newPin), newPin)
+const storedPin = (await asA(
+  `select pin_hash, pin_salt from public.employees where id = '${W_NEW}'`)).rows[0]
+ok('...and it is stored salted and hashed, never in the clear — it is a signature, not a password',
+  !!storedPin.pin_hash && storedPin.pin_hash !== newPin && Number(storedPin.pin_salt?.length ?? 0) > 0,
+  `hash ${String(storedPin.pin_hash).slice(0, 12)}…`)
+
+const viaKiosk = await kioskTry(W_NEW, C1, newPin, CODE, { commit: true })
+ok('C — a REGISTERED worker with no network records from the kiosk',
+  viaKiosk.ok === true && viaKiosk.method === 'kiosk' && viaKiosk.full_name === 'Blessing Eze',
+  `${viaKiosk.full_name} · ${viaKiosk.method} · ${viaKiosk.kind} · ${viaKiosk.contractor_name}`)
+
+const newDay = await dayOf(W_NEW)
+ok('...and his day is an ordinary check-in: claimed, from a check-in, at the stored rate, at 1×',
+  newDay.source === 'check_in' && newDay.status === 'claimed' && newDay.kind === 'work' &&
+  Number(newDay.multiplier) === 1 && Number(newDay.amount) === 12000,
+  `${newDay.source} · ${newDay.status} · ${newDay.kind} · ${fmtMoney(newDay.amount)}`)
+ok('...carrying attendance_method = kiosk for the audit view, and that is the only difference',
+  newDay.attendance_method === 'kiosk')
+
+/* ── F. The duplicate rule, in both directions (§15) ──────────────────────── */
+const phoneAfterKiosk = (await as(NEWBIE,
+  `select * from public.check_in_with_code('${CODE}')`, { commit: true })).rows[0]
+ok('F — the phone AFTER the kiosk: same person, same day, accepted as already recorded',
+  phoneAfterKiosk.ok === true && phoneAfterKiosk.already === true,
+  `ok=${phoneAfterKiosk.ok} already=${phoneAfterKiosk.already}`)
+ok('...and no second row exists for that day, because both routes share one database (§14)',
+  (await dayCount(W_NEW)) === 1, `${await dayCount(W_NEW)} row(s)`)
+ok('...and the row still says kiosk, because the kiosk is what wrote it',
+  (await dayOf(W_NEW)).attendance_method === 'kiosk')
+
+const kioskAfterPhone = await kioskTry(W.james, C1, await pinFor(W.james), CODE, { commit: true })
+ok('F — the kiosk AFTER the phone: the same day again, refused as already recorded, writing nothing',
+  kioskAfterPhone.ok === true && kioskAfterPhone.already === true && (await dayCount(W.james)) === 1,
+  `ok=${kioskAfterPhone.ok} already=${kioskAfterPhone.already} · ${await dayCount(W.james)} row(s)`)
+ok('...and his row still says mobile, because his phone is what wrote it',
+  (await dayOf(W.james)).attendance_method === 'mobile')
+
+/* ── B. A worker with no account at all (§3, §4) ──────────────────────────── */
+const timBefore = (await asA(
+  `select employee_user_id, status from public.employees where id = '${W.timothy}'`)).rows[0]
+ok('B — this worker has no DayPay account: no registration, no email, nothing',
+  timBefore.employee_user_id === null && timBefore.status === 'active')
+
+const timPin = await pinFor(W.timothy)
+const timViaKiosk = await kioskTry(W.timothy, C1, timPin, CODE, { commit: true })
+ok('B — and he still records a full day at the gate, on the employer’s machine',
+  timViaKiosk.ok === true && timViaKiosk.method === 'kiosk' && timViaKiosk.full_name === 'Timothy Bassey',
+  `${timViaKiosk.full_name} · ${timViaKiosk.method}`)
+const timDay = await dayOf(W.timothy)
+ok('...which is a real day for payroll, not a lesser kind of record',
+  timDay.source === 'check_in' && timDay.status === 'claimed' &&
+  Number(timDay.amount) === 12000 && Number(timDay.multiplier) === 1,
+  `${fmtMoney(timDay.amount)} · ${timDay.attendance_method}`)
+
+/* ── G. The wrong PIN ─────────────────────────────────────────────────────── */
+const timFails0 = (await asA(`select pin_fails from public.employees where id = '${W.timothy}'`)).rows[0].pin_fails
+const wrongPin = await kioskTry(W.timothy, C1, '0000', CODE, { commit: true })
+ok('G — a wrong PIN is refused, and the sentence names nobody and nothing',
+  wrongPin.ok === false && wrongPin.message === KIOSK_BAD_PIN, wrongPin.message)
+ok('...nothing is written for the guess',
+  (await dayCount(W.timothy)) === 1, `${await dayCount(W.timothy)} row(s) for today`)
+const timFails1 = (await asA(`select pin_fails from public.employees where id = '${W.timothy}'`)).rows[0].pin_fails
+ok('...and the attempt is counted against that worker’s PIN, so five in a row lock it',
+  Number(timFails1) === Number(timFails0) + 1, `${timFails0} -> ${timFails1}`)
+ok('...and the kiosk’s answer has no amount and no rate field at all, unlike the phone’s',
+  !('amount' in wrongPin) && !('rate' in wrongPin), Object.keys(wrongPin).join(', '))
+
+const noPinWorker = await kioskTry(W.samuel, null, '1234', CODE)
+ok('a worker the employer has not issued a PIN to is told so plainly, and never “wrong PIN”',
+  noPinWorker.ok === false && noPinWorker.message === KIOSK_NO_PIN, noPinWorker.message)
+
+/* ── E. The chosen contractor must be the assigned one (§16) ──────────────── */
+const wrongCrew = await kioskTry(W.timothy, C2, timPin, CODE)
+ok('E — a different contractor cannot be chosen to get round the rule',
+  wrongCrew.ok === false && wrongCrew.message === KIOSK_BAD_CONTRACTOR, wrongCrew.message)
+ok('...and the refusal wrote nothing, so picking a name is not a way to check in',
+  (await dayCount(W.timothy)) === 1, `${await dayCount(W.timothy)} row(s)`)
+
+/* An unassigned worker is a legitimate case, not a loophole: NULL on both sides
+   is a match. It needs a site-wide code, so one is opened — which is also the
+   other direction of the same rule, tested next. */
+await asA(`insert into public.attendance_sessions (employer_id, contractor_id, work_date, code, expires_at)
+  values (auth.uid(), null, '${TODAY}', '8080', now() + interval '8 hours')`, { commit: true })
+const samuelPin = await pinFor(W.samuel)
+const unassigned = await kioskTry(W.samuel, null, samuelPin, '8080', { commit: true })
+ok('E — a worker assigned to nobody checks in under “No contractor”, on a site-wide code',
+  unassigned.ok === true && unassigned.method === 'kiosk' && unassigned.contractor_name === null,
+  `${unassigned.full_name} · contractor=${unassigned.contractor_name}`)
+
+const assignedAsNobody = await kioskTry(W.timothy, null, timPin, '8080')
+ok('E — but a worker who IS assigned cannot choose “No contractor” to slip past it',
+  assignedAsNobody.ok === false && assignedAsNobody.message === KIOSK_BAD_CONTRACTOR,
+  assignedAsNobody.message)
+
+/* ── D. Codes that are not today’s ────────────────────────────────────────── */
+await asA(`insert into public.attendance_sessions (employer_id, contractor_id, work_date, code, expires_at, status)
+  values (auth.uid(), '${C1}', current_date - 1, '1111', now() + interval '1 hour', 'closed')`, { commit: true })
+const timFailsD = (await asA(`select pin_fails from public.employees where id = '${W.timothy}'`)).rows[0].pin_fails
+
+const madeUpCode = await kioskTry(W.timothy, C1, timPin, '0001')
+const yesterdayCode = await kioskTry(W.timothy, C1, timPin, '1111')
+const blankCode = await kioskTry(W.timothy, C1, timPin, '')
+ok('D — a code that is not today’s is refused',
+  madeUpCode.ok === false && madeUpCode.message === KIOSK_BAD_CODE, madeUpCode.message)
+ok('D — yesterday’s code, from a session that has been closed, is refused by the SAME sentence',
+  yesterdayCode.ok === false && yesterdayCode.message === madeUpCode.message, yesterdayCode.message)
+ok('...and so is an empty one, so a slipped keypad is not a way to learn anything',
+  blankCode.ok === false && blankCode.message === madeUpCode.message)
+ok('...and none of the three wrote a day or touched the worker’s PIN',
+  (await dayCount(W.timothy)) === 1 &&
+  Number((await asA(`select pin_fails from public.employees where id = '${W.timothy}'`)).rows[0].pin_fails) === Number(timFailsD),
+  `still ${await dayCount(W.timothy)} row(s), pin_fails ${timFailsD}`)
+
+/* The mobile route refuses a bad code with the older sentence, unchanged by any
+   of this: one wording for the phone, one for the gate, and neither names a
+   person. */
+const phoneBadCode = (await as(NEWBIE, `select * from public.check_in_with_code('0001')`)).rows[0]
+ok('the phone still says “Code not correct, visit the site.” — 017’s wording survives 019',
+  phoneBadCode.ok === false && phoneBadCode.message === REFUSAL, phoneBadCode.message)
+
+/* ── H. A contractor change applies from now on, and rewrites nothing ─────── */
+await asA(`insert into public.contractors (id, employer_id, name, status)
+  values ('${C3}', auth.uid(), 'Eddimore Crew II', 'active')`, { commit: true })
+const beforeChange = await dayOf(W.timothy)
+
+await asA(`update public.employees set contractor_id = '${C3}' where id = '${W.timothy}'`, { commit: true })
+const movedAway = await kioskTry(W.timothy, C1, timPin, CODE)
+ok('H — once the employer moves him, the OLD contractor no longer validates',
+  movedAway.ok === false && movedAway.message === KIOSK_BAD_CONTRACTOR, movedAway.message)
+
+await asA(`insert into public.attendance_sessions (employer_id, contractor_id, work_date, code, expires_at)
+  values (auth.uid(), '${C3}', '${TODAY}', '5151', now() + interval '8 hours')`, { commit: true })
+ok('H — and the old crew’s code no longer carries him either, because a code belongs to a crew',
+  (await kioskTry(W.timothy, C3, timPin, CODE)).message === KIOSK_BAD_CODE)
+const movedTo = await kioskTry(W.timothy, C3, timPin, '5151')
+ok('H — and the NEW one does, from that moment on',
+  movedTo.ok === true && movedTo.already === true && movedTo.contractor_name === 'Eddimore Crew II',
+  `ok=${movedTo.ok} already=${movedTo.already} · ${movedTo.contractor_name}`)
+
+const afterChange = await dayOf(W.timothy)
+ok('H — the day already recorded is byte-identical after the move: nothing was rewritten',
+  JSON.stringify(afterChange) === JSON.stringify(beforeChange),
+  `${fmtMoney(afterChange.amount)} · ${afterChange.kind} · ${afterChange.attendance_method}`)
+ok('H — and no second day appeared for him',
+  (await dayCount(W.timothy)) === 1, `${await dayCount(W.timothy)} row(s)`)
+
+/* A day is attributed to the contractor a worker is on NOW, which is the
+   existing reporting behaviour this phase was told not to change. What is
+   frozen is the invoice. */
+const invAfterKiosk = (await asA(
+  `select number, total from public.invoices where id = '${reissued.id}'`)).rows[0]
+ok('the bill issued before all of this has not moved: an invoice is a document, not a view',
+  Number(invAfterKiosk.total) === Number(reissued.total),
+  `${invAfterKiosk.number} · ${fmtMoney(invAfterKiosk.total)}`)
+
+/* ── The audit column, and what it must never do (§14, §18, §19) ──────────── */
+const methods = (await asA(`
+  select d.source, d.attendance_method m, count(*)::int n
+    from public.day_records d join public.employees e on e.id = d.employee_id
+   where e.employer_id = auth.uid()
+   group by 1, 2 order by 1, 2`)).rows
+const seen = Object.fromEntries(methods.map(r => [`${r.source}/${r.m ?? 'null'}`, r.n]))
+ok('the audit column tells the two routes apart',
+  seen['check_in/mobile'] >= 1 && seen['check_in/kiosk'] >= 3,
+  Object.entries(seen).map(([k, v]) => `${k}:${v}`).join(' '))
+ok('and a day the employer marked carries NULL — “no device recorded this”, which is the truth',
+  seen['employer/null'] >= 1 &&
+  methods.filter(r => r.source === 'employer').every(r => r.m === null) &&
+  methods.filter(r => r.source === 'check_in').every(r => r.m !== null),
+  methods.filter(r => r.source === 'employer').map(r => `${r.m}:${r.n}`).join(' '))
+
+const byMethod = (await asA(`
+  select d.attendance_method m, d.kind, d.multiplier, d.amount, d.rate
+    from public.day_records d join public.employees e on e.id = d.employee_id
+   where e.employer_id = auth.uid() and d.work_date = '${TODAY}' and d.source = 'check_in'
+   order by d.attendance_method`)).rows
+ok('kiosk and phone produce the same shape of record: same kind, same multiplier, same rate rule (§13, §19)',
+  byMethod.length >= 3 &&
+  byMethod.every(r => Number(r.amount) === Number(r.rate) * Number(r.multiplier)) &&
+  new Set(byMethod.map(r => `${r.kind}:${r.multiplier}`)).size === 1,
+  byMethod.map(r => `${r.m}:${r.kind} ${r.multiplier}x ${fmtMoney(r.amount)}`).join(' | '))
+
+/* Revocation, the one control the employer has over a machine. Everything the
+   machine recorded survives it; every door it had closes at once. */
+await asA(`update public.attendance_devices set status = 'revoked'
+            where id = '${claimedDevice.device_id}'`, { commit: true })
+const afterRevoke = await kioskTry(W_NEW, C1, newPin, CODE)
+ok('a revoked machine stops dead: the next attempt is refused with the not-linked sentence',
+  afterRevoke.ok === false && afterRevoke.raised === undefined &&
+  /not linked|signed out/i.test(afterRevoke.message), afterRevoke.message)
+const revokedRows = await dayCount(W_NEW)
+ok('...and every day it recorded is still there, because revoking a machine is not deleting work',
+  revokedRows === 1, `${revokedRows} row(s)`)
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n${'='.repeat(78)}`)
-console.log(`PHASE 8 END-TO-END: ${checks - bad}/${checks} checks passed`)
+console.log(`DAYPAY END-TO-END: ${checks - bad}/${checks} checks passed`)
 console.log(bad === 0
-  ? 'session → check-in → dashboard → worker → month → year → contractor → invoice: EVERY FIGURE RECONCILES'
+  ? 'session → check-in → dashboard → worker → month → year → contractor → invoice → KIOSK (§23 A–H): EVERY FIGURE RECONCILES'
   : `${bad} FAILURE(S) — the chain does not reconcile`)
 process.exit(bad === 0 ? 0 : 1)
