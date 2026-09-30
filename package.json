@@ -29,5 +29,8 @@
   },
   "description": "DayPay \u2014 Know what your work is worth. Daily wage tracker with leave management, payslip sharing and cloud sync.",
   "author": "Akaninyene",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "engines": {
+    "node": "22.x"
+  }
 }

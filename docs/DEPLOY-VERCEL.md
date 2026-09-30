@@ -1,0 +1,149 @@
+# Deploying DayPay to Vercel
+
+Two routes. **Route A needs no token, no CLI and no secrets** — the repository
+already carries everything a build needs, so Vercel only has to build it.
+
+---
+
+## Why this works with no environment variables
+
+`config/supabase-public.env` is **committed** and holds the project URL and the
+publishable key. Both are designed to be public: they ship inside the browser
+bundle on every load, and the key carries the `anon` role, so every read and
+write is still filtered by Row Level Security.
+
+`scripts/prepare-env.mjs` runs *before* Vite reads its config, copies those two
+values into `.env` (which is gitignored, so it does not exist on Vercel), and
+the build fails loudly if the bundle ends up without them. This was verified
+with `.env` deleted:
+
+```
+✓ dist/ carries the Supabase config (crirzuoehbkzpnwokyxl)
+```
+
+So: **do not add environment variables in Vercel.** If you ever point at a
+different Supabase project, that is the file to change — nothing else.
+
+---
+
+## Route A — deploy from GitHub (recommended)
+
+1. Go to **vercel.com → Add New → Project → Import Git Repository**.
+2. Pick **`akanejr/DayPay-Employer-Version`**.
+3. **Production Branch:** set it to **`arena/01a0cffa-daypay-employer-version`**
+   (the branch holding this work — not `main`, which is the older baseline).
+4. Vercel reads `vercel.json`, so the settings appear already filled:
+
+   | Setting | Value |
+   |---|---|
+   | Framework Preset | Vite |
+   | Build Command | `npm run build` |
+   | Output Directory | `dist` |
+   | Install Command | `npm install` (from the committed lockfile) |
+   | Environment Variables | **none** |
+
+5. **Deploy.** You get `https://<project>.vercel.app`.
+
+Every later push to that branch redeploys automatically, and every pull request
+gets its own preview URL. When you eventually merge to `main`, change the
+Production Branch to `main` in Settings → Git.
+
+---
+
+## Route B — deploy from your own machine
+
+```bash
+git clone https://github.com/akanejr/DayPay-Employer-Version.git
+cd DayPay-Employer-Version
+git checkout arena/01a0cffa-daypay-employer-version
+
+npm install
+npm run build          # writes dist/, and proves the config shipped
+
+npx vercel             # first run asks you to log in, then deploy a preview
+npx vercel --prod      # and this one makes it the real site
+```
+
+No environment variables to set at any point.
+
+---
+
+## The one step that will bite you if it is skipped
+
+**Tell Supabase the new address.** Until you do, sign-up confirmation e-mails
+will send people to `localhost`.
+
+> Supabase Dashboard → **Authentication → URL Configuration**
+> * **Site URL** → `https://<project>.vercel.app`
+> * **Redirect URLs** → add `https://<project>.vercel.app/**`
+>   (and keep `http://localhost:5173/**` if you still develop locally)
+
+That is the only setting outside the repository that a deploy depends on.
+
+---
+
+## Verify after deploying
+
+| Check | Where | Expected |
+|---|---|---|
+| The app loads | `https://<project>.vercel.app/` | the DayPay sign-in screen |
+| The kiosk loads | `https://<project>.vercel.app/kiosk.html` | **DAYPAY / SITE ATTENDANCE** and "Sign in on this device" |
+| Sign-in works | the app | you land on **Staff** (employer) |
+| The kiosk links | `/kiosk.html` | sign in with a *separate* machine account, paste the code from Roster → Site attendance kiosk |
+| §23 A–H | both surfaces | `docs/SITE-ATTENDANCE.md` §4 — the checklist, with the expected words |
+
+Note the kiosk is at **`/kiosk.html`**, not `/kiosk`. That is deliberate: the
+exact URLs are the ones already proven locally, and `cleanUrls` would add a
+redirect layer in front of a page that runs unattended at a gate. If you later
+want `/kiosk`, it is one line in `vercel.json` — but change it on a quiet day,
+not on the day you deploy.
+
+---
+
+## What deploying does and does not change
+
+**Does not change:** the database, the migrations, your data, the sandbox
+preview in Arena, or anything about how the app works. Vercel serves static
+files; every read and write still goes straight from the browser to your
+Supabase project.
+
+**Does change, and for the better:**
+
+- **HTTPS everywhere.** Login, the kiosk and the service worker all want a
+  secure origin. The kiosk's Copy button (clipboard API) only works on one.
+- **Installing to a phone**, so the PWA is used the way it was designed.
+- **A stable address** you can put on a kiosk machine and leave there.
+
+---
+
+## Host configuration, and why each line is there
+
+`vercel.json` is short on purpose:
+
+| Rule | Reason |
+|---|---|
+| `max-age=0, must-revalidate` on `/`, `/index.html` and `/kiosk.html` | an HTML file cached hard would keep pointing at asset names the next deploy has replaced. Revalidating means the browser asks, gets a 304 when nothing changed, and a fresh page when something did — correctness without paying for the whole file each visit |
+| `Cache-Control: immutable` on `/assets/**` | every asset name carries a content hash, so it can be cached for a year safely |
+| the same on `/sw.js` | a stale service worker is the classic "the site updated but my phone didn't" bug; revalidating on each load means a deploy rolls out on the next visit instead of being pinned by a cached worker |
+| `X-Robots-Tag: noindex` on `/kiosk.html` | the kiosk has no business in search results |
+| `Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=()` | the browser refuses these APIs at the door. No GPS was ever in this product — this makes it a property of the deployment rather than a promise about the code |
+| `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, HSTS | standard hardening for a site that carries logins |
+
+No `rewrites` block: the app has no client-side routes (the tabs are state, not
+URLs), so there is nothing to fall back for — and a catch-all rewrite would turn
+a missing asset into `index.html` served as JavaScript, which is a far more
+confusing failure than a plain 404.
+
+---
+
+## Notes
+
+- The committed lockfile is what Vercel installs from, so the build is
+  reproducible. `package.json` pins `engines.node` to `22.x` because Vite 8
+  needs Node ≥ 20.19.
+- The **Arena sandbox preview** and the Vercel site are independent. The preview
+  is only alive while this session runs; Vercel is the durable address.
+- Two Vercel-side things do not exist in this repository and are worth setting
+  up once you have a domain: a custom domain (Vercel → Domains), and Supabase's
+  own rate limits if the roster gets large (the anon key is public, so the
+  database, not the host, is what protects your data).
