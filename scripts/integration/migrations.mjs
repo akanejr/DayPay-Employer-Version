@@ -156,9 +156,60 @@ ok('day_records still computes its own money and guards its own changes',
   triggers.includes('day_records_compute_money') && triggers.includes('day_records_guard'),
   triggers.join(', '))
 
+/* ── The pending batch, against the state your database is actually in ──────
+   A fresh chain is not the situation anyone is in. A real project is part-way
+   through: some migrations applied, some not, and the ones not yet run have to
+   work on top of what IS there. That is a different test from "does 001..015
+   apply in order", and it is the one that catches a pending file which only
+   works on a clean database.
+
+   The state below is the live project as of Phase 9: everything up to 009,
+   then 011, then 013 applied; 010, 012, 014 and 015 outstanding.
+
+   Note what makes this worth doing: 010 ALSO replaces check_in_with_code, and
+   it carries the two OLD refusal sentences. Run after 014/015 it silently puts
+   them back. That is exactly the kind of ordering fault a full-chain test can
+   never see, because in a chain 010 happens to run before them. */
+{
+  const db2 = new PGlite({ parsers: { 1082: (v) => v } })
+  await db2.exec(`create role anon; create role authenticated; create schema auth;
+    create table auth.users (id uuid primary key default gen_random_uuid(), email text unique,
+      created_at timestamptz not null default now());
+    create function auth.uid() returns uuid language sql stable as
+      $f$ select (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid $f$;
+    grant usage on schema auth to authenticated, anon;`)
+
+  const applied = files.filter(f => !/^(010|012|014|015)/.test(f))
+  const pending = files.filter(f => /^(010|012|015)/.test(f))   // the recommended path; 014 is folded into 015
+  for (const f of applied) await db2.exec(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8'))
+
+  let broke = null
+  for (const f of pending) {
+    try { await db2.exec(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8')) }
+    catch (e) { broke = `${f}: ${e.message.split('\n')[0]}`; break }
+  }
+  ok(`the ${pending.length} outstanding migrations apply on top of a half-migrated project`,
+    !broke, broke || `after ${applied.length} already applied (${pending.map(f => f.slice(0, 3)).join(', ')})`)
+
+  // …and land in the same place as the full chain, not merely without erroring
+  const shape = async (d) => (await d.query(
+    `select p.proname, md5(pg_get_functiondef(p.oid)) d from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname in ('check_in_with_code','my_attendance_status')
+      order by p.proname`)).rows
+  const fresh = await shape(db)
+  const patched = await shape(db2)
+  ok('the half-migrated project ends up identical to a freshly built one',
+    JSON.stringify(fresh) === JSON.stringify(patched),
+    fresh.map(r => `${r.proname}=${r.d.slice(0, 8)}`).join(' '))
+
+  await db2.close()
+}
+
 console.log(`\n${'='.repeat(78)}`)
 console.log(`MIGRATION CHAIN: ${checks - bad}/${checks} checks passed`)
 console.log(bad === 0
-  ? `001 → ${latest.slice(0, 3)} applies clean from an empty database and installs what the app expects`
+  ? `001 → ${latest.slice(0, 3)} applies clean from empty, and the outstanding batch `
+    + `applies to a half-migrated project and lands in the same place`
   : `${bad} FAILURE(S)`)
 process.exit(bad === 0 ? 0 : 1)

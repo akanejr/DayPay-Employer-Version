@@ -28,6 +28,7 @@ also be run alone:
 | `migrations.mjs` | Does 001→013 apply to an empty database, and is what comes out the shape the app expects? |
 | `e2e.mjs` | Does one day of work end up as the *same money* on every screen? |
 | `harness.mjs` | Can an employee see another employee's wages? |
+| `lockout-probe.mjs` | Does the five-attempt lockout actually lock anybody out? (It does not — see below.) |
 
 ## Why they live in the repository
 
@@ -68,3 +69,20 @@ of the same kind surfaced behind it: a session fixture with an impossible
 window, and two checks that inherited the employee's role and therefore could
 not see the rows they counted. One of those two reported "refused" for three
 phases while proving the opposite of what it claimed.
+
+
+## The lockout probe, and what it found
+
+`lockout-probe.mjs` is a diagnostic, not part of `npm run prove`: it exists to
+measure one specific claim, and it exits 0 either way.
+
+It found that the five-attempt cap on check-in **never fires**.
+`check_in_with_code()` writes the attempt row and then raises the refusal, and
+an exception aborts the transaction that wrote it — so every wrong code erases
+its own evidence. Six wrong codes leave `check_in_attempts` empty. The probe
+also shows the other half: insert five rows by hand, committed, and the sixth
+call is refused with the lockout message. The counter works; the transaction is
+the problem.
+
+`e2e.mjs` records the real behaviour as two `KNOWN GAP` checks, so the suite
+stays honest and fails the moment the behaviour changes.

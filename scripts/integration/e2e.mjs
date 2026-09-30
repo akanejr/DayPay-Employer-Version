@@ -299,6 +299,46 @@ const rowsToday = (await asA(
   `select count(*)::int n from public.day_records where employee_id = '${W.james}' and work_date = '${TODAY}'`)).rows[0].n
 ok('exactly one row, because the ledger is a ledger', rowsToday === 1, `${rowsToday} row(s)`)
 
+/* ── The lockout, which does not work ───────────────────────────────────────
+   This started as an assertion that the lockout message appears after five
+   wrong codes. It does not appear, and the reason is not the message.
+
+   check_in_with_code() writes the attempt to check_in_attempts and THEN raises
+   the refusal. PostgreSQL aborts the transaction an exception is raised in, so
+   the row that was just written is rolled back with it: every wrong code erases
+   its own evidence. Six wrong codes in a row leave the table EMPTY and the
+   count never reaches five. The endpoint is brute-forceable — 10,000 codes,
+   no limit, no record of the attempt — and the cap has never protected
+   anything on any database this has run against.
+
+   scripts/integration/lockout-probe.mjs demonstrates it end to end, including
+   the half that DOES work: put five rows there by hand, committed, and the
+   sixth call is refused with the lockout message. The counter is fine. The
+   transaction is the problem.
+
+   These two checks therefore record what the system ACTUALLY does, not what it
+   says it does. They will fail the moment the behaviour is fixed, which is the
+   point: the fix has to come here and change them, rather than quietly land
+   underneath a green suite. Reported to the owner; not fixed in this phase,
+   because switching the refusal from an exception to a return value changes
+   the worker's screen and every refusal path in the product. */
+await attempt(USER.james, `select * from public.check_in_with_code('0001')`)
+await attempt(USER.james, `select * from public.check_in_with_code('0002')`)
+await attempt(USER.james, `select * from public.check_in_with_code('0003')`)
+await attempt(USER.james, `select * from public.check_in_with_code('0004')`)
+await attempt(USER.james, `select * from public.check_in_with_code('0005')`)
+const capped = await attempt(USER.james, `select * from public.check_in_with_code('0006')`)
+const recorded = (await asA(
+  `select count(*)::int n from public.check_in_attempts where user_id = '${USER.james}'`)).rows[0].n
+
+ok('KNOWN GAP — six wrong codes leave ZERO attempt records: a refusal rolls back its own evidence',
+  recorded === 0, `${recorded} rows in check_in_attempts`)
+ok('KNOWN GAP — so the lockout never fires, and the sixth wrong code is refused as if it were the first',
+  said(capped) === REFUSAL, `"${said(capped)}"`)
+
+// Nothing to clear: the attempts roll themselves back. Left explicit because
+// the counter IS reachable once the fix lands.
+
 // ── 3. Dashboard ────────────────────────────────────────────────────────────
 step(3, 'The dashboard the employer sees')
 let monthRows = await readMonth()
