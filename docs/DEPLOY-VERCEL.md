@@ -70,11 +70,11 @@ Three things then protect you, and all three were verified by triggering them:
 
 ## Route A — deploy from GitHub (recommended)
 
+### Step 1 — import
+
 1. Go to **vercel.com → Add New → Project → Import Git Repository**.
 2. Pick **`akanejr/DayPay-Employer-Version`**.
-3. **Production Branch:** set it to **`arena/01a0cffa-daypay-employer-version`**
-   (the branch holding this work — not `main`, which is the older baseline).
-4. Vercel reads `vercel.json`, so the settings appear already filled:
+3. Vercel reads `vercel.json`, so the settings appear already filled:
 
    | Setting | Value |
    |---|---|
@@ -82,13 +82,59 @@ Three things then protect you, and all three were verified by triggering them:
    | Build Command | `npm run build` |
    | Output Directory | `dist` |
    | Install Command | `npm install` (from the committed lockfile) |
-   | Environment Variables | **none** |
+   | Environment Variables | **none — leave the box empty** |
 
-5. **Deploy.** You get `https://<project>.vercel.app`.
+4. **Deploy.** You get `https://<project>.vercel.app`.
 
-Every later push to that branch redeploys automatically, and every pull request
-gets its own preview URL. When you eventually merge to `main`, change the
-Production Branch to `main` in Settings → Git.
+### Step 2 — expect the first build to be the WRONG branch
+
+This is the step that decides whether the deploy succeeds, and it is easy to
+get wrong because the instruction used to live in the wrong place.
+
+**The import screen has no Production Branch field.** It cannot have one: Vercel
+chooses the production branch by itself, in a documented order — **`main`
+first**, then `master`, then the repository's default branch. This repository
+*has* a `main`, and it is the older baseline (the v24.3 tracker, 52 commits
+behind this work). So the first deployment is the old app, built successfully,
+and it looks like the work is missing.
+
+**You can see which one you got without opening the app.** Whatever the address
+is, fetch:
+
+```
+https://<project>.vercel.app/sw.js
+```
+
+* `CACHE_NAME = 'daypay-v24'` → that is `main`, the old baseline.
+* `CACHE_NAME = 'daypay-employer-v1'` → that is this branch, correct.
+
+### Step 3 — point Production at the right branch
+
+**Project → Settings → Environments → Production → Branch Tracking** → set the
+branch to **`arena/01a0cffa-daypay-employer-version`** → **Save**.
+
+(Not *Settings → Git*; that page no longer holds this.)
+
+### Step 4 — make it build that branch now
+
+Changing Branch Tracking does not rebuild by itself. Pick one:
+
+* **Deployments → Create Deployment → Branch-Based** → enter
+  `arena/01a0cffa-daypay-employer-version` → **Create Deployment**; or
+* push any commit to that branch — a push to the production branch *is* a
+  production deployment; or
+* if a deployment for that branch already exists in the list, open it →
+  **⋯ → Promote to Production** (promotion reassigns the production domain
+  without rebuilding).
+
+Confirm `/sw.js` says `daypay-employer-v1`. That is the whole check.
+
+> **If a preview deployment asks you to log in to Vercel**, that is Deployment
+> Protection, not a broken build. The production domain is public.
+
+Every later push to that branch redeploys automatically, and every other branch
+gets its own preview URL. When you eventually merge this work into `main`,
+change Branch Tracking to `main` and it follows.
 
 ---
 
