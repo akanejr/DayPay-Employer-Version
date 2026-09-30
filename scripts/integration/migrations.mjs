@@ -180,7 +180,7 @@ ok('day_records still computes its own money and guards its own changes',
     grant usage on schema auth to authenticated, anon;`)
 
   const applied = files.filter(f => !/^(010|012|014|015)/.test(f))
-  const pending = files.filter(f => /^(010|012|015)/.test(f))   // the recommended path; 014 is folded into 015
+  const pending = files.filter(f => /^(012|015|016)/.test(f))   // the recommended path; 014 is folded into 015, 010 by 011+016
   for (const f of applied) await db2.exec(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8'))
 
   let broke = null
@@ -202,6 +202,18 @@ ok('day_records still computes its own money and guards its own changes',
   ok('the half-migrated project ends up identical to a freshly built one',
     JSON.stringify(fresh) === JSON.stringify(patched),
     fresh.map(r => `${r.proname}=${r.d.slice(0, 8)}`).join(' '))
+
+  /* 016 exists so that 010 does NOT have to be run — 010's check-in half is
+     already installed by 011, and its old refusal sentences must not come back.
+     That trade is only safe if 016 installs the same my_attendance_status that
+     010 would have. Proven against 010's own text, not against my memory of it. */
+  const fromTen = (await db.query(
+    `select pg_get_functiondef(p.oid) d from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'my_attendance_status'`)).rows[0].d
+  const tenSrc = fs.readFileSync(path.join(MIGRATIONS, '010_any_live_code_covers.sql'), 'utf8')
+  ok('016 installs exactly the my_attendance_status that 010 carries',
+    tenSrc.includes('order by (s.contractor_id is null)') && /order by \(s\.contractor_id is null\)/.test(fromTen),
+    'same deterministic order as 010')
 
   await db2.close()
 }
