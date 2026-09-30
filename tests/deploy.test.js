@@ -17,9 +17,10 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 
-import { looksSecret } from '../scripts/prepare-env.mjs'
+import { looksSecret, prepareEnv } from '../scripts/prepare-env.mjs'
 
 const REPO = fileURLToPath(new URL('../', import.meta.url))
 const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8')
@@ -139,5 +140,83 @@ describe('the committed public config carries no secret', () => {
     assert.ok(looksSecret('SUPABASE_SERVICE_ROLE', 'anything'))
     assert.ok(looksSecret('X', 'eyJhbGciOiJIUzI1NiJ9.' +
       Buffer.from(JSON.stringify({ role: 'service_role' })).toString('base64url') + '.sig'))
+  })
+})
+
+describe('a host that injects environment variables cannot poison the bundle', () => {
+  /* Vercel's import screen offers an "Environment Variables" box, and the two
+     Supabase keys sit next to each other in the dashboard — the publishable
+     one and the secret one. Vite gives host variables precedence over the
+     committed file, so a paste of the wrong key would be compiled straight
+     into the browser. prepareEnv is the only thing standing there, so it is
+     tested directly rather than through a build. */
+  const tmpProject = () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'daypay-env-'))
+    fs.mkdirSync(path.join(root, 'config'))
+    fs.copyFileSync(
+      path.join(REPO, 'config', 'supabase-public.env'),
+      path.join(root, 'config', 'supabase-public.env'),
+    )
+    return root
+  }
+
+  const withEnv = (vars, fn) => {
+    const saved = {}
+    for (const [k, v] of Object.entries(vars)) { saved[k] = process.env[k]; process.env[k] = v }
+    try { return fn() } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v
+      }
+    }
+  }
+
+  test('a secret pasted into the host is refused, by name and by reason', () => {
+    const root = tmpProject()
+    assert.throws(
+      () => withEnv({ VITE_SUPABASE_ANON_KEY: 'sb_secret_this-is-a-service-key' },
+        () => prepareEnv(root, { quiet: true })),
+      /looks like secret key/,
+    )
+  })
+
+  test('a service_role JWT in a variable this file never reads is refused too', () => {
+    const root = tmpProject()
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.' +
+      Buffer.from(JSON.stringify({ role: 'service_role' })).toString('base64url') + '.sig'
+    assert.throws(
+      () => withEnv({ NEXT_PUBLIC_SUPABASE_SERVICE_KEY: jwt },
+        () => prepareEnv(root, { quiet: true })),
+      /looks like service_role JWT/,
+    )
+  })
+
+  test('pointing at a DIFFERENT project is refused by default, and says both names', () => {
+    // Two projects in one account, a URL copied from the wrong tab: the build
+    // must not quietly roll out against another database.
+    const root = tmpProject()
+    assert.throws(
+      () => withEnv({ VITE_SUPABASE_URL: 'https://kwedhxmparriekjnwlal.supabase.co' },
+        () => prepareEnv(root, { quiet: true })),
+      (e) => /kwedhxmparriekjnwlal/.test(e.message) &&
+        /crirzuoehbkzpnwokyxl/.test(e.message) &&
+        /DAYPAY_ALLOW_OTHER_PROJECT/.test(e.message),
+    )
+  })
+
+  test('the same override is allowed when it is asked for by name', () => {
+    const root = tmpProject()
+    const { url } = withEnv({
+      VITE_SUPABASE_URL: 'https://kwedhxmparriekjnwlal.supabase.co',
+      DAYPAY_ALLOW_OTHER_PROJECT: '1',
+    }, () => prepareEnv(root, { quiet: true }))
+    assert.equal(url, 'https://kwedhxmparriekjnwlal.supabase.co',
+      'a deliberate staging target must be honoured, and verified against itself')
+  })
+
+  test('with no host variables at all, the committed file is what ships', () => {
+    const root = tmpProject()
+    const { url, key } = prepareEnv(root, { quiet: true })
+    assert.match(url, /crirzuoehbkzpnwokyxl/)
+    assert.match(key, /^sb_publishable_/)
   })
 })

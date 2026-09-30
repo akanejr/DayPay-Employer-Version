@@ -24,6 +24,48 @@ with `.env` deleted:
 So: **do not add environment variables in Vercel.** If you ever point at a
 different Supabase project, that is the file to change — nothing else.
 
+### Vercel will offer you an Environment Variables box. Leave it empty.
+
+The import screen shows an **Environment Variables** section, and because
+`.env.example` is committed it may even prefill the two *names*:
+
+```
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+That box is **optional**. Leaving it blank deploys correctly — the values come
+from `config/supabase-public.env`, which the build reads. Filling it in would
+not break anything, but it creates a second source of truth that can drift from
+the repository, so the recommendation is to skip it.
+
+If you do fill it in, use exactly these two values, and **only** these:
+
+| Name | Value |
+|---|---|
+| `VITE_SUPABASE_URL` | `https://crirzuoehbkzpnwokyxl.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | `sb_publishable__dh7r1RnxEEEPuP08z1zEw_iPk6NywS` |
+
+Three things then protect you, and all three were verified by triggering them:
+
+1. **The secret key is refused.** The Supabase dashboard shows the publishable
+   key and the `sb_secret_` key in the same panel. Pasting the wrong one fails
+   the build with a sentence naming the variable — Vite gives host variables
+   precedence over the file, so without this guard a service key would be
+   compiled into the browser bundle:
+
+   > `prepare-env: the environment sets VITE_SUPABASE_ANON_KEY to something that looks like secret key (sb_secret_…). It would be compiled into the browser bundle.`
+
+2. **A different project is refused by default.** Two projects in one account
+   and a URL copied from the wrong tab is the accident that hurts, so pointing
+   at anything other than `crirzuoehbkzpnwokyxl` stops the build and names both
+   projects. A deliberate staging target can be allowed with
+   `DAYPAY_ALLOW_OTHER_PROJECT=1`.
+
+3. **The bundle is checked against what actually shipped.** After the build the
+   project ref is grepped out of the output, so a build that produced an
+   unconfigured app fails instead of deploying one.
+
 ---
 
 ## Route A — deploy from GitHub (recommended)

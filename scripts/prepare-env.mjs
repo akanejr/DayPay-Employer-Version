@@ -118,12 +118,87 @@ export function prepareEnv(root = process.cwd(), { quiet = false } = {}) {
   }
 
   const map = new Map(parse(fs.readFileSync(target, 'utf8')))
-  const url = map.get('VITE_SUPABASE_URL') || map.get('NEXT_PUBLIC_SUPABASE_URL') || ''
-  const key =
-    map.get('VITE_SUPABASE_ANON_KEY') ||
-    map.get('VITE_SUPABASE_PUBLISHABLE_KEY') ||
-    map.get('NEXT_PUBLIC_SUPABASE_ANON_KEY') ||
-    ''
+
+  /* WHICH VALUES ACTUALLY SHIP.
+
+     A host can inject environment variables at build time (Vercel, Netlify,
+     CI). Vite gives those precedence over the .env file — deliberately — so a
+     variable set in a dashboard overrides the committed default.
+
+     That is a fine feature and a dangerous one: a service_role key pasted into
+     a host's env panel would be baked into the browser bundle, and until this
+     block existed nothing here would have noticed, because the checks below
+     only ever looked at the .env file. So the environment is read FIRST, the
+     detector runs on whatever will really be compiled in, and the returned
+     values are the effective ones — which is also what the build's
+     assert-config-shipped plugin checks against, so an override that points at
+     a different project is verified against itself instead of against a file
+     it has already replaced. */
+  const fromEnv = (...names) => {
+    for (const name of names) {
+      const v = process.env[name]
+      if (typeof v === 'string' && v.trim()) return v.trim()
+    }
+    return ''
+  }
+  const fromFile = (...names) => {
+    for (const name of names) {
+      const v = map.get(name)
+      if (v) return v
+    }
+    return ''
+  }
+
+  const url = fromEnv('VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL') ||
+    fromFile('VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL')
+
+  const key = fromEnv('VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_PUBLISHABLE_KEY',
+    'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY') ||
+    fromFile('VITE_SUPABASE_ANON_KEY', 'VITE_SUPABASE_PUBLISHABLE_KEY',
+      'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY')
+
+  /* A different project is refused unless it is asked for by name.
+
+     An override is legitimate — a staging deployment against another Supabase
+     project is a normal thing to want. What is NOT legitimate is the accident:
+     two projects in one account, a URL copied from the wrong tab, and a build
+     that quietly points a live users' app at somebody's real data. A silent
+     success is the dangerous outcome here, so the default is a refusal that
+     names both projects and says how to proceed. */
+  const refOf = (u) => {
+    const m = /^https:\/\/([a-z0-9]+)\.supabase\.co$/i.exec(u || '')
+    return m ? m[1] : ''
+  }
+  const committedUrl = fromFile('VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL')
+  const committedRef = refOf(committedUrl)
+  const effectiveRef = refOf(url)
+
+  if (effectiveRef && committedRef && effectiveRef !== committedRef &&
+      process.env.DAYPAY_ALLOW_OTHER_PROJECT !== '1') {
+    throw new Error(
+      `prepare-env: the environment points at Supabase project "${effectiveRef}", ` +
+      `but ${path.relative(root, publicFile)} points at "${committedRef}".\n` +
+      'Refusing to build, because this app is installed against ONE project and a ' +
+      'mistyped URL would be a live rollout against the wrong database.\n' +
+      `If this is deliberate: change ${path.relative(root, publicFile)} and commit it, ` +
+      'or set DAYPAY_ALLOW_OTHER_PROJECT=1 for this build only.'
+    )
+  }
+
+  /* And the same detector, over every public-prefixed variable the environment
+     carries — including ones this file will never read, so a stray
+     NEXT_PUBLIC_SUPABASE_SERVICE_KEY cannot ride along unnoticed. */
+  for (const [name, value] of Object.entries(process.env)) {
+    if (!ALLOWED_PREFIXES.some((p) => name.startsWith(p))) continue
+    const secret = looksSecret(name, value || '')
+    if (secret) {
+      throw new Error(
+        `prepare-env: the environment sets ${name} to something that looks like ${secret}. ` +
+        'It would be compiled into the browser bundle. Remove it from the host\'s ' +
+        'environment variables; only the publishable/anon key belongs there.'
+      )
+    }
+  }
 
   if (!PUBLIC_URL_SHAPE.test(url)) {
     throw new Error(`prepare-env: VITE_SUPABASE_URL is not a Supabase project URL: ${JSON.stringify(url)}`)
