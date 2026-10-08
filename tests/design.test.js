@@ -281,7 +281,11 @@ describe('the controls can be hit with a thumb', () => {
     // Anchored to a whole selector, so `.ew-btn` cannot be satisfied by
     // `.ew-btn-primary` — which is how this check first passed on a button
     // that was still 38px.
-    for (const sel of ['.icon-btn', '.nav-btn', '.segmented button', '.ew-btn']) {
+    /* `.sp-export-btn` joined this list in Phase 3: it was rendering at 37.5px,
+       under the floor, and nothing caught it because the scan is a named list and
+       the class was not on it. It carries Export my data, and on Connect it carries
+       Sign in and Sign out — primary actions, not secondary ones. */
+    for (const sel of ['.icon-btn', '.nav-btn', '.segmented button', '.ew-btn', '.sp-export-btn']) {
       const block = new RegExp(`(?:^|\\n)${sel.replace(/[.]/g, '\\.')}\\s*\\{([^}]*)\\}`, 's').exec(css)
       assert.ok(block, `${sel} not found as a rule of its own`)
       assert.ok(/var\(--tap\)/.test(block[1]),
@@ -2455,5 +2459,95 @@ describe('the way back', () => {
        way back that nobody styles. */
     assert.ok(!read('src/employer/employer.css').includes('.ew-back'),
       '.ew-back is still in the stylesheet after its last user retired')
+  })
+})
+
+/* ── Phase 3: the two things a screenshot would catch and jsdom cannot ────────
+ *
+ * Both are layout facts, and jsdom has no layout engine, so neither can be
+ * asserted by rendering. Both are read structurally instead, which is how the
+ * rest of this file works.
+ *
+ *   1. A value that is one unbroken token — an email address, a project host, the
+ *      host this build is served from — sits in a row beside its label. On a
+ *      375px phone that row either shortens the string or pushes the card wider
+ *      than the screen, and without `min-width: 0` a flex item refuses to shrink
+ *      below its content, so it does the second. Silently, and only on a device.
+ *   2. The Settings header drew its own icon-only Back square while every other
+ *      level up used the shared control — so the place a reader goes deepest was
+ *      the one place the way back did not say "Back".
+ */
+describe('a value that is one unbroken token cannot widen its row', () => {
+  const ui = read('src/ui/ui.css')
+  const app = read('src/App.jsx')
+  const bareUi = ui.replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+  test('.dp-ell exists, and does all four things an ellipsis needs', () => {
+    const m = /(?:^|[},])\s*\.dp-ell\s*\{([^}]*)\}/.exec(bareUi)
+    assert.ok(m, '.dp-ell is gone — a long value has nothing left to shorten it')
+    const body = m[1]
+    assert.match(body, /min-width:\s*0/,
+      'without min-width:0 a flex item will not shrink below its content, so the card widens instead')
+    assert.match(body, /overflow:\s*hidden/, 'the value is not clipped, so it still spills')
+    assert.match(body, /text-overflow:\s*ellipsis/,
+      'the value is cut with no sign that it was cut, which reads as a wrong address')
+    assert.match(body, /white-space:\s*nowrap/, 'the value wraps mid-address instead of holding one line')
+  })
+
+  test('and every settings row that shows a machine string uses it', () => {
+    /* The three values in this product that are one unbroken token. A row showing
+       one of them without the ellipsis is a card wider than the phone. */
+    const TOKENS = ['user.email', 'location.hostname', '{project}']
+    const offenders = app.split('\n')
+      .filter((l) => l.includes('sp-kv-val'))
+      .filter((l) => TOKENS.some((t) => l.includes(t)))
+      .filter((l) => !/sp-kv-val[^"]*\bdp-ell/.test(l))
+    assert.deepEqual(offenders.map((l) => l.trim().slice(0, 90)), [],
+      'a row shows an address or a host without the ellipsis, so it widens the card instead')
+  })
+
+  test('the rows that hold short words are left alone', () => {
+    /* The scoping is the point. Most values are "Connected" or "Synced ✓", and a
+       row whose LABEL is reader-written — a leave type's name — has to keep being
+       able to shrink. Putting the utility on `.sp-kv-val` itself would trade one
+       overflow for another, so this fails if anybody "simplifies" it that way. */
+    const money = app.split('\n').filter((l) => l.includes('formatNaira') && l.includes('sp-kv-val'))
+    assert.ok(money.length > 0, 'the money rows moved, so this check is reading the wrong file')
+    assert.ok(money.every((l) => !l.includes('dp-ell')),
+      'a money row gained the ellipsis: it is a short figure and must keep its place')
+  })
+})
+
+describe('the Settings header uses the one shared Back control', () => {
+  const app = read('src/App.jsx')
+  const indexCss = read('src/index.css')
+
+  test('it no longer draws its own', () => {
+    assert.ok(!app.includes('className="sp-back"'),
+      'the Settings header draws a second Back control instead of the shared one')
+    assert.ok(app.includes('<BackLink to={MORE.settings} />'),
+      'inside a category the parent is an address, so the control should be a link')
+    assert.ok(app.includes('<BackLink onBack={closeSettings} />'),
+      'on the Settings index the way out is the overlay, so the control should be a button')
+  })
+
+  test('and the retired class went with it', () => {
+    /* The same rule this file already keeps for .ew-back: a stylesheet that still
+       styles a control nothing renders is a second way back nobody can see.
+
+       Read with the comments stripped, because what matters is a RULE. The comment
+       that explains the retirement names the class it retired, and a bare
+       `includes` would fail on that prose forever — which would teach the next
+       reader to delete the explanation rather than the rule. */
+    const bare = indexCss.replace(/\/\*[\s\S]*?\*\//g, ' ')
+    assert.ok(!bare.includes('.sp-back'),
+      '.sp-back is still styled after its last user retired')
+  })
+
+  test('the header does not inherit the page gutters twice', () => {
+    const bare = indexCss.replace(/\/\*[\s\S]*?\*\//g, ' ')
+    assert.match(bare, /\.sp-header \.dp-back-wrap\s*\{[^}]*padding:\s*0/,
+      '.dp-back-wrap carries 16px of page gutter into a header that already has its own, '
+      + 'which doubles the left inset and drops the title off the alignment every other header uses')
   })
 })

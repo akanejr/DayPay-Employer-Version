@@ -1321,18 +1321,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
 }
 [data-theme="dark"] .sp-header { background: rgba(8,12,22,0.88); }
-.sp-back {
-  /* 38px was short of the token, and it is the only way out of a category page
-     (Phase 17). */
-  width: var(--tap); height: var(--tap); border-radius: 11px; border: 1px solid var(--border);
-  background: var(--bg-elevated); color: var(--text); cursor: pointer;
-  display: grid; place-items: center; transition: all 0.15s; flex: none;
-}
-.sp-back:hover { border-color: var(--border-strong); }
-/* The Settings header now carries the shared §41 Back control. `.dp-back-wrap`
-   brings the page gutters with it — correct in a page body, wrong inside a header
-   that already has its own padding and gap, where it would double the left inset
-   and push the title off the alignment every other header uses. */
+/* The Settings header carries the shared §41 Back control, so the class it used
+   to draw its own (.sp-back) is retired with its last user — the same rule the
+   design suite already enforces for .ew-back. A stylesheet that still styles a
+   control nothing renders is a second way back nobody can see.
+
+   `.dp-back-wrap` brings the page gutters with it, which belong to a page body:
+   inside a header that already has its own padding and gap they would double the
+   left inset and push the title off the alignment every other header uses. */
 .sp-header .dp-back-wrap { padding: 0; flex: none; }
 .sp-header .dp-back { flex: none; }
 .sp-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-stack); }
@@ -1716,7 +1712,12 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 .sp-export-title { font-size: var(--fs-sm); font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
 .sp-export-sub { font-size: var(--fs-xs); font-weight: 500; color: var(--text-3); }
 .sp-export-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-.sp-export-btn { flex: 1 1 140px; display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); border-radius: 10px; padding: var(--sp-2) var(--sp-2); font-family: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: filter 0.13s ease, background 0.13s ease, color 0.13s ease; }
+/* min-height was missing, and 8px of padding over a 13px label at --lh-body 1.5
+   made this 37.5px — under the floor the product sets for itself and checks on
+   .ew-btn, .icon-btn and .nav-btn. It escaped because the tap-target test scans a
+   named list and this class was not on it. These are not secondary controls: they
+   are Export my data, and on Connect they are Sign in and Sign out. */
+.sp-export-btn { flex: 1 1 140px; min-height: var(--tap); display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); border-radius: 10px; padding: var(--sp-2) var(--sp-2); font-family: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: filter 0.13s ease, background 0.13s ease, color 0.13s ease; }
 .sp-export-btn.primary { background: var(--green-ink); color: var(--bg); }
 .sp-export-btn.primary:hover { filter: brightness(1.08); }
 .sp-export-btn.ghost { background: transparent; border-color: var(--border); color: var(--text-2); }

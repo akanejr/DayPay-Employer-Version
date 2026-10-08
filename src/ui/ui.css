@@ -263,6 +263,22 @@ button.dp-item:active { background: var(--bg-cell-hover); }
   border: 0;
 }
 
+/* ── A value that is one unbroken token ──────────────────────────────────────
+   An email address, a project host, a key hint. A row that sets one of these
+   beside its label has two choices on a 375px phone: shorten the string, or push
+   the card wider than the screen. Without `min-width: 0` a flex item refuses to
+   shrink below its content, so it does the second — silently, and only on a real
+   device, because jsdom has no layout to overflow.
+
+   The product already answers this for emails in two places (.sp-email,
+   .user-email). This is the same answer as a utility, so any row can keep its own
+   type role instead of borrowing a class that also changes its size and colour.
+
+   Scoped on purpose: it is NOT applied to `.sp-kv-val` as a whole, because most
+   values are short words ("Connected", "Synced ✓") and a row whose LABEL is
+   reader-written — a leave type's name — must keep being able to shrink. */
+.dp-ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ── Status chip ─────────────────────────────────────────────────────────────
    §26: never colour alone. Every chip carries a word, and a dot that is drawn
    from the chip's own ink so the two can never disagree. The dot is decorative

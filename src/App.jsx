@@ -3009,8 +3009,8 @@ export default function App() {
                       <div className="sp-section-label">Cloud sync</div>
                       <div className="sp-card">
                         <div className="sp-kv"><span>Connection</span><span className="sp-kv-val" style={{color: isSupabaseConfigured ? 'var(--green-ink)' : 'var(--danger)'}}>{isSupabaseConfigured ? (user ? 'Connected' : 'Ready — sign in') : 'Not configured'}</span></div>
-                        <div className="sp-kv"><span>Account</span><span className="sp-kv-val">{user ? (displayName || user.email) : (isSupabaseConfigured ? 'Not signed in' : 'Local only')}</span></div>
-                        {project && <div className="sp-kv"><span>Project</span><span className="sp-kv-val">{project}</span></div>}
+                        <div className="sp-kv"><span>Account</span><span className="sp-kv-val dp-ell">{user ? (displayName || user.email) : (isSupabaseConfigured ? 'Not signed in' : 'Local only')}</span></div>
+                        {project && <div className="sp-kv"><span>Project</span><span className="sp-kv-val dp-ell">{project}</span></div>}
                         {cfg.configured && <div className="sp-kv"><span>Key</span><span className="sp-kv-val">{cfg.keyKind}</span></div>}
                         <div className="sp-kv"><span>Sync</span><span className="sp-kv-val">{syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'synced' ? 'Synced ✓' : syncStatus === 'error' ? 'Not reachable — will retry' : 'Idle'}</span></div>
                       </div>
@@ -3019,7 +3019,7 @@ export default function App() {
                       <div className="sp-card">
                         {user ? (
                           <>
-                            <div className="sp-kv"><span>Signed in as</span><span className="sp-kv-val">{user.email}</span></div>
+                            <div className="sp-kv"><span>Signed in as</span><span className="sp-kv-val dp-ell">{user.email}</span></div>
                             <div className="sp-export-row">
                               <button type="button" className="sp-export-btn ghost" onClick={handleLogout}>Sign out</button>
                             </div>
@@ -3284,7 +3284,7 @@ export default function App() {
                     <div className="sp-card sp-about-card">
                       <div className="sp-kv"><span>Works offline</span><span className="sp-kv-val" style={{color:'var(--green-ink)'}}>PWA ready</span></div>
                       <div className="sp-kv"><span>Cloud sync</span><span className="sp-kv-val" style={{color: isSupabaseConfigured ? 'var(--green-ink)' : 'var(--danger)'}}>{isSupabaseConfigured ? (user ? 'Connected' : 'Ready — sign in') : 'Not configured'}</span></div>
-                      <div className="sp-kv"><span>Running at</span><span className="sp-kv-val">{(typeof window !== 'undefined' && window.location.hostname) || 'this device'}</span></div>
+                      <div className="sp-kv"><span>Running at</span><span className="sp-kv-val dp-ell">{(typeof window !== 'undefined' && window.location.hostname) || 'this device'}</span></div>
                     </div>
                     <div className="sp-about-copy">© 2026 Akaninyene — All rights reserved.<br/>DayPay — Know what your work is worth.</div>
                   </div>
