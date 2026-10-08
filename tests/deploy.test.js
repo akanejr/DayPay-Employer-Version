@@ -62,6 +62,35 @@ describe('vercel.json deploys what the build actually produces', () => {
     assert.match(vite, /kiosk:\s*path\.resolve\(process\.cwd\(\), 'kiosk\.html'\)/)
   })
 
+  test('neither entry point stops a reader zooming the page', () => {
+    /* `maximum-scale=1.0` and `user-scalable=no` block pinch-zoom, which fails
+       WCAG 1.4.4 Resize Text (AA) — a reader who needs 200% cannot get it. The
+       app's index.html carried both until Phase 4; kiosk.html never did, so the
+       two front doors disagreed about whether a person is allowed to zoom.
+
+       The usual defence is the 300ms double-tap zoom delay, and that is already
+       handled where it matters: `touch-action: manipulation` on every button in
+       index.css. So nothing was being bought by blocking zoom.
+
+       Checked per entry point rather than on a concatenation, so one clean file
+       cannot hide a locked one. */
+    for (const file of ['index.html', 'kiosk.html']) {
+      const meta = /<meta[^>]+name="viewport"[^>]*>/i.exec(read(file))?.[0]
+      assert.ok(meta, `${file} has no viewport meta at all`)
+      assert.ok(!/user-scalable\s*=\s*no/i.test(meta),
+        `${file} sets user-scalable=no — a reader cannot pinch-zoom a payslip`)
+      const cap = /maximum-scale\s*=\s*([0-9.]+)/i.exec(meta)
+      assert.ok(!cap || Number(cap[1]) >= 2,
+        `${file} caps zoom at ${cap?.[1]}× — WCAG 1.4.4 needs 200%`)
+      assert.match(meta, /width=device-width/, `${file} is not sized to the device`)
+    }
+    /* And the thing that was supposedly being protected by locking zoom. If this
+       ever goes, the double-tap delay comes back and someone will "fix" it by
+       re-adding user-scalable=no. */
+    assert.match(read('src/index.css'), /touch-action:\s*manipulation/,
+      'buttons no longer suppress the double-tap zoom delay')
+  })
+
   test('nothing the app needs at runtime lives outside the published directory', () => {
     // Everything in public/ is copied to the web root. The service worker
     // caches its app shell by absolute path, so a rename here breaks the

@@ -8,7 +8,13 @@
     <link rel="icon" type="image/svg+xml" href="/daypay-icon.svg" />
     <link rel="apple-touch-icon" href="/daypay-icon-512.png" />
     <link rel="manifest" href="/manifest.json" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- No maximum-scale, no user-scalable=no: those stop a reader pinching a
+         payslip or a roster to read it, which fails WCAG 1.4.4 (AA) — and this
+         product holds itself to AA in tests/design.test.js. The usual reason an
+         app sets them is the double-tap zoom delay, and index.css already removes
+         that properly with `touch-action: manipulation` on every button. kiosk.html
+         never had them. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DayPay — Know what your work is worth.</title>
     <meta name="theme-color" content="#0B1B32" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
