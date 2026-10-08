@@ -3,7 +3,7 @@
    Unauthorized copying, modification, or distribution is prohibited. */
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { supabase, isSupabaseConfigured } from './lib/supabase'
+import { supabase, isSupabaseConfigured, describeConfig } from './lib/supabase'
 import EmployerWorkspace from './employer/EmployerWorkspace'
 import EmployeeView from './employer/EmployeeView'
 import Workplace, { WorkplaceRow } from './employer/Workplace'
@@ -24,7 +24,7 @@ import { THEME_OPTIONS, DEFAULT_LEAVE_TYPES } from './lib/constants'
 import {
   EMPLOYER, MORE, pathForView, settingsCategoryFor, settingsPath, shellViewFor, titleFor,
 } from './lib/routes.js'
-import { back, navigate, useRoute } from './lib/router.js'
+import { navigate, useRoute } from './lib/router.js'
 import { getNigerianHolidaysFallback, isHolidayDayFallback } from './lib/holidays'
 import { AnimatedAmount, NeutralAvatar } from './ui/Display.jsx'
 import { BackLink } from './ui/Ui.jsx'
@@ -47,7 +47,7 @@ const appVersionNum = (APP_VERSION.match(/v([\d.]+)/) || [])[1] || '' // v23.1: 
    "Settings", and the only way to tell Profile from Appearance was to read the
    content. The names are the words the cards use. */
 const SP_CAT_NAMES = {
-  profile: 'Profile', workplace: 'Workplace', appearance: 'Appearance',
+  profile: 'Profile', workplace: 'Workplace', connect: 'Connect', appearance: 'Appearance',
   earnings: 'Earnings', reminders: 'Reminders', data: 'Your data',
   about: 'About DayPay',
 }
@@ -2799,9 +2799,14 @@ export default function App() {
       {settingsX.mounted && (
         <div className={`phone-frame sp-page${settingsX.closing ? ' sp-out' : ''}`}>
           <header className="sp-header">
-              <button className="sp-back" onClick={()=> (settingsCategoryFor(path) !== null ? back(MORE.settings) : closeSettings())} aria-label="Back" title={settingsCategoryFor(path) !== null ? 'Back to Settings' : 'Back to app'}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-            </button>
+              {/* §41: the ONE shared Back control, not a second one that happens to
+                  live in a header. Inside a category the parent is a real address, so
+                  BackLink draws a link; on the Settings index the way out is this
+                  shell's own overlay, so it draws a button. Making that distinction is
+                  the component's job, which is exactly why there is only one. */}
+              {settingsCategoryFor(path) !== null
+                ? <BackLink to={MORE.settings} />
+                : <BackLink onBack={closeSettings} />}
             {spCat === null ? (
               <div className="sp-title">
                 <span className="sp-title-main">Settings</span>
@@ -2854,6 +2859,22 @@ export default function App() {
               {workplaceVisible(roles) && (
                 <WorkplaceRow name={roles?.businessName} onOpen={()=>navigate(settingsPath('workplace'))} />
               )}
+
+              {/* Connect — the cloud half of the account. Profile says WHO you are
+                  and Your data says what you can TAKE OUT; neither said whether
+                  this device is actually talking to your record, or offered the
+                  one action that changes it. It sits above "Your own tracker"
+                  because connecting is not a personal-tracker concern. */}
+              <button type="button" className="sp-cat-card" onClick={()=>navigate(settingsPath('connect'))}>
+                <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.2 10.5 3.75 3.75 0 0 0 7 19h10.5Z"/><path d="m9.5 14.6 2.4 2.4 4-4.6"/></svg></span>
+                <span className="sp-cat-body">
+                  <span className="sp-cat-line">
+                    <span className="sp-cat-name">Connect</span>
+                    <span className="sp-cat-sum">{user ? 'Connected' : (isSupabaseConfigured ? 'Ready — sign in' : 'Local only')}</span>
+                  </span>
+                  <span className="sp-cat-desc">Cloud sync, account and sign in.</span>
+                </span>
+              </button>
 
               <button type="button" className="sp-cat-card" onClick={()=>navigate(settingsPath('appearance'))}>
                 <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 19.7l-.7-1.8-1.8-.7 1.8-.7L19 15Z"/></svg></span>
@@ -2973,6 +2994,52 @@ export default function App() {
                     }}
                   />
                 )}
+
+                {spCat === 'connect' && (() => {
+                  /* describeConfig() is the same reader the connection-check page
+                     uses: it never returns the key, only enough of it to say which
+                     KIND of key this build carries. A screen that says "Connected"
+                     without saying to WHAT is not an answer. */
+                  const cfg = describeConfig()
+                  const project = cfg.configured
+                    ? String(cfg.url).replace(/^https?:\/\//, '').split('/')[0]
+                    : null
+                  return (
+                    <>
+                      <div className="sp-section-label">Cloud sync</div>
+                      <div className="sp-card">
+                        <div className="sp-kv"><span>Connection</span><span className="sp-kv-val" style={{color: isSupabaseConfigured ? 'var(--green-ink)' : 'var(--danger)'}}>{isSupabaseConfigured ? (user ? 'Connected' : 'Ready — sign in') : 'Not configured'}</span></div>
+                        <div className="sp-kv"><span>Account</span><span className="sp-kv-val">{user ? (displayName || user.email) : (isSupabaseConfigured ? 'Not signed in' : 'Local only')}</span></div>
+                        {project && <div className="sp-kv"><span>Project</span><span className="sp-kv-val">{project}</span></div>}
+                        {cfg.configured && <div className="sp-kv"><span>Key</span><span className="sp-kv-val">{cfg.keyKind}</span></div>}
+                        <div className="sp-kv"><span>Sync</span><span className="sp-kv-val">{syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'synced' ? 'Synced ✓' : syncStatus === 'error' ? 'Not reachable — will retry' : 'Idle'}</span></div>
+                      </div>
+
+                      <div className="sp-section-label">Account</div>
+                      <div className="sp-card">
+                        {user ? (
+                          <>
+                            <div className="sp-kv"><span>Signed in as</span><span className="sp-kv-val">{user.email}</span></div>
+                            <div className="sp-export-row">
+                              <button type="button" className="sp-export-btn ghost" onClick={handleLogout}>Sign out</button>
+                            </div>
+                          </>
+                        ) : isSupabaseConfigured ? (
+                          <div className="sp-export-row">
+                            <button type="button" className="sp-export-btn primary" onClick={()=>{setAuthMode('signin'); setShowAuth(true)}}>Sign in</button>
+                            <button type="button" className="sp-export-btn ghost" onClick={()=>{setAuthMode('signup'); setShowAuth(true)}}>Create account</button>
+                          </div>
+                        ) : (
+                          <p className="sp-hint">This build carries no cloud project, so your record stays on this device. Nothing is lost — take a backup from Your data.</p>
+                        )}
+                      </div>
+
+                      <p className="sp-hint">{isSupabaseConfigured
+                        ? 'Signing in ties this device to your DayPay record. Every read and write is filtered by row-level security: a worker sees their own days, an employer sees their workforce, and neither can reach the other.'
+                        : 'DayPay works offline by design. Connecting is what lets one record follow you across devices.'}</p>
+                    </>
+                  )
+                })()}
 
                 {spCat === 'appearance' && (
                   <div className="sp-card sp-appear-card">

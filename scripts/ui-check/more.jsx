@@ -486,7 +486,7 @@ const LOG_START = calls().length
   ok('...and the category is in the address, so Back has somewhere to step',
     addr() === '/more/settings/appearance', addr())
 
-  await press(host.querySelector('.sp-back'))
+  await press(host.querySelector('.dp-back, .sp-back'))
   ok('the page’s own Back leaves the category and lands on Settings',
     addr() === '/more/settings' && !!host.querySelector('.sp-title-main'),
     addr())
@@ -500,7 +500,7 @@ const LOG_START = calls().length
   /* Closing Settings REPLACES its entry rather than stacking More on top of it.
      That is what stops the next Back from re-opening the page the reader just
      left — press back, watch the app walk forward into Settings again. */
-  await press(host.querySelector('.sp-back'))
+  await press(host.querySelector('.dp-back, .sp-back'))
   /* The page animates out (useExit, 380ms), so "closed" is not true on the same
      tick as the press — the address is. */
   await act(async () => { await new Promise(r => setTimeout(r, 450)) })
@@ -528,6 +528,47 @@ const LOG_START = calls().length
   await press(byText(host, '.sp-cat-card', 'Earnings'))
   ok('reading settings writes nothing to the database', writes(before).length === 0,
     JSON.stringify(writes(before)))
+  await close()
+}
+
+// ══ 5b. Connect: the walk the §41 report named by hand ══════════════════════
+/* More → Settings → Connect was the exact path in the report, and Connect did not
+   exist: cloud sync was a status ROW duplicated inside two other categories, with
+   no address of its own and nothing to sign in from. It is a category now, so it
+   owes the two promises the other seven already keep — the crumb names it, and the
+   phone's own Back steps OUT of it rather than out of the app. nav.jsx §41 proves
+   that mechanism on `earnings` and `data`; this proves it on the screen the reader
+   actually reported, which is the one that was missing. */
+{
+  const App = (await import('../../src/App.jsx')).default
+  const { host, close } = await open(routes.settingsPath('connect'), <App />)
+  const addr = () => routes.normalisePath(dom.window.location.hash)
+
+  ok('a deep link to Connect opens Settings already standing on Connect',
+    /Settings · Connect/.test(textOf(host.querySelector('.sp-crumb'))),
+    textOf(host.querySelector('.sp-crumb')))
+  /* Scoped to `.sp-page`, not to `host`: Settings is an overlay drawn on top of
+     the whole app, so an unscoped read could match a word from the tracker behind
+     it and pass without Connect having drawn anything at all. */
+  const page = () => textOf(host.querySelector('.sp-page'))
+  ok('...and the page says what it is for',
+    /Cloud sync/.test(page()), page().slice(0, 90))
+  ok('Connect answers what a status row could not: is this device talking to the record',
+    /Connected|Ready — sign in|Not configured/.test(page()), page().slice(0, 90))
+
+  await press(host.querySelector('.dp-back, .sp-back'))
+  ok('the page’s own Back leaves Connect and lands on the Settings list',
+    addr() === '/more/settings' && !!host.querySelector('.sp-title-main'), addr())
+
+  await press(byText(host, '.sp-cat-card', 'Connect'))
+  ok('...and the card is a door back into it, at an address of its own',
+    addr() === '/more/settings/connect', addr())
+
+  await act(async () => { dom.window.history.back() })
+  await act(async () => { await new Promise(r => setTimeout(r, 40)) })
+  ok('Android Back out of Connect lands on Settings, with the page still open',
+    addr() === '/more/settings' && !!host.querySelector('.sp-page'), addr())
+
   await close()
 }
 

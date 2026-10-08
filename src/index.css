@@ -1329,6 +1329,12 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   display: grid; place-items: center; transition: all 0.15s; flex: none;
 }
 .sp-back:hover { border-color: var(--border-strong); }
+/* The Settings header now carries the shared §41 Back control. `.dp-back-wrap`
+   brings the page gutters with it — correct in a page body, wrong inside a header
+   that already has its own padding and gap, where it would double the left inset
+   and push the title off the alignment every other header uses. */
+.sp-header .dp-back-wrap { padding: 0; flex: none; }
+.sp-header .dp-back { flex: none; }
 .sp-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-stack); }
 .sp-title-main { font-size: var(--fs-page); font-weight: var(--fw-value); line-height: var(--lh-title); letter-spacing: -0.02em; color: var(--text); }
 .sp-title-sub { font-family: var(--font-mono); font-size: var(--fs-meta); font-weight: var(--fw-body); line-height: var(--lh-row); letter-spacing: 0.01em; color: var(--text-3);}

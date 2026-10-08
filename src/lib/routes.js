@@ -185,7 +185,7 @@ export function settingsPath(category) {
    draws them (SP_CAT_NAMES in App.jsx); this is the list of addresses, and
    tests/routes.test.js fails if the two ever disagree. */
 export const SETTINGS_CATEGORIES = [
-  'profile', 'workplace', 'appearance', 'earnings', 'reminders', 'data', 'about',
+  'profile', 'workplace', 'connect', 'appearance', 'earnings', 'reminders', 'data', 'about',
 ]
 
 /* The category a path names, or null for the Settings index itself — and null for

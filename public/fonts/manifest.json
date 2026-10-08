@@ -3,62 +3,62 @@
   "fonts": [
     {
       "file": "geist-mono-400.woff2",
-      "bytes": 9848,
-      "sha256": "359bcde1c0349b8fa4901f9d2db54a7e05486a4accdb216d3ab1308972f1caef",
+      "bytes": 9864,
+      "sha256": "0066ece79a10e4f25787a1707e4aafdd99dbaf636f5a1d4460aa9342ff3c3ba0",
       "naira": true
     },
     {
       "file": "geist-mono-500.woff2",
-      "bytes": 10104,
-      "sha256": "483386ce4e38a46b32ffa1c286d9792b6ae0545202ebb9085b9b3080bce1956d",
+      "bytes": 10100,
+      "sha256": "c3886624756a41976445b48ff406ca3d979e05ea96c540754d91ad44b04c8248",
       "naira": true
     },
     {
       "file": "geist-mono-600.woff2",
-      "bytes": 10240,
-      "sha256": "60ad2636310f409f9e5ff1aa7141ef58dc677649af49d556688aa66775e705f8",
+      "bytes": 10220,
+      "sha256": "bf95ea985d3bf76195d8d4233b7b7fcdb7dbaa51531fb8ac3baea8afe3386faf",
       "naira": true
     },
     {
       "file": "geist-mono-700.woff2",
-      "bytes": 10188,
-      "sha256": "af4a446ddab01c84a625e93f624a7e2ee213db362c7d7fe71944aa1cd26c627a",
+      "bytes": 10192,
+      "sha256": "beb961ea2032dcbd7f90b42e4313f1fb475e2205fbee4b517297b175bb50fd16",
       "naira": true
     },
     {
       "file": "geist-mono-800.woff2",
       "bytes": 10132,
-      "sha256": "0782fbb76c7670b300c3b544f722ffcbc48a35cf9bbe8fec7fee6203b4847aae",
+      "sha256": "eda8c75c496b23fb92382fa315972a9bb2054d002dd6bc77875dd88d44153e7f",
       "naira": true
     },
     {
       "file": "manrope-400.woff2",
-      "bytes": 14188,
-      "sha256": "78b01a10b6940a1e8786871a8ea5af857c4eaf3a126a8da5d809bc5e555897d6",
+      "bytes": 14184,
+      "sha256": "4478b194fa5c99997250b3df7ab65fa89746eacd4e6bf6d79e97bce56030d866",
       "naira": true
     },
     {
       "file": "manrope-500.woff2",
-      "bytes": 14108,
-      "sha256": "b2ac4ee724c230264f360a4bd7fe0dd200cff15c3b3bc499674b659b3e1e40cf",
+      "bytes": 14060,
+      "sha256": "7d560da32321df2dc38e138248bd6f26684072e06814046ba05a26ac526d0237",
       "naira": true
     },
     {
       "file": "manrope-600.woff2",
       "bytes": 14160,
-      "sha256": "45b214016e38e4310bf7a63151366e161c9bb988dcb00cbbeb289403d9e0ecd7",
+      "sha256": "0a42fbaab6744fc7f58fa00f9e2606c4e2bb9e224395c9167d0ecd61d85ffb05",
       "naira": true
     },
     {
       "file": "manrope-700.woff2",
-      "bytes": 14228,
-      "sha256": "15a496fa42d975c4d63ebc49c7f97afcfd715d45f4b597a8f2cc16b4e703738e",
+      "bytes": 14260,
+      "sha256": "83b749c9627c051860679d57722ebed8dfb865b3017c402b0399ac49744cb011",
       "naira": true
     },
     {
       "file": "manrope-800.woff2",
-      "bytes": 13688,
-      "sha256": "704e2a9a0c6df14146657b61cd9b54d12a4443efb43d8d9de9e41c0f7ac3da5c",
+      "bytes": 13692,
+      "sha256": "faff3c56cb8670bb0de05a3cc584a259dc4a1c37b91b92fedac546f38b8fd714",
       "naira": true
     }
   ]

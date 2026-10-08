@@ -53,6 +53,9 @@ const ok = (label, pass, detail) => {
 const byText = (host, sel, text) =>
   [...host.querySelectorAll(sel)].find(e => e.textContent.trim().includes(text))
 
+/* Same helper more.jsx uses, so a check reads the same in both files. */
+const textOf = (el) => (el ? (el.textContent || '').trim() : '')
+
 const settle = async () => { await act(async () => { await new Promise(r => setTimeout(r, 15)) }) }
 
 /* React listens for the browser's own events, so a press has to BE one. */
@@ -328,6 +331,37 @@ async function mount(el, at = '/') {
   ok('F · a step in has an entry behind it, so the phone’s Back walks rather than closes',
     dom.window.history.state && dom.window.history.state.dpDepth >= 1,
     JSON.stringify(dom.window.history.state))
+  await act(async () => { root.unmount() })
+  host.remove()
+}
+
+/* ── G. the kiosk, walked the way the report walked it ───────────────────────
+   A–F prove the mechanism on Contractors, Settings and two categories. The
+   report named a second screen by hand — More → Settings → Kiosk — and the kiosk
+   was never driven with the phone's own Back anywhere in this directory: §2 of
+   more.jsx checks its three states, not the way out of it. Same promise, so it
+   is checked the same way: the address moves, the screen draws, Back steps up
+   one level into More, and the app is still open afterwards. */
+{
+  const { host, root } = await mount(<EmployerWorkspace />, '/today')
+  await press(byText(host, '.dp-tab', 'More'))
+  await press(byText(host, '.dp-item', 'Site kiosk'))
+  ok('G · More → Site kiosk is a step with an address of its own',
+    address() === '/more/kiosk', address())
+  ok('G · and the kiosk drew, rather than the address moving under a blank pane',
+    textOf(host.querySelector('.ew-title')) === 'Site kiosk',
+    textOf(host.querySelector('.ew-title')))
+  ok('G · More stays lit, so the reader still knows which of the four they are in',
+    textOf(host.querySelector('.dp-tab.is-active')) === 'More'
+      && host.querySelector('.dp-tab.is-active')?.getAttribute('aria-current') === 'page',
+    textOf(host.querySelector('.dp-tab.is-active')))
+
+  await goBack()
+  ok('G · Android Back out of the kiosk returns to More, one step, not out of the app',
+    address() === '/more', address())
+  ok('...and the workspace is still open, with its bar still drawn',
+    !!host.querySelector('.dp-tabbar'), address())
+
   await act(async () => { root.unmount() })
   host.remove()
 }
