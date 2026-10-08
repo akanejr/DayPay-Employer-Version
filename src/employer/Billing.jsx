@@ -28,6 +28,7 @@ import {
   periodLabel, monthLabelFor, monthBounds, formatNaira, invoiceStatusLabel,
 } from '../lib/employer'
 import { downloadInvoice } from '../lib/invoicePdf'
+import { Loading, Notice, TechDetail } from '../ui/Ui.jsx'
 
 function figure(n) {
   return Number(n) || 0
@@ -138,7 +139,7 @@ function InvoiceCard({ invoice, lines, open, loading, onToggle, onVoid, onDownlo
 
       {open && (
         loading ? (
-          <div className="ew-loading">Loading {invoice.number}…</div>
+                    <Loading label={`Loading ${invoice.number}…`} shape="rows" lines={2} />
         ) : (
           <div className="ew-inv-table-wrap">
             <table className="ew-inv-table">
@@ -346,6 +347,20 @@ export default function Billing({ employees, contractors }) {
 
   return (
     <>
+      {/* The screen's own name, and the one sentence that says what it is for. An
+          invoice is a document: the reason it cannot be edited after it is issued
+          belongs here at the top, not in a corner the employer reads after they
+          have already tried. */}
+      <header className="ew-head">
+        <div className="ew-head-text">
+          <h2 className="ew-title">Billing</h2>
+          <p className="ew-sub">
+            What each contractor owes for this period. An invoice is a document: once
+            issued it is not edited — void it to bill the period again.
+          </p>
+        </div>
+      </header>
+
       <div className="ew-monthbar">
         <button type="button" className="ew-datebar-step" aria-label="Previous month" onClick={() => stepMonth(-1)} disabled={!!busyKey}>‹</button>
         <div className="ew-datebar-mid">
@@ -363,14 +378,22 @@ export default function Billing({ employees, contractors }) {
       )}
 
       {!invoicesAvailable() && (
-        <div className="ew-msg ew-msg-warn">
-          Invoices need a database update.
-          <span className="ew-msg-hint">Run supabase/migrations/013_invoices.sql in the SQL editor.</span>
-        </div>
+        <>
+          <div className="ew-msg ew-msg-warn">
+            Invoices aren’t switched on for this account yet.
+            <span className="ew-msg-hint">
+              Everything else keeps working. Whoever set DayPay up can switch them on.
+            </span>
+          </div>
+          <TechDetail>
+            <code>supabase/migrations/013_invoices.sql</code> — the database update
+            invoices need has not been run.
+          </TechDetail>
+        </>
       )}
 
       {loading ? (
-        <div className="ew-loading">Loading {label}…</div>
+                <Loading label={`Loading ${label}…`} />
       ) : (
         <>
           <div className="ew-owe">
@@ -419,12 +442,11 @@ export default function Billing({ employees, contractors }) {
 
           <div className="ew-section-label">Invoices for {label}</div>
           {invoices.length === 0 ? (
-            <div className="ew-empty">
-              <div className="ew-empty-title">Nothing billed yet</div>
-              <div className="ew-empty-body">
-                Bill a contractor above and the document will appear here, with a PDF you can hand over.
-              </div>
-            </div>
+            <Notice
+              tone="empty"
+              title="Nothing billed yet"
+              body="Bill a contractor above and the document appears here, with a PDF you can hand over. Invoices already issued for this period stay on file even after a void."
+            />
           ) : (
             invoices.map(inv => (
               <InvoiceCard

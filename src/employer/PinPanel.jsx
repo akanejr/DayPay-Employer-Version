@@ -81,18 +81,18 @@ export default function PinPanel({ employee, onChanged }) {
   const locked = !!(status && status.locked_until)
 
   return (
-    <div className="ew-card" data-testid="pin-panel">
+    <div className="ew-card ew-roster-panel" data-testid="pin-panel">
       <div className="ew-label">Attendance PIN · {who}</div>
 
       {status === undefined && (
-        <p className="ew-hint" style={{ marginTop: 6 }}>Checking…</p>
+        <p className="ew-hint dp-mt-8">Checking…</p>
       )}
 
       {/* The feature is not installed on this project. Say that, rather than
           showing "No PIN" — those are different facts, and the second one would
           send the employer looking for a problem with the worker. */}
       {status === null && !error && (
-        <p className="ew-hint" style={{ marginTop: 6 }}>
+        <p className="ew-hint dp-mt-8">
           This project has not run the attendance PIN migration yet, so PINs
           cannot be issued. Everything else on this screen works normally.
         </p>
@@ -122,20 +122,24 @@ export default function PinPanel({ employee, onChanged }) {
       {status && !pin && (
         <>
           {hasPin ? (
-            <p className="ew-hint" style={{ marginTop: 6 }}>
+            <p className="ew-hint dp-mt-8">
               {issuedText(status.set_at)}
               {locked && ' · locked for a few minutes after repeated wrong PINs'}
             </p>
           ) : (
-            <p className="ew-hint" style={{ marginTop: 6 }}>
+            <p className="ew-hint dp-mt-8">
               No PIN yet. Issue one so {who} can record attendance at the site
               kiosk — with no smartphone and no DayPay account.
             </p>
           )}
-          <div className="ew-actions" style={{ marginTop: 9 }}>
+          <div className="ew-actions dp-mt-8">
             <button
               type="button"
-              className={hasPin ? 'ew-btn ew-btn-ghost ew-btn-sm' : 'ew-btn ew-btn-primary ew-btn-sm'}
+              /* The accent outline, not a filled button: the screen's one filled button is
+       the roster's Add, and this panel is opened from a row. When it came in
+       filled, opening it produced either two solid buttons or — with a PIN
+       already set, where this was already a ghost — none at all. */
+                className="ew-btn ew-btn-accent ew-btn-sm"
               disabled={busy}
               onClick={issue}
             >
@@ -146,14 +150,14 @@ export default function PinPanel({ employee, onChanged }) {
       )}
 
       {hasPin && !pin && (
-        <p className="ew-hint" style={{ marginTop: 8 }}>
+        <p className="ew-hint dp-mt-8">
           The PIN itself cannot be shown — only replaced. Issue a new one if it
           has been forgotten.
         </p>
       )}
 
       {error && (
-        <div className="ew-msg ew-msg-error" style={{ marginTop: 9 }}>
+        <div className="ew-msg ew-msg-error dp-mt-8">
           {error.message}{error.hint && <span className="ew-msg-hint">{error.hint}</span>}
         </div>
       )}

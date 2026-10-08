@@ -693,17 +693,28 @@ end $$;
 
 
 -- The real code, which must work.
+--
+-- WHAT KIND OF DAY IT IS DEPENDS ON THE DATE, and this check used to assume a
+-- weekday. Every migration that writes a check-in sets the kind from the session's
+-- date — `case when extract(isodow from work_date) >= 6 then 'weekend' else 'work'`
+-- — so a run on a Saturday records a weekend day, and this check reported the
+-- database broken for being right. It failed on the first Saturday it was run on
+-- (3 October 2026) and had presumably never been run at a weekend. The expected
+-- kind is now the same expression the trigger uses, so the check still fails if the
+-- ledger records the WRONG kind for the day — which is the thing worth asserting.
 do $$
-declare r record;
+declare r record; want text;
 begin
+  want := case when extract(isodow from current_date) >= 6 then 'weekend' else 'work' end;
   select * into r from public.check_in_with_code('7429');
   perform public._harness_record(
     26, 'SESSIONS', 'the correct code records the day',
-    'work', coalesce(r.kind,'(none)'),
-    r.ok is true and r.kind = 'work' and r.work_date = current_date);
+    want || ' on a ' || to_char(current_date, 'Day'), coalesce(r.kind,'(none)'),
+    r.ok is true and r.kind = want and r.work_date = current_date);
 exception when others then
   perform public._harness_record(
-    26, 'SESSIONS', 'the correct code records the day', 'work', 'ERROR: ' || sqlerrm, false);
+    26, 'SESSIONS', 'the correct code records the day',
+    'the date''s kind', 'ERROR: ' || sqlerrm, false);
 end $$;
 
 -- ── The overlap bug ───────────────────────────────────────────────────────

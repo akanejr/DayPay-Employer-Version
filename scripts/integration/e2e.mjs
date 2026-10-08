@@ -58,6 +58,9 @@ const {
 } = await import('../../src/lib/employerLogic.js')
 const { payslipModel, fmtMoney, fmtEquiv } = await import('../../src/lib/payslip.js')
 const { invoiceModel } = await import('../../src/lib/invoice.js')
+const {
+  extraDaysFor, checkInKind, checkInMultiplier, correctionDayFor,
+} = await import('./fixture-days.mjs')
 
 // ── Reporting ───────────────────────────────────────────────────────────────
 let bad = 0
@@ -152,9 +155,15 @@ const RATE_NEW = 20000
 const RATE_CHANGE = day(2)
 const expectRate = (dateKey) => (dateKey >= RATE_CHANGE ? RATE_NEW : RATE_OLD)
 
-/* The extra days the employer records, chosen so none of them collides with the
-   day the worker checks in on. */
-const extraDays = [3, 4, 6, 20].filter(d => d !== DOM)
+/* The extra days the employer records. Chosen by `fixture-days.mjs` so none of
+   them collides with the day the worker checks in on, the day the correction
+   scenario asks about, or a rate-history day — all of which used to be somebody's
+   memory, and one of which (day 6) was wrong on the 3rd and 4th of the month. */
+const extraDays = extraDaysFor(DOM)
+/* The day the correction is about. Not `CORRECTION_DAY` on its own: on the 6th of
+   a month that day is today, which the check-in above has already written — see
+   `correctionDayFor`. */
+const CORRECTION = correctionDayFor(DOM)
 const OT_DAY = day(extraDays[0] ?? 1)
 const WORK_DAY = day(extraDays[1] ?? extraDays[0] ?? 1)
 const NEW_RATE_DAY = day(20)                 // always after the change
@@ -271,6 +280,12 @@ const employeesOfA = (await asA(
 step(1, 'The employer opens today, and reads out the code')
 const CODE = '7429'
 const TODAY = day(new Date().getDate())
+/* WHAT DAY IS THIS? The ledger's kind follows the DATE (isodow >= 6 is a weekend
+   day, at the weekend multiplier), so the expectation for the check-in below is
+   asked of the same rule the product uses instead of assuming a weekday. The chain
+   asserted `work` at `1x`, and failed the first time it ran on a Saturday. */
+const TODAY_KIND = checkInKind(TODAY)
+const TODAY_MULT = checkInMultiplier(TODAY)
 await asA(`
   insert into public.attendance_sessions (employer_id, contractor_id, work_date, code, expires_at)
   values (auth.uid(), '${C1}', '${TODAY}', '${CODE}', now() + interval '8 hours')`, { commit: true })
@@ -312,15 +327,15 @@ ok('a different wrong code gets a byte-identical answer (the endpoint is not an 
 
 const checked = (await as(USER.james, `select * from public.check_in_with_code('${CODE}')`, { commit: true })).rows[0]
 ok('the right code records the day', !!checked && checked.work_date === TODAY, JSON.stringify(checked?.work_date))
-ok('and it is recorded as a check-in, awaiting the employer',
-  checked?.kind === 'work' && checked?.already === false,
+ok(`and it is recorded as a check-in, awaiting the employer (today is a ${TODAY_KIND} day)`,
+  checked?.kind === TODAY_KIND && checked?.already === false,
   `kind ${checked?.kind}, already ${checked?.already}`)
 
 const jamesDay = (await asA(
   `select * from public.day_records where employee_id = '${W.james}' and work_date = '${TODAY}'`)).rows[0]
 ok('the ledger holds it, valued by the trigger at the rate in force that day',
-  Number(jamesDay?.amount) === expectRate(TODAY) * 1
-    && Number(jamesDay?.rate) === expectRate(TODAY) && Number(jamesDay?.multiplier) === 1,
+  Number(jamesDay?.amount) === expectRate(TODAY) * TODAY_MULT
+    && Number(jamesDay?.rate) === expectRate(TODAY) && Number(jamesDay?.multiplier) === TODAY_MULT,
   `₦${jamesDay?.amount} = ₦${jamesDay?.rate} x ${jamesDay?.multiplier} (rate ${expectRate(TODAY) === RATE_NEW ? 'after' : 'before'} the change on the 2nd)`)
 ok('the day is claimed, not confirmed — checking in is not the same as agreeing',
   jamesDay?.status === 'claimed' && jamesDay?.source === 'check_in')
@@ -433,7 +448,7 @@ ok('a day after the rate change is valued at the NEW rate',
 step('4b', 'A correction is asked for, and answered')
 const req = (await as(USER.james, `
   insert into public.correction_requests (employee_id, work_date, request_kind, want_kind, message)
-  values ('${W.james}', '${day(6)}', 'missing', null, 'I worked this day but it is not here.')
+  values ('${W.james}', '${day(CORRECTION)}', 'missing', null, 'I worked this day but it is not here.')
   returning id`, { commit: true })).rows[0]
 const openRequests = (await asA(
   `select count(*)::int n from public.correction_requests
@@ -448,9 +463,9 @@ const approved = (await asA(
   `select * from public.resolve_correction('${req.id}', true, 'Agreed, my mistake.')`, { commit: true })).rows[0]
 const added = (await asA(
   `select kind, rate, amount, status, source from public.day_records
-    where employee_id = '${W.james}' and work_date = '${day(6)}'`)).rows[0]
+    where employee_id = '${W.james}' and work_date = '${day(CORRECTION)}'`)).rows[0]
 ok('the employer approving it writes the day into the ledger',
-  !!approved && !!added && Number(added.amount) === expectRate(day(6)),
+  !!approved && !!added && Number(added.amount) === expectRate(day(CORRECTION)),
   added ? `${added.kind} · ₦${added.amount} · ${added.source}` : 'no day written')
 ok('recorded as a correction, so the worker can see where it came from',
   added?.source === 'correction')
@@ -853,9 +868,9 @@ ok('C — a REGISTERED worker with no network records from the kiosk',
   `${viaKiosk.full_name} · ${viaKiosk.method} · ${viaKiosk.kind} · ${viaKiosk.contractor_name}`)
 
 const newDay = await dayOf(W_NEW)
-ok('...and his day is an ordinary check-in: claimed, from a check-in, at the stored rate, at 1×',
-  newDay.source === 'check_in' && newDay.status === 'claimed' && newDay.kind === 'work' &&
-  Number(newDay.multiplier) === 1 && Number(newDay.amount) === 12000,
+ok(`...and his day is an ordinary check-in: claimed, from a check-in, at the stored rate, at ${TODAY_MULT}×`,
+  newDay.source === 'check_in' && newDay.status === 'claimed' && newDay.kind === TODAY_KIND &&
+  Number(newDay.multiplier) === TODAY_MULT && Number(newDay.amount) === 12000 * TODAY_MULT,
   `${newDay.source} · ${newDay.status} · ${newDay.kind} · ${fmtMoney(newDay.amount)}`)
 ok('...carrying attendance_method = kiosk for the audit view, and that is the only difference',
   newDay.attendance_method === 'kiosk')
@@ -892,7 +907,7 @@ ok('B — and he still records a full day at the gate, on the employer’s machi
 const timDay = await dayOf(W.timothy)
 ok('...which is a real day for payroll, not a lesser kind of record',
   timDay.source === 'check_in' && timDay.status === 'claimed' &&
-  Number(timDay.amount) === 12000 && Number(timDay.multiplier) === 1,
+  Number(timDay.amount) === 12000 * TODAY_MULT && Number(timDay.multiplier) === TODAY_MULT,
   `${fmtMoney(timDay.amount)} · ${timDay.attendance_method}`)
 
 /* ── G. The wrong PIN ─────────────────────────────────────────────────────── */

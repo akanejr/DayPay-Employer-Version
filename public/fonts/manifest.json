@@ -1,0 +1,65 @@
+{
+  "note": "Written by scripts/build-naira.py. sha256 is of the file whose U+20A6 coverage was verified at build time; tests/design.test.js re-hashes the shipped files against it.",
+  "fonts": [
+    {
+      "file": "geist-mono-400.woff2",
+      "bytes": 9848,
+      "sha256": "359bcde1c0349b8fa4901f9d2db54a7e05486a4accdb216d3ab1308972f1caef",
+      "naira": true
+    },
+    {
+      "file": "geist-mono-500.woff2",
+      "bytes": 10104,
+      "sha256": "483386ce4e38a46b32ffa1c286d9792b6ae0545202ebb9085b9b3080bce1956d",
+      "naira": true
+    },
+    {
+      "file": "geist-mono-600.woff2",
+      "bytes": 10240,
+      "sha256": "60ad2636310f409f9e5ff1aa7141ef58dc677649af49d556688aa66775e705f8",
+      "naira": true
+    },
+    {
+      "file": "geist-mono-700.woff2",
+      "bytes": 10188,
+      "sha256": "af4a446ddab01c84a625e93f624a7e2ee213db362c7d7fe71944aa1cd26c627a",
+      "naira": true
+    },
+    {
+      "file": "geist-mono-800.woff2",
+      "bytes": 10132,
+      "sha256": "0782fbb76c7670b300c3b544f722ffcbc48a35cf9bbe8fec7fee6203b4847aae",
+      "naira": true
+    },
+    {
+      "file": "manrope-400.woff2",
+      "bytes": 14188,
+      "sha256": "78b01a10b6940a1e8786871a8ea5af857c4eaf3a126a8da5d809bc5e555897d6",
+      "naira": true
+    },
+    {
+      "file": "manrope-500.woff2",
+      "bytes": 14108,
+      "sha256": "b2ac4ee724c230264f360a4bd7fe0dd200cff15c3b3bc499674b659b3e1e40cf",
+      "naira": true
+    },
+    {
+      "file": "manrope-600.woff2",
+      "bytes": 14160,
+      "sha256": "45b214016e38e4310bf7a63151366e161c9bb988dcb00cbbeb289403d9e0ecd7",
+      "naira": true
+    },
+    {
+      "file": "manrope-700.woff2",
+      "bytes": 14228,
+      "sha256": "15a496fa42d975c4d63ebc49c7f97afcfd715d45f4b597a8f2cc16b4e703738e",
+      "naira": true
+    },
+    {
+      "file": "manrope-800.woff2",
+      "bytes": 13688,
+      "sha256": "704e2a9a0c6df14146657b61cd9b54d12a4443efb43d8d9de9e41c0f7ac3da5c",
+      "naira": true
+    }
+  ]
+}

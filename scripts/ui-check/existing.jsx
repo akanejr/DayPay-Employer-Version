@@ -33,17 +33,26 @@ const must = (label, html, needles) => {
   else console.log(`  PASS  ${label} (${html.length} chars)`)
 }
 
-async function mount(label, el, needles, tabIndex = null) {
+/* `at` is either an address to open the screen at — '/people', '/more/billing' —
+   or a number, meaning "tap the nth tab once it has rendered". Addresses are
+   what Phase 3 added, so the checks use them: a screen that cannot be reached by
+   its own address is a screen you cannot link to, and this is where that shows. */
+async function mount(label, el, needles, at = null) {
+  /* Every mount starts from home. The address is real browser state and it
+     survives a component unmounting, so without this a later check would
+     silently open wherever the previous one left off. */
+  try { dom.window.location.hash = '' } catch { /* no window — nothing to reset */ }
+  if (typeof at === 'string' && at) dom.window.location.hash = at
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
   await act(async () => { root.render(el) })
   await act(async () => { await new Promise(r => setTimeout(r, 25)) })
-  if (tabIndex !== null) {
-    const tabs = host.querySelectorAll('.ew-subtab')
-    if (!tabs[tabIndex]) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — no tab ${tabIndex} of ${tabs.length}`) }
+  if (typeof at === 'number') {
+    const tabs = host.querySelectorAll('.dp-tab')
+    if (!tabs[at]) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — no tab ${at} of ${tabs.length}`) }
     else {
-      await act(async () => { tabs[tabIndex].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+      await act(async () => { tabs[at].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
       await act(async () => { await new Promise(r => setTimeout(r, 25)) })
     }
   }
@@ -58,15 +67,20 @@ const employee = {
 }
 
 // the whole staff workspace, every sub-tab
-await mount('Workspace · Today', <EmployerWorkspace />, ['On roster', 'Today', 'Mark days', 'Summary', 'Roster'])
-await mount('Workspace · Mark days', <EmployerWorkspace />, ['ew-dayrow'], 1)
-await mount('Workspace · Summary', <EmployerWorkspace />, ['James Okon'], 3)
+/* Phase 4 moved Today's numbers into the screen itself — one progress figure
+   instead of four cards — so 'On roster' is no longer on this pane, deliberately.
+   What must still be here is the place itself: its title and its four doors. */
+await mount('Workspace · Today', <EmployerWorkspace />, ['Today', 'Attendance', 'People', 'More'])
+/* Phase 5 rebuilt this screen; its rows are `.ew-att-row` now. The guarantee is
+   unchanged — the Attendance pane draws the people a day can be recorded for. */
+await mount('Workspace · Attendance', <EmployerWorkspace />, ['Attendance', 'ew-att-row'], '/attendance')
+await mount('Workspace · Reports', <EmployerWorkspace />, ['James Okon'], '/more/reports')
 /* Phase 10 — §4. The roster must name the account status, and it must name it
    with the words the brief uses. "Not registered" is a fact about a LOGIN:
    the worker still has a job, still has days, and is still paid for them. The
    mock roster entry has employee_user_id = null, so this is the not-registered
    case — the one that used to be silent. */
-await mount('Workspace · Roster', <EmployerWorkspace />, ['James Okon', 'Contractor A', 'Not registered'], 2)
+await mount('Workspace · People', <EmployerWorkspace />, ['James Okon', 'Contractor A', 'Not registered'], '/people')
 
 // the panes on their own
 await mount('StaffDays', <StaffDays employees={[employee]} contractors={[]} />, ['James Okon'])
@@ -120,6 +134,14 @@ await mount('Check-in (worker)', <CheckIn employee={employee} onRecorded={() => 
   } catch (e) { failure = e }
   const problems = failure ? [`threw: ${failure.message}`] : polishProblems(html)
   if (!html.includes('app-root')) problems.push('rendered nothing into the root')
+    /* The splash is an OVERLAY, not a replacement — the tracker is drawn
+       underneath it, which is why this can assert the real month view without
+       waiting five seconds for the splash to lift. Until now only 'app-root'
+       was checked, so the month grid, the segmented control and the settings
+       page could all have been blank. */
+    const landmarks = ['.month-title', '.month-name', '.segmented', '.nav-btn', '.cell']
+    const missing = landmarks.filter(sel => !host.querySelector(sel))
+    problems.push(...missing.map(sel => `the month view has no ${sel}`))
   if (problems.length) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  The employee app — ${problems.join(' | ')}`) }
   else console.log(`  PASS  The employee app (${html.length} chars)`)
   await act(async () => { root.unmount() })

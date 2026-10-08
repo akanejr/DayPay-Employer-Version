@@ -1,3 +1,5 @@
+import { fmtMoney } from './payslip.js'
+
 /* DayPay Employer Version — pure employer logic.
  *
  * No imports, no network, no Supabase. Everything here is a pure function so
@@ -12,11 +14,12 @@
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
+/* ONE money formatter for the product. This body was identical, character for
+   character, to fmtMoney in src/lib/payslip.js — two implementations of "how
+   DayPay writes an amount", which is one more than a currency can have. It now
+   delegates, so the only way to change the format is to change it once. */
 export function formatNaira(n) {
-  const v = Number(n)
-  if (!isFinite(v)) return '₦0'
-  const neg = v < 0
-  return `${neg ? '-' : ''}₦${Math.abs(Math.round(v)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`
+  return fmtMoney(n)
 }
 
 export function initials(name) {
@@ -325,6 +328,17 @@ export function resolveRoles(input = {}) {
   }
 }
 
+/* Phase 17 — who is offered a workplace to name.
+
+   The rule is one line and it is named here rather than written inline, so it can
+   be tested without a database: only a BUSINESS account has an employers row worth
+   naming. A worker has none, and a personal workspace is deliberately never granted
+   business powers — neither is shown the door, rather than shown one that refuses.
+   `src/App.jsx` draws the settings card behind this predicate. */
+export function workplaceVisible(roles) {
+  return roles?.isBusiness === true
+}
+
 // ── Phase 10: accounts, onboarding, and what the employer is told ───────────
 
 /* THE SIGN-UP CHOICE, AND HOW MUCH IT IS ALLOWED TO DECIDE.
@@ -550,6 +564,50 @@ export function groupByContractor(contractors, employees) {
   return groups
 }
 
+/* ── Finding a person ────────────────────────────────────────────────────────
+
+   The roster's search. Written as a rule rather than as a bit of screen code
+   because "what counts as a match" is a decision, and this way it can be tested
+   without a browser.
+
+   FORGIVING ON PURPOSE, and every part of that is a real thing an employer does:
+
+     · case does not matter, and neither do accents — 'ade' finds 'Adé', because
+       half the names in this product are typed on a phone keyboard that does not
+       offer the accent;
+     · part of a word is enough — 'ami' finds 'Amina';
+     · the words may come in any order, and any of them may match any field —
+       'topher weld' finds the welder who works for Topher, which is how an
+       employer with twenty workers remembers who somebody is;
+     · extra spaces change nothing, and neither does a query that is entirely
+       spaces: an empty search is not a search that matches nobody, it is no
+       search at all.
+
+   Trade and contractor are searched because they are on the row for the same
+   reason: with two workers called James, the trade and the contractor are how
+   they are told apart. */
+
+function searchableWords(text) {
+  return String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')     // strip the accents, keep the letter
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+}
+
+export function filterPeople(employees, query, extraWordsFor = () => []) {
+  const list = (employees || []).filter(Boolean)
+  const words = searchableWords(query)
+  if (!words.length) return list
+  return list.filter(e => {
+    let extra = []
+    try { extra = extraWordsFor(e) || [] } catch { extra = [] }
+    const hay = searchableWords([e.full_name, e.job_title, ...extra].filter(Boolean).join(' '))
+    return words.every(w => hay.some(h => h.startsWith(w)))
+  })
+}
+
 /* One contractor's day and month, from data already loaded.
 
    Worker cards carry exactly the brief's three facts — today's status, actual
@@ -656,6 +714,25 @@ export function isMissingTable(error, table) {
    same words, entirely different problem. Told to run a migration when the
    real answer is "that worker is not yours" sends somebody to fix the wrong
    thing. */
+/* A fetch that never reached the server is not a Postgres error: it has no
+   SQLSTATE, so every mapping in `describe()` misses it and the raw text
+   ("TypeError: Failed to fetch") is what ends up on the screen. On the connection
+   this app is built for — a phone at a site, outdoors, one bar — that is the MOST
+   likely way a read fails, so it gets words of its own.
+
+   Each engine wraps the same failure in its own sentence, which is why the list
+   is long and why this is a test and not a `===`: Chrome and Firefox say "Failed
+   to fetch", Safari "Load failed", React Native "Network request failed", Node
+   "fetch failed" and Safari's WebView "The Internet connection appears to be
+   offline". */
+export function isOfflineError(error) {
+  if (!error || error.code) return false
+
+  const msg = String(error.message || error.details || error)
+
+  return /Failed to fetch|NetworkError|Network request failed|Load failed|fetch failed|ERR_INTERNET_DISCONNECTED|The Internet connection appears to be offline/i.test(msg)
+}
+
 export function isMissingFunction(error, fn) {
   if (!error) return false
 
@@ -960,7 +1037,13 @@ export function correctionSentence(row, dayKind = null) {
   if (row.request_kind === 'remove') return 'Says they did not work this day.'
   if (row.request_kind === 'missing') return 'Says they worked this day and it is not recorded.'
   if (row.request_kind === 'reclassify') {
-    return had
+    /* §39: the worker's form offers every kind, including the one the day already
+       is — so `had` and `wants` can be the same phrase, and this sentence read
+       "Says this was overtime, not overtime." (which it did, on the employer's own
+       screen). Asking for the kind a day already has is a legitimate thing to do:
+       it is how somebody says "yes, that is right, but it was never confirmed". So
+       the sentence collapses; the form keeps every option it should have. */
+    return had && had !== wants
       ? `Says this was ${wants}, not ${had}.`
       : `Says this was ${wants}.`
   }

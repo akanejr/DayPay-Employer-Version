@@ -1,3 +1,5 @@
+@import '../fonts.css';
+
 /* DayPay Site Attendance — the machine at the worksite.
  *
  * SIZING IS THE WHOLE DESIGN. This screen is read standing up, at arm's
@@ -295,7 +297,7 @@ body {
   font-weight: 700;
   color: var(--ks-ink-3);
 }
-.ks-site { display: flex; flex-direction: column; gap: 2px; }
+.ks-site { display: flex; flex-direction: column; gap: var(--gap-stack); }
 .ks-site-name { color: var(--ks-ink); font-size: 17px; }
 .ks-site-device { color: var(--ks-ink-3); font-weight: 600; font-size: 14px; }
 

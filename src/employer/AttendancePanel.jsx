@@ -29,6 +29,7 @@ import {
   EmployerError, todaysSession, openAttendance, closeAttendance,
   sessionState, timeLeftLabel,
 } from '../lib/employer'
+import { Loading } from '../ui/Ui.jsx'
 
 export default function AttendancePanel({ contractors, onChanged }) {
   const [session, setSession] = useState(null)
@@ -95,7 +96,7 @@ export default function AttendancePanel({ contractors, onChanged }) {
     }
   }
 
-  if (loading) return <div className="ew-card"><div className="ew-loading">Loading attendance…</div></div>
+    if (loading) return <Loading label="Loading attendance…" shape="panel" />
 
   return (
     <section className="ew-card">
@@ -116,9 +117,9 @@ export default function AttendancePanel({ contractors, onChanged }) {
       </div>
 
       {error && (
-        <div className="ew-msg ew-msg-error" style={{ marginTop: 10 }}>
+        <div className="ew-msg ew-msg-error dp-mt-12">
           {error.message}
-          <button type="button" className="ew-linkbtn" style={{ marginLeft: 8 }} onClick={load}>Retry</button>
+          <button type="button" className="ew-linkbtn dp-ml-8" onClick={load}>Retry</button>
         </div>
       )}
 
@@ -184,7 +185,7 @@ export default function AttendancePanel({ contractors, onChanged }) {
         </>
       ) : (
         <>
-          <p className="ew-dash-note" style={{ marginTop: 10 }}>
+          <p className="ew-dash-note dp-mt-12">
             {state === 'closed'
               ? 'Attendance is closed. Opening it again issues a new code — the old one stops working.'
               : state === 'expired'
@@ -192,8 +193,14 @@ export default function AttendancePanel({ contractors, onChanged }) {
                 : 'Not open yet. Open attendance so your workers can record today themselves.'}
           </p>
 
+          {/* §39: this is the SECOND thing an employer might do on Today, and it
+              sits beside "Record today's work". Two filled green buttons on one
+              screen is the "what am I supposed to press?" the redesign set out to
+              remove, and the product's own rule (asserted on People and on
+              Contractors) is one filled action per screen. The outlined green is
+              the same button at second rank — same handler, same words. */}
           <button
-            type="button" className="ew-btn ew-btn-primary" style={{ marginTop: 11, alignSelf: 'flex-start' }}
+            type="button" className="ew-btn ew-btn-accent dp-mt-12" style={{ alignSelf: 'flex-start' }}
             disabled={busy} onClick={open}
           >
             {busy ? 'Opening…' : state === 'none' ? 'Open attendance' : 'Open again with a new code'}

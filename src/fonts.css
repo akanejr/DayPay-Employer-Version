@@ -1,0 +1,103 @@
+/* Self-hosted typefaces — v25.
+ *
+ * These two families used to be fetched from fonts.googleapis.com at runtime,
+ * and the service worker deliberately skips those hosts (it must not try to
+ * cache a CDN). So the font files were never stored on the device, and offline
+ * — a promise this app makes, and a fact of life on a worksite — every screen
+ * silently fell back to a different typeface. Manrope's proportions vanished,
+ * and Geist Mono's figure columns stopped aligning, which is why money looked
+ * ragged on a bad connection and fine on wifi.
+ *
+ * They now ship inside the app and are cached by the service worker with it.
+ * No third-party request, no flash of a fallback on a cold load, and the same
+ * typography on every device and every network.
+ *
+ * ── The naira sign ───────────────────────────────────────────────────────────
+ * Neither Manrope nor Geist Mono contains ₦ (U+20A6) in any weight, and neither
+ * does the upstream Google release. Every ₦ in this app was therefore drawn by
+ * the device's fallback font: a different typeface, at a different weight,
+ * beside figures set in Geist Mono — on the most repeated glyph in a money app.
+ *
+ * The glyph is now built into each of the ten files, from that weight's own N,
+ * so the diagonal, the stems and the joins are genuinely Manrope and Geist Mono
+ * rather than a graft. Bar thickness is 9.5% of the cap height (measured from a
+ * reference design, where the naira bars are about 8% while the stems are ~15%
+ * — copying the stem closed the counters at heavy weights); bar centres sit at
+ * cap-height/2 ± 0.0907·cap. The builder is scripts/build-naira.py, the proof is
+ * tests/design.test.js, and the geometry is recorded there rather than here.
+ *
+ * Licensed OFL-1.1. © the Manrope and Geist Mono authors; modifications (the
+ * added U+20A6) released under the same licence.
+ */
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/manrope-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/manrope-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/manrope-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/manrope-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('/fonts/manrope-800.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/geist-mono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/geist-mono-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/geist-mono-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/geist-mono-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('/fonts/geist-mono-800.woff2') format('woff2');
+}

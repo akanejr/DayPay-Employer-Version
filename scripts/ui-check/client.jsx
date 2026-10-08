@@ -43,6 +43,11 @@ async function mount(label, el, needles, tabIndex = null) {
   await act(async () => { await new Promise(r => setTimeout(r, 20)) })
 
   if (tabIndex !== null) {
+    /* WorkerView's own three tabs — the worker-detail screen the employer
+       opens from People. The employer's four destinations are reached by
+       address in existing.jsx instead, because an address is what Phase 3
+       gave the app and a screen you cannot link to is a screen you cannot
+       check. */
     const tabs = host.querySelectorAll('.ew-subtab')
     if (!tabs[tabIndex]) { bad++; globalThis.__bad = (globalThis.__bad || 0) + 1; console.log(`  FAIL  ${label} — no tab at index ${tabIndex} (has ${tabs.length})`) }
     else {
@@ -63,10 +68,13 @@ await mount('My work, loaded month',
   <EmployeeView employee={{ id: 'e1', full_name: 'James Okon', business_name: 'Eddimore' }} onChanged={() => {}} />,
   ['ew-mgrid', 'I worked a day that is not here'])
 
-// the employer's worker detail, calendar tab
-await mount('Worker detail, calendar',
+/* Phase 7 rebuilt this screen into the worker's profile. The four stat cards and
+   the two-section card are gone; the month is one figure with the facts that made
+   it underneath. The calendar, the corrections tab and the audit trail are the
+   same three things they always were. */
+await mount('Worker detail, the month',
   <WorkerView employee={employee} onBack={() => {}} onChanged={() => {}} />,
-  ['ew-mgrid', 'ew-summary', 'Corrections'])
+  ['ew-mgrid', 'ew-prof-pay', 'Corrections', 'Paid-day equivalents'])
 
 // the employer's worker detail, corrections tab, then history tab
 await mount('Worker detail, corrections queue',

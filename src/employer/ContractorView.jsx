@@ -28,6 +28,7 @@ import {
   monthLabelFor, prettyDateKey, KIND_LABELS,
 } from '../lib/employer'
 import WorkerView from './WorkerView'
+import { BackLink } from '../ui/Ui.jsx'
 
 function Stat({ label, value, tone }) {
   return (
@@ -113,6 +114,7 @@ export default function ContractorView({ contractor, employees, days, onBack, on
     return (
       <WorkerView
         employee={openWorker}
+        contractorName={contractor?.name || null}
         onBack={() => setOpenWorkerId(null)}
         onChanged={onChanged}
       />
@@ -121,9 +123,7 @@ export default function ContractorView({ contractor, employees, days, onBack, on
 
   return (
     <div className="ew-contractor">
-      <button type="button" className="ew-back" onClick={onBack}>
-        ‹ All contractors
-      </button>
+      <BackLink onBack={onBack} label="All contractors" />
 
       <div className="ew-card">
         <div className="ew-board-head">
@@ -134,11 +134,11 @@ export default function ContractorView({ contractor, employees, days, onBack, on
           {!roll.rows.length && <span className="ew-chip">no workers yet</span>}
         </div>
 
-        {contractor?.note && <p className="ew-dash-note" style={{ marginTop: 7 }}>{contractor.note}</p>}
+        {contractor?.note && <p className="ew-dash-note dp-mt-8">{contractor.note}</p>}
 
         {roll.rows.length > 0 && (
           <>
-            <div className="ew-summary" style={{ marginTop: 11 }}>
+            <div className="ew-summary dp-mt-12">
               <Stat label="Workers" value={roll.expected} />
               <Stat label="Present" value={roll.present} tone={roll.present > 0 ? 'good' : undefined} />
               <Stat label="Not in" value={roll.missing} tone={roll.missing > 0 ? 'warn' : undefined} />
@@ -160,7 +160,7 @@ export default function ContractorView({ contractor, employees, days, onBack, on
         <div className="ew-card">
           <p className="ew-dash-note">
             {contractor
-              ? <>No workers are assigned to {title} yet. Assign them under <strong>Roster</strong>.</>
+                ? <>No workers are assigned to {title} yet. Assign them under <strong>People</strong>.</>
               : 'Everyone on the roster has a contractor.'}
           </p>
         </div>

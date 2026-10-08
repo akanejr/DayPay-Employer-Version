@@ -64,7 +64,7 @@ export default class PaneErrorBoundary extends Component {
 
         <pre className="ew-crash-detail">{message}</pre>
 
-        <div className="ew-actions" style={{ justifyContent: 'flex-start', marginTop: 11 }}>
+        <div className="ew-actions dp-mt-12" style={{ justifyContent: 'flex-start' }}>
           <button type="button" className="ew-btn ew-btn-primary ew-btn-sm" onClick={this.reset}>
             Try again
           </button>

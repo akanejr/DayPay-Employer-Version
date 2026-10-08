@@ -23,6 +23,15 @@ if [ ! -f site/index.html ]; then
   echo "    build complete"
 fi
 
+# 2b. The design system's specimen. Built separately and AFTER the app, because
+#     its config does not clear the directory — running it first would be fine,
+#     running it after an --emptyOutDir build is the only order that keeps both.
+if [ ! -f site/specimen.html ]; then
+  echo "==> Building the design system specimen"
+  npx vite build --config scripts/specimen.vite.config.mjs
+  echo "    available at /specimen.html"
+fi
+
 # 3. Diagnostic page — the agent's sandbox cannot reach Supabase, the browser can.
 python3 scripts/make-connection-check.py site
 

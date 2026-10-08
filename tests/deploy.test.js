@@ -285,3 +285,67 @@ describe('the shipped app knows its own address and its own release', () => {
       `the release name must identify this product, not the tracker it came from: ${appVersion[1]}`)
   })
 })
+
+/* ── No key may be declared twice, in any JSON we ship ────────────────────
+ * JSON.parse is silent about duplicates and keeps the LAST one, so a stale
+ * value can sit underneath a correct one and win. That happened here: the new
+ * product description was added above the tracker's, so every machine-read
+ * this file — npm, a registry, a tool — still saw the tracker. The file looked
+ * right to anyone reading it and was wrong to every program that did.
+ *
+ * Nothing in the app reads these descriptions, which is exactly why it needs a
+ * test: no user-visible symptom, no failing screen, just a stale sentence in
+ * the published metadata, discoverable only by reading the raw text.
+ */
+/* Duplicate keys *within one object*, found by scanning the raw text with a
+ * nesting stack — JSON.parse cannot see them at all. Repeated names in
+ * different objects are normal and correct (every header entry has a "key" and
+ * a "value"; every icon has a "src"), so only same-object repeats count. */
+function duplicateKeys(raw) {
+  const duplicates = []
+  const stack = []
+  let i = 0
+  while (i < raw.length) {
+    const c = raw[i]
+    if (c === '"') {
+      let j = i + 1
+      let value = ''
+      while (j < raw.length) {
+        if (raw[j] === '\\') { value += raw[j + 1]; j += 2; continue }
+        if (raw[j] === '"') break
+        value += raw[j]
+        j++
+      }
+      const isKey = /^\s*:/.test(raw.slice(j + 1))
+      const scope = stack[stack.length - 1]
+      if (isKey && scope && scope.type === 'object') {
+        if (scope.keys.has(value)) duplicates.push(value)
+        else scope.keys.add(value)
+      }
+      i = j + 1
+      continue
+    }
+    if (c === '{') stack.push({ type: 'object', keys: new Set() })
+    else if (c === '[') stack.push({ type: 'array' })
+    else if (c === '}' || c === ']') stack.pop()
+    i++
+  }
+  return duplicates
+}
+
+describe('shipped JSON declares each key once per object', () => {
+  for (const file of ['package.json', 'vercel.json', 'public/manifest.json']) {
+    test(`${file} has no duplicate keys`, () => {
+      const duplicated = duplicateKeys(read(file))
+      assert.deepEqual(duplicated, [],
+        `declared twice in the same object — the last one silently wins: ${duplicated.join(', ')}`)
+    })
+  }
+
+  test('the scanner can actually detect one (so a pass means something)', () => {
+    assert.deepEqual(duplicateKeys('{"a": 1, "a": 2}'), ['a'])
+    assert.deepEqual(duplicateKeys('{"a": {"b": 1, "b": 2}}'), ['b'])
+    assert.deepEqual(duplicateKeys('[{"a": 1}, {"a": 2}]'), [],
+      'the same name in two different objects is not a duplicate')
+  })
+})
