@@ -1,0 +1,550 @@
+/* DayPay 2.0 — the design system.
+ *
+ * WHY THIS FILE EXISTS
+ *
+ * DayPay already had a token layer: a type ramp, spacing, radii, and semantic
+ * colour with a light AND a dark definition of every ink (src/index.css). What
+ * it did not have was a small, named set of things to BUILD with. Every screen
+ * had assembled its own rows, its own empty states and its own status pills out
+ * of raw tokens, so the same idea had three spellings — which is how a product
+ * starts to look like several products.
+ *
+ * This file is that set. One name, one meaning. The rules it holds itself to:
+ *
+ *   · every value is a token — no raw hex, no half-pixel sizes, no one-offs;
+ *   · every size comes from the ramp, and nothing is below 12px;
+ *   · every row you can tap or read clears --tap (44px);
+ *   · nothing communicates by colour alone — a chip carries a word, a progress
+ *     bar carries its figures;
+ *   · motion is state, never decoration, and stops under
+ *     prefers-reduced-motion.
+ *
+ * The specimen page (/specimen.html, built for the preview only) renders every
+ * one of these, and tests/design.test.js holds the file to the rules above.
+ *
+ * Screens migrate onto these classes during phases 4–13 — one screen at a time,
+ * so the guarantees the existing harness enforces keep holding while the layout
+ * underneath them changes.
+ *
+ * Copyright © 2026 Akaninyene. All rights reserved.
+ */
+
+/* ── Focus ───────────────────────────────────────────────────────────────────
+   §26 asks for meaningful focus states. There were none: a keyboard user could
+   not see where they were. :focus-visible rather than :focus, so a tap never
+   leaves a ring behind on a phone. */
+:focus-visible {
+  outline: 2px solid var(--green-ink);
+  outline-offset: 2px;
+}
+
+/* ── Section label ───────────────────────────────────────────────────────────
+   The heading above a group of rows ("Workforce", "Pay & reporting"). Sentence
+   case, small, quiet: it divides the page without becoming a title, and it
+   never becomes a card. */
+.dp-sec {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-height: 32px;
+  /* Between sections 24px; between this heading and the card it labels 12px
+     (the brief's 10–12 — it was 8, which is why a heading felt glued to its list). */
+  margin: var(--gap-section) 0 var(--sp-3);
+}
+.dp-sec:first-child { margin-top: 0; }
+
+.dp-sec-label {
+  font-size: var(--fs-section);
+  font-weight: var(--fw-value);
+  line-height: var(--lh-row);
+  color: var(--text-3);
+}
+
+.dp-sec-action {
+  margin: 0;
+  padding: 0 var(--sp-1);
+  /* It is a control, so it is the size of one — the section header it sits in was
+     the only thing 40px bought it (Phase 17). */
+  min-height: var(--tap);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--green-ink);
+  cursor: pointer;
+}
+
+/* ── List and row ────────────────────────────────────────────────────────────
+   §7: prefer clean rows and dividers to cards inside cards. One bordered
+   container, hairline separators inside it, and a row that is 44px tall before
+   it holds anything. This is the same shape the People screen needs, so it is
+   defined once here rather than once per screen. */
+.dp-list {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.dp-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: var(--tap);
+  /* A row's insets come from the rhythm tokens, so every list in the product has
+     the same ones. 16px vertical is the top of the brief's 14–16 band and the
+     bottom of its 16–18; the tap floor still rules the row's height. */
+  padding: var(--pad-row-y) var(--pad-row-x);
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.dp-item + .dp-item { border-top: 1px solid var(--border-light); }
+
+/* A row that is a link is still a row: no underline, no borrowed ink, and the
+   whole row is the target — not just the word at the end of it. */
+a.dp-item { text-decoration: none; }
+
+button.dp-item { cursor: pointer; }
+button.dp-item:active { background: var(--bg-cell-hover); }
+
+.dp-item-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--bg-sunken);
+  color: var(--text-2);
+}
+
+/* ── The text stack ──────────────────────────────────────────────────────────
+   THIS IS THE FIX for the defect the brief reported. These two lines were <span>s
+   inside a plain <span>, so they were INLINE: they shared one line box and ran
+   together — "ContractorsWho each worker answers to" — and the `margin-top: 1px`
+   that was supposed to separate them does nothing on an inline element. So the
+   separation had never existed; it only looked right when a font's own metrics
+   happened to leave a sliver of space.
+ 
+   A column flex with an explicit gap cannot do that: the children are blockified,
+   the space between them is a number in the design system, and it does not depend
+   on a font, a zoom level or the length of the text. */
+.dp-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-stack);
+}
+
+.dp-item-title {
+  font-size: var(--fs-row);
+  font-weight: var(--fw-value);
+  line-height: var(--lh-row);
+  color: var(--text);
+}
+
+.dp-item-sub {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-body);
+  line-height: var(--lh-row);
+  color: var(--text-3);
+}
+
+.dp-item-trail {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-4);
+}
+
+/* ── Progress ────────────────────────────────────────────────────────────────
+   §8 wants "18 / 21 recorded" to be understood in a glance. The figures are the
+   information; the bar is what makes the proportion felt without reading them.
+   Percentage width is set inline by the component, which is the only thing CSS
+   cannot compute from a count. */
+.dp-progress { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.dp-progress-track {
+  height: 8px;
+  border-radius: 99px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.dp-progress-bar {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--green-ink);
+  transition: width .35s ease;
+}
+
+.dp-progress-figures {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.dp-progress-value {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-hero);
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.dp-progress-caption {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dp-progress-bar { transition: none; }
+}
+
+/* ── Skeleton ────────────────────────────────────────────────────────────────
+   §22: a loading screen must not be blank. The shimmer is what says "this is
+   coming", so it is the one animation here that is not strictly state — and it
+   is switched off, rather than left running, for anybody who asked motion to
+   stop. */
+.dp-skel {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-sunken);
+  border-radius: 8px;
+}
+
+.dp-skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--border-light), transparent);
+  animation: dp-skel-sweep 1.4s ease-in-out infinite;
+}
+
+.dp-skel-line { height: 12px; margin: var(--sp-2) 0; }
+.dp-skel-line.is-title { height: 15px; width: 52%; }
+.dp-skel-line.is-sub { height: 12px; width: 74%; }
+.dp-skel-block { height: 64px; border-radius: 12px; }
+
+@keyframes dp-skel-sweep { to { transform: translateX(100%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .dp-skel::after { display: none; }
+}
+
+/* ── Loading ─────────────────────────────────────────────────────────────────
+   The wrapper the Loading component renders, and the sentence only assistive
+   technology reads. The rule lives here rather than in index.css because the design
+   system has to stand on its own: the kiosk and the specimen page import this file
+   without the app's stylesheet.
+
+   The clip/1px technique is deliberate — a screen reader needs the words, and a
+   sighted reader must not see a second loading indicator next to the skeleton. */
+.dp-loading { display: flex; flex-direction: column; gap: var(--sp-1); }
+
+.dp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── A value that is one unbroken token ──────────────────────────────────────
+   An email address, a project host, a key hint. A row that sets one of these
+   beside its label has two choices on a 375px phone: shorten the string, or push
+   the card wider than the screen. Without `min-width: 0` a flex item refuses to
+   shrink below its content, so it does the second — silently, and only on a real
+   device, because jsdom has no layout to overflow.
+
+   The product already answers this for emails in two places (.sp-email,
+   .user-email). This is the same answer as a utility, so any row can keep its own
+   type role instead of borrowing a class that also changes its size and colour.
+
+   Scoped on purpose: it is NOT applied to `.sp-kv-val` as a whole, because most
+   values are short words ("Connected", "Synced ✓") and a row whose LABEL is
+   reader-written — a leave type's name — must keep being able to shrink. */
+.dp-ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Status chip ─────────────────────────────────────────────────────────────
+   §26: never colour alone. Every chip carries a word, and a dot that is drawn
+   from the chip's own ink so the two can never disagree. The dot is decorative
+   — the word is what a screen reader reads. */
+.dp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 3px 9px 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 99px;
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-value);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dp-chip::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dp-chip.is-ok { background: var(--green-wash); color: var(--green-ink); }
+.dp-chip.is-warn { background: var(--amber-wash); color: var(--amber); }
+.dp-chip.is-danger { background: transparent; border-color: var(--border-strong); color: var(--danger); }
+
+/* The quiet variant: a fact, not an alarm. "Not registered" is information
+   about a login, not a problem with a person. */
+.dp-chip.is-quiet {
+  padding-left: 0;
+  background: none;
+  border-color: transparent;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+/* ── Notice ──────────────────────────────────────────────────────────────────
+   §21 and §23: every important screen needs a useful empty state, and every
+   error has to say what happened and what to do next. One component, three
+   tones, because an empty roster and a failed save are the same shape of
+   message: a reason, a sentence, and one way forward. */
+.dp-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.dp-notice-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-value);
+  color: var(--text);
+}
+
+.dp-notice-body {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+}
+
+.dp-notice.is-error { border-color: var(--danger); }
+.dp-notice.is-error .dp-notice-title { color: var(--danger); }
+
+.dp-notice.is-attention { border-color: var(--amber); }
+.dp-notice.is-attention .dp-notice-title { color: var(--amber); }
+
+/* An empty state is not an error, so it does not wear a border: it is a dashed
+   placeholder that reads as "nothing here YET" rather than "something broke". */
+.dp-notice.is-empty {
+  align-items: center;
+  border-style: dashed;
+  background: transparent;
+  text-align: center;
+}
+
+/* ── The primary navigation: four destinations, at the bottom ────────────────
+   §6 asks for one-handed use. On a phone the top of the screen is the one place
+   a thumb cannot comfortably reach, so the bar that moves you between
+   destinations sits at the bottom, inside the frame, and stays there while the
+   screen above it scrolls.
+
+   Sticky rather than fixed: the app is drawn inside a 480px frame on a desktop,
+   and a fixed bar would detach from that frame and stick to the window. Sticky
+   keeps the bar inside whatever is scrolling — which is the frame on a desktop
+   and the page on a phone.
+
+   The active tab is marked by a rule and by weight as well as by ink, so the
+   state survives a colourblind reader and a greyscale print. */
+.dp-tabbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+}
+
+.dp-tab {
+  /* Equal width by construction (`flex: 1 1 0`), so the four destinations divide
+     the bar evenly and the rule under the active one sits in that cell's centre —
+     wherever the cell is. The horizontal padding is a step of the scale rather
+     than the 2px it was, so a narrow phone has a little air between labels. */
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--tap);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* The rule is always there, so the label never moves when the state changes —
+   only what it says about the tab does. */
+.dp-tab-rule {
+  width: 100%;
+  max-width: 28px;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.dp-tab-label {
+  font-size: var(--fs-nav);
+  font-weight: var(--fw-body);
+  line-height: var(--lh-row);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.dp-tab.is-active { color: var(--text); }
+
+.dp-tab.is-active .dp-tab-rule { background: var(--green-ink); }
+
+.dp-tab.is-active .dp-tab-label { font-weight: 700; }
+
+.dp-tab:hover:not(.is-active) { color: var(--text-2); background: var(--bg-elevated-2); }
+
+/* A longer label than the bar can hold is truncated, never wrapped: on a phone
+   this is four items across 480px at most, and two lines would make every tap
+   target a different height. */
+.dp-tabbar .dp-tab-label { text-overflow: ellipsis; }
+
+/* The word at the end of a row that goes somewhere. A row is not a button and
+   should not grow a button inside itself: the action is where the row ends, and
+   it says what happens in a word rather than in an arrow nobody can read out. */
+.dp-item-go {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-value);
+  color: var(--green-ink);
+  white-space: nowrap;
+}
+
+/* ── The way back ────────────────────────────────────────────────────────────
+   A screen reached by going deeper than a destination needs a way up, or the
+   back button becomes the only exit — which is not navigation, it is a trap.
+   Styled as a link rather than a button on purpose: it is not an action, it is
+   a place, and it should not compete with the one filled button on the screen.
+
+   min-height, not height: the tap target is the whole row even though the word
+   is short. */
+/* ── Back (§41) ───────────────────────────────────────────────────────────────
+   It was the destination's name with a glyph typed in front: 12px, the quietest
+   grey in the palette, no border, no background — a caption, not a control. Now it
+   is a box you can see and press: the chevron on its own, the word beside it, the
+   tap floor in both axes, and the same shape wherever the product goes a level
+   deeper. It sits at the page gutter, above the screen's own title, which is where
+   the platform puts it and where a thumb finds it. */
+.dp-back-wrap { padding: var(--sp-2) var(--gap-page) 0; }
+
+.dp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--tap);
+  padding: 0 var(--sp-3) 0 var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-value);
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.dp-back svg { flex: none; }
+.dp-back-label { line-height: var(--lh-row); }
+.dp-back:hover { border-color: var(--border-strong); background: var(--bg-sunken); }
+.dp-back:active { transform: scale(0.97); }
+.dp-back:focus-visible { outline: 2px solid var(--green-ink); outline-offset: 2px; }
+
+/* ══ Wide screens: a row becomes the table it was always shaped like (Phase 15) ═
+
+   Every row in this system is [icon] text … trail, and on a phone the trail sits
+   wherever the text happens to end. At 1080px the eye has to cross the whole width
+   to find the figure at the end of it, and no two rows agree on where that is. In
+   a reserved trail column the figures line up down the list, which is the only
+   reason to have the width in the first place.
+
+   The kiosk does not load this stylesheet, so the station screen is untouched. */
+
+@media (min-width: 1024px) {
+  .dp-item-trail { min-width: 8.5rem; justify-content: flex-end; }
+  .dp-item-sub { max-width: 68ch; }
+}
+
+/* ══ TechDetail: the plumbing, on request ═══════════════════════════════════
+
+   Closed by default, because it is never the answer to the question the screen
+   was opened for. The summary is a control and stands at the tap floor; the body
+   is monospace because what is inside it is a file name, not a sentence. */
+
+.dp-tech { margin: var(--sp-2) 0 0; }
+
+.dp-tech > summary {
+  display: flex; align-items: center;
+  min-height: var(--tap);
+  padding: 0 2px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.dp-tech > summary:hover { color: var(--text); }
+
+.dp-tech-body {
+  margin-top: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm, 10px);
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body, 1.5);
+}
+
+.dp-tech-body code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  word-break: break-all;
+}

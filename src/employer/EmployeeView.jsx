@@ -19,6 +19,8 @@ import {
   myCorrections, openRequestsByDate, monthGrid, workerMonthTotals,
   ledgerSourceLabel,
 } from '../lib/employer'
+import { WEEKDAYS } from '../lib/format.js'
+import { Loading } from '../ui/Ui.jsx'
 import CheckIn from './CheckIn'
 import CorrectionForm from './CorrectionForm'
 import CorrectionList from './CorrectionList'
@@ -52,7 +54,7 @@ function JoinForm({ onJoined }) {
   return (
     <div className="ew-card">
       <h2 className="ew-title">Join a team</h2>
-      <p className="ew-sub" style={{ marginBottom: 12 }}>
+      <p className="ew-sub dp-mb-12">
         Your employer will have given you a short code. Enter it once to link this
         account to their workforce and see your own days and pay. You will not be
         asked for it again — after this you just sign in.
@@ -110,7 +112,7 @@ function MyRates({ periods }) {
         onClick={() => setOpen(o => !o)} aria-expanded={open}
       >
         <span>My rate</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span className="dp-gap-8" style={{ display: 'flex', alignItems: 'center' }}>
           {current
             ? <strong className="ew-rate">{formatNaira(current.daily_rate)}/day</strong>
             : <span className="ew-rate-none">none current</span>}
@@ -119,17 +121,17 @@ function MyRates({ periods }) {
       </button>
 
       {open && (
-        <div className="ew-rates" style={{ borderTop: '1px solid var(--border-light)', marginTop: 9 }}>
+        <div className="ew-rates dp-mt-8" style={{ borderTop: '1px solid var(--border-light)' }}>
           {periods.map(p => (
             <div className="ew-rate-row" key={p.id}>
               <span className="ew-rate-when">
                 from {p.effective_from}
-                {p.effective_from > today && <span className="ew-chip ew-chip-warn" style={{ marginLeft: 6 }}>starts soon</span>}
+                {p.effective_from > today && <span className="ew-chip ew-chip-warn dp-ml-8">starts soon</span>}
               </span>
               <span className="ew-rate-amt">{formatNaira(p.daily_rate)}/day</span>
             </div>
           ))}
-          <p className="ew-hint" style={{ marginTop: 8 }}>
+          <p className="ew-hint dp-mt-8">
             Days you have already worked keep the rate that applied then. A raise
             never changes what you were paid before it.
           </p>
@@ -220,23 +222,29 @@ function MyMonth({ employee, onChanged }) {
         <button type="button" className="ew-datebar-step" aria-label="Next month" onClick={() => stepMonth(1)}>›</button>
       </div>
 
-      {error && (
-        <div className="ew-msg ew-msg-error">
+            {error && (
+        <div className="ew-msg ew-msg-error" role="alert">
           {error.message}{error.hint && <span className="ew-msg-hint">{error.hint}</span>}
+          <button
+            type="button" className="ew-linkbtn dp-ml-8"
+            onClick={() => { setLoading(true); load() }}
+          >
+            Try again
+          </button>
         </div>
       )}
 
       {loading ? (
-        <div className="ew-loading">Loading {label}…</div>
+                <Loading label={`Loading ${label}…`} />
       ) : (
         <>
           <div className="ew-owe">
             <div className="ew-owe-label">{label}</div>
             <div className="ew-owe-figure">{formatNaira(stats.total)}</div>
             <div className="ew-owe-sub">
-              {days.length === 0
-                ? 'Nothing recorded yet this month'
-                : `${stats.worked} worked${stats.leave ? ` · ${stats.leave} leave` : ''}`}
+              {/* When the month is empty the empty state below says so, with what to
+                  do about it. Saying it here as well was two sentences for one fact. */}
+              {days.length > 0 && `${stats.worked} worked${stats.leave ? ` · ${stats.leave} leave` : ''}`}
             </div>
             {days.length > 0 && (
               <div className="ew-owe-flags">
@@ -251,8 +259,11 @@ function MyMonth({ employee, onChanged }) {
               flagged here so a worker can see they have already asked. */}
           <div className="ew-mgrid" role="grid" aria-label={`${label} at a glance`}>
             <div className="ew-mgrid-head" role="row">
-              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
-                <span key={i} className="ew-mgrid-dow" role="columnheader">{d}</span>
+              {/* The same seven words the other two calendars use. They were typed
+                  out here as initials, with two pairs of duplicates that had to be
+                  told apart by index. (Phase 16.) */}
+              {WEEKDAYS.map(d => (
+                <span key={d} className="ew-mgrid-dow" role="columnheader">{d}</span>
               ))}
             </div>
             {weeks.map((week, wi) => (
@@ -317,7 +328,12 @@ function MyMonth({ employee, onChanged }) {
 
           <MyRates periods={periods} />
 
-          {days.length === 0 ? (
+          {loading ? null : error ? (
+            /* A failed read is not an empty month. Drawing the empty state underneath
+               the error said "No days recorded in October" about a month the screen
+               never managed to read. (Phase 14.) */
+            null
+          ) : days.length === 0 ? (
             <div className="ew-empty">
               <div className="ew-empty-title">No days recorded in {label}</div>
               <p className="ew-empty-body">
@@ -365,7 +381,7 @@ function MyMonth({ employee, onChanged }) {
           )}
 
           {days.length > 0 && (
-            <p className="ew-hint" style={{ textAlign: 'center', marginTop: 4 }}>
+            <p className="ew-hint dp-mt-4" style={{ textAlign: 'center' }}>
               {from} to {to} · each amount is what was stored on the day it was
               worked.
             </p>

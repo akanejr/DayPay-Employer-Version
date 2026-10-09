@@ -16,7 +16,7 @@ import { ACCOUNT_TYPES } from './lib/employer'
 export default function AccountChoice({ onChoose }) {
   return (
     <div className="acct-choice" data-testid="account-type">
-      <p className="field-hint" style={{ marginBottom: 12 }}>
+      <p className="field-hint dp-mb-12">
         What will you use DayPay for?
       </p>
 

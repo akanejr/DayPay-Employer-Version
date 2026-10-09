@@ -1,7 +1,13 @@
 # Deploying DayPay to Vercel
 
-Two routes. **Route A needs no token, no CLI and no secrets** — the repository
+Three routes. **Route A needs no token, no CLI and no secrets** — the repository
 already carries everything a build needs, so Vercel only has to build it.
+
+> **Which route to use depends on one fact: is this work on GitHub yet?**
+> Vercel builds from the GitHub branch, so a commit that only exists locally is not
+> in any deployment. If the branch on GitHub is behind, use **Route C** — it deploys
+> the same sources straight from your machine, with one command, and does not need
+> GitHub at all.
 
 ---
 
@@ -86,6 +92,13 @@ Three things then protect you, and all three were verified by triggering them:
 
 4. **Deploy.** You get `https://<project>.vercel.app`.
 
+### If the project already exists (DayPay is already deployed once)
+
+Skip the import entirely: **Project → Deployments → Create Deployment →
+Branch-Based → `arena/01a0cffa-daypay-employer-version` → Create Deployment**, then
+**⋯ → Promote to Production** on the finished build. That is Steps 3 and 4 below,
+without Steps 1 and 2.
+
 ### Step 2 — expect the first build to FAIL, and ignore it
 
 This is the step that decides whether the deploy works, and the failure it
@@ -96,7 +109,7 @@ like: **nothing is wrong with the code.**
 chooses the production branch by itself, in a documented order — **`main`
 first**, then `master`, then the repository's default branch. This repository
 does have a `main`, and `main` is a placeholder: **one file, a README with a
-single line of text.** No `package.json`, no lockfile, no application. All 109
+single line of text.** No `package.json`, no lockfile, no application. All 162
 files of the app are on `arena/01a0cffa-daypay-employer-version`.
 
 So the first deployment builds a repository with nothing in it to install, and
@@ -118,7 +131,7 @@ To confirm you are serving the right build afterwards, fetch:
 https://<project>.vercel.app/sw.js
 ```
 
-`CACHE_NAME = 'daypay-employer-v1'` is this branch. Anything else, or a 404,
+`CACHE_NAME = 'daypay-employer-v2'` is this branch. Anything else, or a 404,
 means Production is still pointing somewhere that is not this branch.
 
 ### Step 3 — point Production at the right branch
@@ -140,7 +153,7 @@ Changing Branch Tracking does not rebuild by itself. Pick one:
   **⋯ → Promote to Production** (promotion reassigns the production domain
   without rebuilding).
 
-Confirm `/sw.js` says `daypay-employer-v1`. That is the whole check.
+Confirm `/sw.js` says `daypay-employer-v2`. That is the whole check.
 
 > **If a preview deployment asks you to log in to Vercel**, that is Deployment
 > Protection, not a broken build. The production domain is public.
@@ -166,6 +179,35 @@ npx vercel --prod      # and this one makes it the real site
 ```
 
 No environment variables to set at any point.
+
+---
+
+## Route C — deploy the zip, with no GitHub and no clone
+
+Use this when the branch on GitHub is behind the work you have (or when you would
+rather not touch git at all). The zip is the same sources.
+
+```bash
+unzip DayPay-Employer-Version.zip -d daypay
+cd daypay
+npx vercel login          # first time only
+npx vercel link           # choose the EXISTING project: daypay-employer-v2
+npx vercel --prod         # build happens in Vercel, no env vars needed
+```
+
+Vercel installs the committed lockfile and runs `npm run build` from `vercel.json`,
+so this produces the same files as Route A. Linking to the existing project is what
+keeps the same `*.vercel.app` address and its Production domain.
+
+Two things to know about this route:
+
+* It is a **source** deployment, not a git one, so it does not become "the branch
+  Vercel watches" — a later push to GitHub does not replace it, and a later deploy
+  from the zip does not touch GitHub. That is fine for a one-off; Route A is the
+  one to make permanent.
+* If `vercel link` offers to create a *new* project instead, say no and link to
+  `daypay-employer-v2` — a second project would be a second address, a second
+  service-worker cache and a second place to configure Supabase Auth.
 
 ---
 
@@ -230,10 +272,13 @@ Supabase project.
 | `Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=()` | the browser refuses these APIs at the door. No GPS was ever in this product — this makes it a property of the deployment rather than a promise about the code |
 | `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, HSTS | standard hardening for a site that carries logins |
 
-No `rewrites` block: the app has no client-side routes (the tabs are state, not
-URLs), so there is nothing to fall back for — and a catch-all rewrite would turn
-a missing asset into `index.html` served as JavaScript, which is a far more
-confusing failure than a plain 404.
+No `rewrites` block. The app *does* have addresses — since §41 every step worth
+linking to is one, in a **hash** router (`/#/more/settings/earnings`) — and a hash
+router is exactly why nothing here needs a rewrite: the fragment after `#` never
+reaches the server, so every deep link is served the same single `index.html` by
+default. A catch-all rewrite would add nothing and would turn a missing asset into
+`index.html` served as JavaScript, which is a far more confusing failure than a
+plain 404. If the router ever moves off the hash, this is the line to revisit.
 
 ---
 

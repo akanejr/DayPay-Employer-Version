@@ -5,6 +5,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+/* DayPay 2.0's design system, after the tokens it is built from. Screens migrate
+   onto it in phases 4–13; until then the two coexist, which is why this is a
+   separate file rather than an edit to index.css. */
+import './ui/ui.css'
 import App from './App.jsx'
 import AppErrorBoundary from './AppErrorBoundary.jsx'
 import './ux-motion.js' // DayPay visual-only motion layer (no logic/data changes)

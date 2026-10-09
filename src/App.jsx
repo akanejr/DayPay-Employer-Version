@@ -3,17 +3,32 @@
    Unauthorized copying, modification, or distribution is prohibited. */
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { supabase, isSupabaseConfigured } from './lib/supabase'
+import { supabase, isSupabaseConfigured, describeConfig } from './lib/supabase'
 import EmployerWorkspace from './employer/EmployerWorkspace'
 import EmployeeView from './employer/EmployeeView'
+import Workplace, { WorkplaceRow } from './employer/Workplace'
 import AccountChoice from './AccountChoice.jsx'
 import {
   myRoles, myYear, recordsByDate, notebookMonthNote, ledgerTotals,
   ledgerSourceLabel, EmployerError, redeemInvite, accountTypeById, ensureEmployer,
   homeViewFor,
 } from './lib/employer'
+import { workplaceVisible } from './lib/employerLogic'
 import { sortPeriods, migratePeriods, rateFor as rateForPeriod } from './lib/rates'
 import { normalizeReminder, nextReminder, buildReminderIcs } from './lib/reminders'
+import { formatNaira, rateLine, shortDate, formatDateKey, isWeekendDay, WEEKDAYS,
+  getMonthName, monthKey, parseMonthKey, remDaysShort, time12,
+  fileDateStamp, buildDayPayBackup, buildDayPayCsv,
+  triggerDownload } from './lib/format'
+import { THEME_OPTIONS, DEFAULT_LEAVE_TYPES } from './lib/constants'
+import {
+  EMPLOYER, MORE, pathForView, settingsCategoryFor, settingsPath, shellViewFor, titleFor,
+} from './lib/routes.js'
+import { navigate, useRoute } from './lib/router.js'
+import { getNigerianHolidaysFallback, isHolidayDayFallback } from './lib/holidays'
+import { AnimatedAmount, NeutralAvatar } from './ui/Display.jsx'
+import { BackLink } from './ui/Ui.jsx'
+import { useExit } from './ui/useExit.js'
 import jsPDF from 'jspdf'
 import { payslipModel, breakdownRows, attendanceRows, calcLines, explainerKind, fmtMoney, fmtEquiv, fmtStamp } from './lib/payslip'
 import { registerPayslipFonts } from './lib/payslipFonts'
@@ -24,282 +39,23 @@ const STORAGE_KEY = 'work_tracker_v1'
 const EMPTY_RECORDS = Object.freeze({})
 // v19-D: splash version — the splash is an occasion (first run + version
 // updates), not a toll. Bump together with sw.js CACHE_NAME on every release.
-const APP_VERSION = 'daypay-employer-v1'
+const APP_VERSION = 'daypay-employer-v2'
 const appVersionNum = (APP_VERSION.match(/v([\d.]+)/) || [])[1] || '' // v23.1: "23" for the About page
+
+/* Phase 8 — the six settings categories, named in one place so the crumb can say
+   which one you are in. Before this every sub-page showed the same word,
+   "Settings", and the only way to tell Profile from Appearance was to read the
+   content. The names are the words the cards use. */
+const SP_CAT_NAMES = {
+  profile: 'Profile', workplace: 'Workplace', connect: 'Connect', appearance: 'Appearance',
+  earnings: 'Earnings', reminders: 'Reminders', data: 'Your data',
+  about: 'About DayPay',
+}
 const START_KEY = 'work_tracker_start_v1'
-
-function formatDateKey(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-function isWeekendDay(dateObj) {
-  const day = dateObj.getDay()
-  return day === 0 || day === 6
-}
-/* One way to write money, everywhere.
-   This used to be Number(n).toLocaleString('en-NG'), which is a different
-   formatter from the one the payslip uses and depends on the device's ICU
-   data: on a runtime built without the en-NG locale it falls back to whatever
-   the default is, and a browser that groups with a space or a full stop turns
-   ₦16,000 into ₦16 000 or ₦16.000 without anything going wrong that a test
-   would notice. It also printed decimals, so a part-day could render ₦8,000.5
-   on a screen where every other amount was whole naira.
-   src/lib/payslip.js already had the correct, locale-independent version and
-   documents why. This now defers to it, so the 60 call sites in this file
-   inherit the fix and the two cannot drift apart again. */
-function formatNaira(n) {
-  return fmtMoney(n)
-}
-// v18: truthful share/PDF line — "N × ₦per-day" only when every day in the
-// group paid the same amount; a mixed-rate group shows "N days" instead.
-function rateLine(n, pay, amt) {
-  const left = (amt && n > 0 && n * amt === pay) ? `${n} × ${formatNaira(amt)}` : `${n} day${n === 1 ? '' : 's'}`
-  return `${left} = ${formatNaira(pay)}`
-}
-function shortDate(key) {
-  const d = new Date(`${key}T00:00:00`)
-  return isNaN(d) ? key : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-}
-// v18 appearance modes — shown in the hamburger "Choose theme" picker and Settings
-const THEME_OPTIONS = [
-  { id: 'light', label: 'Light', sw: 'sw-light' },
-  { id: 'dark', label: 'Dark', sw: 'sw-dark' },
-  { id: 'glass-dark', label: 'Glass · Dark', sw: 'sw-glass-dark' },
-  { id: 'glass-light', label: 'Glass · Light', sw: 'sw-glass-light' },
-]
-
-// v18-C: Export my data — one tap in Settings downloads the raw record.
-// JSON = every record + setting (a full backup); CSV = one row per worked day.
-function fileDateStamp(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-function sortedDayRecords(attendance) {
-  return Object.values(attendance || {}).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-}
-function csvCell(v) {
-  const s = String(v)
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
-function buildDayPayBackup(attendance, settings, leaveTypes) {
-  const records = sortedDayRecords(attendance)
-  const total = records.reduce((s, r) => s + (r.amount || 0), 0)
-  return JSON.stringify({
-    app: 'DayPay',
-    format: 'daypay-backup',
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    records,
-    settings: {
-      dailyRate: settings.dailyRate,
-      weekendMultiplier: settings.weekendMultiplier,
-      holidayMultiplier: settings.holidayMultiplier,
-      salaryGoal: settings.salaryGoal,
-      paydayDay: settings.paydayDay,
-      startMonthKey: settings.startMonthKey ?? null,
-      ratePeriods: settings.ratePeriods ?? [],
-      leaveTypes,
-      reminder: settings.reminder ?? null,
-    },
-    summary: {
-      days: records.length,
-      totalEarned: total,
-      firstDay: records.length ? records[0].date : null,
-      lastDay: records.length ? records[records.length - 1].date : null,
-    },
-  }, null, 2)
-}
-function buildDayPayCsv(attendance) {
-  const rows = ['date,day,type,rate,amount']
-  for (const r of sortedDayRecords(attendance)) {
-    const d = new Date(`${r.date}T00:00:00`)
-    const day = isNaN(d) ? '' : d.toLocaleDateString('en-GB', { weekday: 'short' })
-    const type = r.isOvertime ? 'overtime' : r.isWeekend ? 'weekend' : r.isHoliday ? 'holiday' : r.isLeave ? 'leave' : 'work'
-    rows.push([r.date, day, type, r.rate ?? 0, r.amount ?? 0].map(csvCell).join(','))
-  }
-  return rows.join('\r\n') + '\r\n'
-}
-function triggerDownload(name, content, mime) {
-  try {
-    const url = URL.createObjectURL(new Blob([content], { type: mime }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 1500)
-  } catch {}
-}
-function getMonthName(monthIndex, short = false) {
-  const names = short
-    ? ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-    : ['January','February','March','April','May','June','July','August','September','October','November','December']
-  return names[monthIndex]
-}
-function monthKey(year, month) {
-  return `${year}-${String(month+1).padStart(2,'0')}`
-}
-function parseMonthKey(key) {
-  const [y,m] = key.split('-').map(Number)
-  return { year: y, month: m-1 }
-}
-function ordDay(n) {
-  if (n >= 11 && n <= 13) return `${n}th`
-  switch (n % 10) { case 1: return `${n}st`; case 2: return `${n}nd`; case 3: return `${n}rd`; default: return `${n}th` }
-}
-// Leave & absence types. Paid leave accrues the regular daily rate (salaried
-// pay doesn't drop); unpaid leave accrues nothing. Stored on the attendance
-// record so locking, sync, projection and export all follow automatically.
-// Default leave types — user-managed in Settings (add / rename / delete / set pay).
-// payMode 'percent' = share of the daily rate · 'flat' = fixed ₦ per day.
-// Existing logged entries always keep their original amounts (future-only changes).
-const DEFAULT_LEAVE_TYPES = [
-  { id: 'annual', name: 'Annual leave', payMode: 'percent', payValue: 100 },
-  { id: 'sick', name: 'Sick leave', payMode: 'percent', payValue: 100 },
-  { id: 'permission', name: 'Permission', payMode: 'percent', payValue: 100 },
-  { id: 'unpaid', name: 'Unpaid leave', payMode: 'percent', payValue: 0 },
-]
-
-// Nigerian Public Holidays - Fixed + some movable for 2024-2027 (fallback if API fails)
-/* AnimatedAmount — premium count-up for earnings figures (visual only).
-   Renders the same formatted value the app already computes; on change,
-   counts smoothly to the new value (550ms, ease-out). Reduced motion =
-   instant swap. Parent carries .dp-count so ux-motion skips its bump. */
-function AnimatedAmount({ value }) {
-  const ref = useRef(null)
-  const prevRef = useRef(value)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const from = prevRef.current
-    const to = value
-    prevRef.current = value
-    if (from === to) { el.textContent = formatNaira(to); return }
-    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduce) { el.textContent = formatNaira(to); return }
-    const DUR = 550
-    const t0 = performance.now()
-    let raf = 0
-    const step = (t) => {
-      const p = Math.min(1, (t - t0) / DUR)
-      const e = 1 - Math.pow(1 - p, 3)
-      el.textContent = formatNaira(Math.round(from + (to - from) * e))
-      if (p < 1) raf = requestAnimationFrame(step)
-    }
-    raf = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(raf)
-  }, [value])
-  return <span className="dp-amount" ref={ref}>{formatNaira(value)}</span>
-}
-
-function getNigerianHolidaysFallback(year) {
-  const fixed = [
-    { month: 0, day: 1, name: "New Year's Day" },
-    { month: 4, day: 1, name: "Workers' Day" },
-    { month: 5, day: 12, name: "Democracy Day" },
-    { month: 9, day: 1, name: "Independence Day" },
-    { month: 11, day: 25, name: "Christmas Day" },
-    { month: 11, day: 26, name: "Boxing Day" },
-  ]
-  const movable = {
-    2024: [
-      { month: 2, day: 29, name: "Good Friday" },
-      { month: 3, day: 1, name: "Easter Monday" },
-      { month: 3, day: 10, name: "Eid al-Fitr" },
-      { month: 5, day: 16, name: "Eid al-Adha" },
-    ],
-    2025: [
-      { month: 3, day: 18, name: "Good Friday" },
-      { month: 3, day: 21, name: "Easter Monday" },
-      { month: 2, day: 30, name: "Eid al-Fitr" },
-      { month: 5, day: 6, name: "Eid al-Adha" },
-    ],
-    2026: [
-      { month: 3, day: 3, name: "Good Friday" },
-      { month: 3, day: 6, name: "Easter Monday" },
-      { month: 2, day: 20, name: "Eid al-Fitr" },
-      { month: 4, day: 27, name: "Eid al-Adha" },
-    ],
-    2027: [
-      { month: 2, day: 26, name: "Good Friday" },
-      { month: 2, day: 29, name: "Easter Monday" },
-      { month: 2, day: 9, name: "Eid al-Fitr" },
-      { month: 4, day: 16, name: "Eid al-Adha" },
-    ]
-  }
-  return [...fixed, ...(movable[year] || [])]
-}
-
-function isHolidayDayFallback(dateObj) {
-  if (!dateObj) return null
-  const holidays = getNigerianHolidaysFallback(dateObj.getFullYear())
-  const found = holidays.find(h => h.month === dateObj.getMonth() && h.day === dateObj.getDate())
-  return found || null
-}
-
-/* useExit — v22 exit animations: keeps a closing panel mounted for `ms`
-   so it can animate back out the way it came. Returns { mounted, closing }.
-   Re-opening during the exit cancels it (the panel just flips back to dd-in). */
-function useExit(open, ms = 300) {
-  const [state, setState] = useState({ mounted: open, closing: false })
-  useEffect(() => {
-    if (open) {
-      if (!state.mounted || state.closing) setState({ mounted: true, closing: false })
-      return
-    }
-    if (state.mounted && !state.closing) {
-      setState({ mounted: true, closing: true })
-      const t = setTimeout(() => setState({ mounted: false, closing: false }), ms)
-      return () => clearTimeout(t)
-    }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps — only reacts to `open` flips
-  return state
-}
-
-/* v23.1 — neutral person avatar for Settings (no photos by design). */
-function NeutralAvatar({ size = 46 }) {
-  return (
-    <span className="sp-neutral-avatar" style={{ width: size, height: size }} aria-hidden="true">
-      <svg viewBox="0 0 24 24" width={Math.round(size * 0.52)} height={Math.round(size * 0.52)} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        <circle cx="12" cy="8.2" r="3.6" />
-        <path d="M4.8 19.6c1.4-3.2 4-4.8 7.2-4.8s5.8 1.6 7.2 4.8" />
-      </svg>
-    </span>
-  )
-}
-
-// v23.1 — compact reminder-day summary for Settings ("Mon–Fri", "Wed · Sat–Sun", …)
-function remDaysShort(days) {
-  if (!days || !days.length) return 'no days'
-  if (days.length === 7) return 'Every day'
-  const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  const order = [1, 2, 3, 4, 5, 6, 0] // Monday-first
-  const inSet = d => days.includes(d)
-  let out = ''
-  let i = 0
-  while (i < 7) {
-    if (!inSet(order[i])) { i += 1; continue }
-    let j = i
-    while (j + 1 < 7 && inSet(order[j + 1])) j += 1
-    out += (out ? ' · ' : '') + (i === j ? names[order[i]] : `${names[order[i]]}–${names[order[j]]}`)
-    i = j + 1
-  }
-  return out
-}
-// v23.1 — "18:00" → "6:00 PM" (local time, as stored)
-function time12(t) {
-  const [h, m] = String(t || '').split(':').map(Number)
-  if (isNaN(h) || isNaN(m)) return t || ''
-  const ap = h >= 12 ? 'PM' : 'AM'
-  const hh = h % 12 === 0 ? 12 : h % 12
-  return `${hh}:${String(m).padStart(2, '0')} ${ap}`
-}
 
 export default function App() {
   const [currentDate, setCurrentDate] = useState(() => new Date())
-  const [view, setView] = useState('month')
+
   // The PERSONAL tracker's days. Renamed from `attendance` in Phase 5: for a
   // worker linked to a workplace this is no longer what the app shows or pays
   // from, and a variable called `attendance` holding data that is not the
@@ -352,6 +108,7 @@ export default function App() {
   const [profileName, setProfileName] = useState('')
   const [profileSaving, setProfileSaving] = useState(false)
 
+
   const [theme, setTheme] = useState(() => {
     try {
       const v = localStorage.getItem('work_tracker_theme')
@@ -378,6 +135,17 @@ export default function App() {
   // v25 employer: which side of the ledger this account is on. Either, both,
   // or neither — an owner who also works days is both.
   const [roles, setRoles] = useState(null)
+
+  /* The view is the address now (Phase 3). `homeViewFor()` still decides where
+     an account belongs — it always did — but its answer now applies on load as
+     well as at sign-in, so a business account stops landing on the personal
+     tracker and then having to find its way to its own workspace. */
+  const { path } = useRoute()
+  const view = shellViewFor(path) || homeViewFor(roles)
+  const setView = useCallback((next) => navigate(pathForView(next)), [])
+  /* The tab says where you are, which is what makes a phone's window list
+     readable when four DayPay tabs are open. */
+  useEffect(() => { document.title = `DayPay — ${titleFor(path)}` }, [path])
   // The workplace record (public.day_records) for the signed-in worker, keyed
   // by date. null = not fetched yet, {} = fetched and empty: the difference is
   // what stops a slow connection looking like a wiped calendar.
@@ -397,6 +165,37 @@ export default function App() {
   const shareX = useExit(showShareMenu, 240)
   const yearShareX = useExit(showYearShareMenu, 240)
   const settingsX = useExit(showSettings, 380)
+
+  /* More → Settings is an address (Phase 3), and the settings page is an
+     overlay owned by this shell, so the address is what opens it. Closing it
+     returns to More rather than leaving an address pointing at a screen that is
+     no longer on top — otherwise the back button would appear to do nothing.
+     Notifications is the same page opened on the reminders category, because
+     that is the only thing "notifications" means here. */
+    const settingsAddressed = path === MORE.settings
+      || path === MORE.notifications
+      || settingsCategoryFor(path) !== null
+    useEffect(() => {
+      if (!settingsAddressed) return
+      if (path === MORE.notifications) spCatInitRef.current = 'reminders'
+      setShowSettings(true)
+      /* The ADDRESS decides which drawer is open: `/more/settings/earnings` is
+         Settings with Earnings showing. That is what puts the step into the
+         browser's own history, so the phone's Back button steps out of a category
+         instead of closing the app. A category the address names wins, then a deep
+         link's own target, then the plain list. */
+      setSpCat(settingsCategoryFor(path) || spCatInitRef.current || null)
+      spCatInitRef.current = null
+    }, [path, settingsAddressed])
+
+    /* Closing puts the address back to More, and REPLACES it rather than pushing:
+       pushing leaves an entry pointing at a screen that is no longer on top, so the
+       next Back re-opens Settings instead of going up — the reader presses back and
+       watches the app walk forward. */
+    const closeSettings = useCallback(() => {
+      setShowSettings(false)
+      if (settingsAddressed) navigate(EMPLOYER.more, { replace: true })
+    }, [settingsAddressed])
   const authX = useExit(showAuth, 300)
   const recoveryX = useExit(showRecovery, 300)
   const editX = useExit(!!editingKey, 300)
@@ -537,8 +336,10 @@ export default function App() {
       setRateDraft(migratePeriods(settings.ratePeriods, s, earliest, monthStart))
       setRateForm(null)
       setSpFold({ pay: false })
-      setSpCat(spCatInitRef.current || null) // v23.1: land on the main list — or a deep-linked category (v23.2)
-      spCatInitRef.current = null
+      /* Which drawer is open is the ADDRESS's business now, not this effect's —
+         see the settings effect above. The ref survives for the one caller with no
+         address of its own: the reminder nudge, which opens Reminders over an app
+         that has no employer destination to route to. */
       setEarnHistoryOpen(false)
     }
   }, [showSettings]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -2108,6 +1909,22 @@ export default function App() {
 
   const displayName = user?.user_metadata?.full_name || profileName || user?.email?.split('@')[0] || ''
 
+    /* The greeting's own name, which is NOT the same thing as `displayName`.
+       displayName falls back to the local part of the email address, which is
+       right for a payslip filename and wrong for a greeting: it said
+       "Hi, infopromptpilot", a handle that reads like a username rather than a
+       person, while the line underneath showed the same email address again. So
+       the greeting uses a real name when the account has one and no name at all
+       when it does not — never the email. */
+    const greetingName = user?.user_metadata?.full_name || profileName || ''
+
+    /* "Sep 2026", not the raw key "2026-09". */
+    const startLabel = (() => {
+      if (!startMonthKey) return ''
+      const { year: sy, month: sm } = parseMonthKey(startMonthKey)
+      return `${getMonthName(sm, true)} ${sy}`
+    })()
+
   const statusConfig = {
     active: { label: 'Active', desc: 'Editable', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--daypay-green)"><circle cx="12" cy="12" r="8"/></svg>, color: '#16A34A' },
     locked: { label: 'Locked', desc: 'Read only — Final', icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>, color: '#a1a1aa' },
@@ -2171,9 +1988,8 @@ export default function App() {
     return { paydayDay: pDay, paydayDate, daysToPayday, remainingWeekdays, projectedTotal, nextRate, ratesMixed, nextPaydayDate, daysToNextPayday }
   }, [year, month, realCurrentDate, settings.paydayDay, settings.ratePeriods, settings.dailyRate, monthlyStats.total, attendance, holidaysMap])
 
-  return (
-    <div className="app-root">
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Geist+Mono:wght@400;500;600&display=swap');`}</style>
+    return (
+      <div className="app-root">
 
       {/* DayPay motion layer — success toast (visual only, confirmed saves only) */}
       {dpToast && (
@@ -2279,7 +2095,7 @@ export default function App() {
               <span className={`sync-badge ${syncStatus}`}>{syncStatus==='syncing'?'syncing…':syncStatus==='synced'?'synced ✓':'error'}</span>
             )}
           </div>
-          <div className="header-right" style={{display:'flex', gap:8, alignItems:'center'}} ref={hamburgerMenuRef}>
+          <div className="header-right dp-gap-8" style={{ display:'flex', alignItems:'center' }} ref={hamburgerMenuRef}>
             <button className="icon-btn hamburger-btn" onClick={()=>setShowHamburgerMenu(!showHamburgerMenu)} aria-label="Menu" title="Menu">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
@@ -2355,37 +2171,68 @@ export default function App() {
           </div>
         )}
 
-        {user && displayName && (
-          <div className="welcome-banner">
-            <div className="welcome-avatar">{displayName.charAt(0).toUpperCase()}</div>
-            <div className="welcome-text">
-              <span className="welcome-name">Hi, {displayName}</span>
-              <span className="welcome-sub">{user.email} · {startMonthKey ? `Started ${startMonthKey}` : ''}</span>
+          {user && displayName && (
+            <div className="welcome-banner">
+              <div className="welcome-avatar">{(greetingName || displayName).charAt(0).toUpperCase()}</div>
+              <div className="welcome-text">
+                <span className="welcome-name">{greetingName ? `Hi, ${greetingName}` : 'Hi there'}</span>
+                <span className="welcome-sub">
+                  {user.email}
+                  {startLabel ? ` · Started ${startLabel}` : ''}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* The Month / Year / Join / Staff switcher, which lives here in the app
+              shell and not in any one screen. It is not rendered while the Staff
+              view is open, because the Roster screen carries its own tab bar and
+              two stacked bars with two different selected styles read as one
+              broken control. The buttons themselves are untouched below — only
+              this wrapper is conditional. */}
+          {/* This switcher is the personal tracker's own navigation, and the
+              tracker is the product for somebody without an employer account.
+              An employer has the four destinations and about them the brief is
+              unambiguous — one navigation, not two stacked bars with two
+              different selected styles. For a business account the tracker is
+              reached from More and carries a way back (below), so nothing here
+              became unreachable. */}
+          {view !== 'staff' && !(user && roles?.isBusiness) && (
+          <div className="seg-wrap">
+            <div className="segmented">
+              <button className={view==='month'?'active':''} onClick={()=>setView('month')}>Month</button>
+              <button className={view==='year'?'active':''} onClick={()=>setView('year')}>Year</button>
+              {user && (
+                <button className={view==='me'?'active':''} onClick={()=>setView('me')}>
+                  {roles?.employee ? 'My work' : 'Join'}
+                </button>
+              )}
+              {/* Reachable only for an account that is a business AND is not
+                  looking at the employer workspace — which, now that the four
+                  destinations are that account's navigation, is nobody. It is
+                  kept because it was explicitly asked for: the DayPay switcher's
+                  controls stay in the codebase even where they are not laid out.
+                  Say the word and it goes. */}
+              {user && roles?.isBusiness && (
+                <button className={view==='staff'?'active':''} onClick={()=>setView('staff')}>Staff</button>
+              )}
             </div>
           </div>
-        )}
+          )}
 
-        <div className="seg-wrap">
-          <div className="segmented">
-            <button className={view==='month'?'active':''} onClick={()=>setView('month')}>Month</button>
-            <button className={view==='year'?'active':''} onClick={()=>setView('year')}>Year</button>
-            {user && (
-              <button className={view==='me'?'active':''} onClick={()=>setView('me')}>
-                {roles?.employee ? 'My work' : 'Join'}
-              </button>
-            )}
-            {user && roles?.isBusiness && (
-              <button className={view==='staff'?'active':''} onClick={()=>setView('staff')}>Staff</button>
-            )}
-          </div>
-        </div>
+        {/* The tracker, opened from More by an employer, needs a way up — and it
+            is the same control the More sub-screens use, so going back looks and
+            works the same wherever you are (§41). */}
+        {user && roles?.isBusiness && (view === 'month' || view === 'year') && (
+          <BackLink to={EMPLOYER.more} />
+        )}
 
         <div key={view} className="view-wrap">
         {view==='staff' && roles?.isBusiness ? (
           isSupabaseConfigured && user ? (
             <EmployerWorkspace />
           ) : (
-            <div className="ew-empty" style={{ marginTop: 14 }}>
+            <div className="ew-empty dp-mt-16">
               <div className="ew-empty-title">Sign in to manage staff</div>
               <p className="ew-empty-body">
                 The staff roster lives in your account so it stays in sync across
@@ -2400,7 +2247,7 @@ export default function App() {
               onChanged={refreshRoles}
             />
           ) : (
-            <div className="ew-empty" style={{ marginTop: 14 }}>
+            <div className="ew-empty dp-mt-16">
               <div className="ew-empty-title">Sign in to see your work</div>
               <p className="ew-empty-body">
                 Your days and pay live in your account, so they follow you across
@@ -2418,10 +2265,15 @@ export default function App() {
               })()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 18-6-6 6-6"/></svg></button>
               <div className="month-title">
                 <span className="month-name">{getMonthName(month)}</span>
-                <span className="year-name" style={{display:'flex', gap:6, alignItems:'center'}}>
+                <span className="year-name dp-gap-8" style={{ display:'flex', alignItems:'center' }}>
                   {year}
                   <span className={`status-dot ${monthStatus}`} title={statusConfig[monthStatus]?.label} />
-                  {startMonthKey && monthKey(year, month)===startMonthKey && <span style={{fontSize:'9px', background:'var(--daypay-navy)', border:'1px solid var(--daypay-navy)', padding:'1px 5px', borderRadius:4, marginLeft:4, color:'#ffffff'}}>START</span>}
+                  {startMonthKey && monthKey(year, month)===startMonthKey && (
+                      /* The month tracking began. It was 9px, ALL CAPS and inline-styled —
+                         the smallest text in the app, and the one badge outside the stamp
+                         family. (Phase 16.) */
+                      <span className="mini-stamp start" title="The month you started tracking">Start</span>
+                    )}
                 </span>
               </div>
               <button className="nav-btn" onClick={goNextMonth}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
@@ -2509,7 +2361,7 @@ export default function App() {
             ) : isEditable || monthStatus==='locked' || linked ? (
             <>
             <div className="weekdays">
-              {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((w,idx)=><div key={w} className={idx>=5?'weekend-label':''}>{w}</div>)}
+              {WEEKDAYS.map((w,idx)=><div key={w} className={idx>=5?'weekend-label':''}>{w}</div>)}
             </div>
 
             <div className={`calendar-grid ${!isEditable ? 'locked-grid' : ''}`}>
@@ -2588,8 +2440,8 @@ export default function App() {
               <div className="summary-top">
                 <div className="summary-amount dp-count">
                   <AnimatedAmount value={monthlyStats.total} />
-                  {monthStatus==='locked' && <span className="final-badge">FINAL</span>}
-                  {monthStatus==='active' && <span className="active-badge">IN PROGRESS</span>}
+                  {monthStatus==='locked' && <span className="final-badge">Final</span>}
+                  {monthStatus==='active' && <span className="active-badge">In progress</span>}
                 </div>
                 {monthStatus==='active' && (
                   <button type="button" className="payday-line" onClick={()=>setSumFold(true)} aria-expanded={sumFold} title="Open details">
@@ -2679,12 +2531,12 @@ export default function App() {
                 <div className="summary-row"><span>Overtime <span className="mini-stamp ot">OT 2×</span></span><span className="mono">{monthlyStats.otAmt ? `${monthlyStats.overtimeDays} × ${formatNaira(monthlyStats.otAmt)}` : `${monthlyStats.overtimeDays}d · mixed`}</span></div>
                 <div className="summary-row"><span>Holiday <span className="mini-stamp hol">HOL 2×</span></span><span className="mono">{monthlyStats.holidayAmt ? `${monthlyStats.holidayDays} × ${formatNaira(monthlyStats.holidayAmt)}` : `${monthlyStats.holidayDays}d · mixed`}</span></div>
                 <div className="summary-row"><span>Leave <span className="mini-stamp lv">LV</span></span><span className="mono">{monthlyStats.leaveDays}d · {formatNaira(monthlyStats.leavePay)}</span></div>
-                <div className="summary-row" style={{marginTop:4, paddingTop:10, borderTop:'1px dashed var(--border)'}}><span><strong>Monthly {monthStatus==='locked'?'Final Salary':'Total'}</strong></span><span className="mono" style={{fontWeight:800, color:'var(--daypay-green)', fontSize:'14px'}}>{formatNaira(monthlyStats.total)}</span></div>
+                <div className="summary-row dp-mt-4" style={{ paddingTop:10, borderTop:'1px dashed var(--border)' }}><span><strong>Monthly {monthStatus==='locked'?'Final Salary':'Total'}</strong></span><span className="mono" style={{fontWeight:800, color:'var(--daypay-green)', fontSize:'14px'}}>{formatNaira(monthlyStats.total)}</span></div>
               </div>
               </>)}
 
-              <div style={{position:'relative', marginTop:14}} ref={shareMenuRef}>
-                <button className="btn-secondary" style={{width:'100%', height:40, display:'flex', alignItems:'center', justifyContent:'center', gap:8}} onClick={()=>{ setShowYearShareMenu(false); setShowShareMenu(v=>!v) }} disabled={(monthlyStats.days + monthlyStats.leaveDays)===0}>
+              <div className="dp-mt-16" style={{ position:'relative' }} ref={shareMenuRef}>
+                <button className="btn-secondary dp-gap-8" style={{ width:'100%', height:40, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={()=>{ setShowYearShareMenu(false); setShowShareMenu(v=>!v) }} disabled={(monthlyStats.days + monthlyStats.leaveDays)===0}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
                   Share Payslip
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" style={{marginLeft:2, opacity:.6}}><polyline points="6 9 12 15 18 9"/></svg>
@@ -2722,10 +2574,10 @@ export default function App() {
                 </div>
               ) : canEdit ? (
                 <div className="empty-hint">
-                  Tap weekday to log OK, edit icon to OT. Weekends auto 2×. Holidays auto HOL 2×. Current month editable.
+                  Tap a weekday to record work, or the pencil to mark overtime. Weekends and holidays count 2×, and the current month stays editable.
                 </div>
               ) : null}
-              {!linked && !isEditable && <div className="empty-hint locked-hint" style={{display:'flex', alignItems:'center', justifyContent:'center', gap:6}}>
+              {!linked && !isEditable && <div className="empty-hint locked-hint dp-gap-8" style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
                 {monthStatus==='locked' ? (
                   <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Locked read-only. Final salary includes OT + holidays.</>
                 ) : monthStatus==='future' ? (
@@ -2783,7 +2635,7 @@ export default function App() {
                     <div className="summary-row" key={r.label}><span>{r.label} <span className={`mini-stamp ${r.stamp}`}>{r.stampText}</span></span><span className="yb-vals"><span className="mono">{formatNaira(r.g.amount)}</span><span className="yb-sub mono">{r.g.actual} actual · {fmtEquiv(r.g.equiv)} equiv</span></span></div>
                   ))}
                   <div className="summary-row"><span>Leave <span className="mini-stamp lv">LV</span></span><span className="yb-vals"><span className="mono">{formatNaira(yearSlip.model.leavePay)}</span><span className="yb-sub mono">{yearSlip.model.leaveDays}d{yearSlip.model.leaveDays>0 ? ' · paid separately' : ''}</span></span></div>
-                  <div className="summary-row" style={{marginTop:4, paddingTop:10, borderTop:'1px dashed var(--border)'}}><span><strong>Yearly total</strong></span><span className="yb-vals"><span className="mono" style={{fontWeight:800, color:'var(--daypay-green)', fontSize:'14px'}}>{formatNaira(yearSlip.model.total)}</span><span className="yb-sub mono">{yearSlip.model.actualDays} actual · {fmtEquiv(yearSlip.model.totalEquiv)} equiv</span></span></div>
+                  <div className="summary-row dp-mt-4" style={{ paddingTop:10, borderTop:'1px dashed var(--border)' }}><span><strong>Yearly total</strong></span><span className="yb-vals"><span className="mono" style={{fontWeight:800, color:'var(--daypay-green)', fontSize:'14px'}}>{formatNaira(yearSlip.model.total)}</span><span className="yb-sub mono">{yearSlip.model.actualDays} actual · {fmtEquiv(yearSlip.model.totalEquiv)} equiv</span></span></div>
                 </div>
               </div>
 
@@ -2799,7 +2651,7 @@ export default function App() {
                   return (
                     <div key={m.month} className={`ab-row ${m.status}`}>
                       <span className="ab-month">{getMonthName(m.month, true)}</span>
-                      <span className={`ab-status ${m.status}`} style={{display:'flex', alignItems:'center', gap:4}}>
+                      <span className={`ab-status dp-gap-4 ${m.status}`} style={{ display:'flex', alignItems:'center' }}>
                         {m.status==='locked' ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : m.status==='active' ? <svg width="10" height="10" viewBox="0 0 24 24" fill="var(--daypay-green)"><circle cx="12" cy="12" r="8"/></svg> : m.status==='future' ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>}
                         <span>{m.status==='locked'?'Locked':m.status==='active'?'Active':m.status==='future'?'Upcoming':'Before start'}</span>
                       </span>
@@ -2820,8 +2672,8 @@ export default function App() {
                 )}
               </div>
 
-              <div style={{position:'relative', marginTop:14}} ref={yearShareMenuRef}>
-                <button className="btn-secondary" style={{width:'100%', height:40, display:'flex', alignItems:'center', justifyContent:'center', gap:8}} onClick={()=>{ setShowShareMenu(false); setShowYearShareMenu(v=>!v) }} disabled={(yearlyStats.days + yearlyStats.leaveDays)===0}>
+              <div className="dp-mt-16" style={{ position:'relative' }} ref={yearShareMenuRef}>
+                <button className="btn-secondary dp-gap-8" style={{ width:'100%', height:40, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={()=>{ setShowShareMenu(false); setShowYearShareMenu(v=>!v) }} disabled={(yearlyStats.days + yearlyStats.leaveDays)===0}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
                   Share Yearly Summary
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" style={{marginLeft:2, opacity:.6}}><polyline points="6 9 12 15 18 9"/></svg>
@@ -2878,8 +2730,8 @@ export default function App() {
                   </div>
                   <div className="mr-right">
                     <span className="mr-amount mono">{m.total>0?formatNaira(m.total):'₦0'}</span>
-                    {m.status==='locked' && <span className="mr-final">FINAL</span>}
-                    {m.status==='active' && <span className="mr-active">ACTIVE</span>}
+                    {m.status==='locked' && <span className="mr-final">Final</span>}
+                    {m.status==='active' && <span className="mr-active">Active</span>}
                     <span className="mr-arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m9 18 6-6-6-6"/></svg></span>
                   </div>
                 </button>
@@ -2908,7 +2760,7 @@ export default function App() {
                     <div className="info-row"><span>Current</span><span className="mono" style={{fontWeight:700}}>{editingRecord.isLeave ? leaveLabel(editingRecord.leaveType) : editingRecord.isOvertime ? 'OT 2×' : editingRecord.isWeekend ? 'Weekend 2×' : editingRecord.isHoliday ? 'Holiday 2×' : 'Regular OK'} · {formatNaira(editingRecord.amount)}</span></div>
                     <div className="info-row sub"><span>Date</span><span className="mono">{editingRecord.date}</span></div>
                   </div>
-                  <div style={{marginTop:16, display:'flex', flexDirection:'column', gap:10}}>
+                  <div className="dp-mt-16 dp-gap-12" style={{ display:'flex', flexDirection:'column' }}>
                     <button className={`ot-option ${!editingRecord.isWeekend && !editingRecord.isOvertime && !editingRecord.isHoliday && !editingRecord.isLeave ? 'selected' : ''}`} onClick={()=>handleOvertimeAction('regular')}>
                       <span className="ot-opt-left"><span className="mini-stamp ok">OK</span> Regular</span>
                       <span className="mono">{formatNaira(editingRate.dailyRate)}</span>
@@ -2947,16 +2799,23 @@ export default function App() {
       {settingsX.mounted && (
         <div className={`phone-frame sp-page${settingsX.closing ? ' sp-out' : ''}`}>
           <header className="sp-header">
-            <button className="sp-back" onClick={()=> (spCat ? setSpCat(null) : setShowSettings(false))} aria-label="Back" title={spCat ? 'Back to Settings' : 'Back to app'}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-            </button>
+              {/* §41: the ONE shared Back control, not a second one that happens to
+                  live in a header. Inside a category the parent is a real address, so
+                  BackLink draws a link; on the Settings index the way out is this
+                  shell's own overlay, so it draws a button. Making that distinction is
+                  the component's job, which is exactly why there is only one. */}
+              {settingsCategoryFor(path) !== null
+                ? <BackLink to={MORE.settings} />
+                : <BackLink onBack={closeSettings} />}
             {spCat === null ? (
               <div className="sp-title">
                 <span className="sp-title-main">Settings</span>
                 <span className="sp-title-sub">Manage your DayPay preferences.</span>
               </div>
             ) : (
-              <span className="sp-crumb">Settings</span>
+              <span className="sp-crumb">
+                {spCat && SP_CAT_NAMES[spCat] ? `Settings · ${SP_CAT_NAMES[spCat]}` : 'Settings'}
+              </span>
             )}
             {isSupabaseConfigured && syncStatus!=='idle' && (
               <span className={`sync-badge ${syncStatus}`}>{syncStatus==='syncing'?'syncing…':syncStatus==='synced'?'synced ✓':'error'}</span>
@@ -2964,9 +2823,12 @@ export default function App() {
           </header>
 
           {spCat === null ? (
-            <div className="sp-scroll">
+            /* `sp-cats` is the category LIST, not the page: at 820px the six
+               categories sit two to a row (Phase 15), while a category's own body
+               keeps the single reading column it has on a phone. */
+            <div className="sp-scroll sp-cats">
               {/* v23.1 — profile card: neutral avatar, name only, tap to open Profile */}
-              <button type="button" className="sp-prof-card" onClick={()=>setSpCat('profile')} aria-label="Open Profile">
+              <button type="button" className="sp-prof-card" onClick={()=>navigate(settingsPath('profile'))} aria-label="Open Profile">
                 {user ? <NeutralAvatar size={46} /> : (
                   <span className="sp-avatar sp-avatar-ghost sp-prof-avatar">
                     {isSupabaseConfigured ? (
@@ -2983,18 +2845,38 @@ export default function App() {
                 <span className="sp-card-chev" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m9 18 6-6-6-6"/></svg></span>
               </button>
 
-              <button type="button" className="sp-cat-card" onClick={()=>setSpCat('profile')}>
-                <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="12" cy="8.2" r="3.6"/><path d="M4.8 19.6c1.4-3.2 4-4.8 7.2-4.8s5.8 1.6 7.2 4.8"/></svg></span>
+{/* Phase 8 — the Profile CARD above IS the door to Profile: it carries the
+                  name and the account state and opens the same page. A second row
+                  saying "Profile" right beside it was two doors into one room, and
+                  the reader has to work out which is which. */}
+
+{/* Phase 17 — the workplace, and only for a business account. The rule is named
+                  in employerLogic.js so it can be tested without a database; a worker has no
+                  business row to name, so the door is not drawn rather than drawn and
+                  refused. The name it saves is what their own header shows instead of
+                  "My team". */}
+
+              {workplaceVisible(roles) && (
+                <WorkplaceRow name={roles?.businessName} onOpen={()=>navigate(settingsPath('workplace'))} />
+              )}
+
+              {/* Connect — the cloud half of the account. Profile says WHO you are
+                  and Your data says what you can TAKE OUT; neither said whether
+                  this device is actually talking to your record, or offered the
+                  one action that changes it. It sits above "Your own tracker"
+                  because connecting is not a personal-tracker concern. */}
+              <button type="button" className="sp-cat-card" onClick={()=>navigate(settingsPath('connect'))}>
+                <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.2 10.5 3.75 3.75 0 0 0 7 19h10.5Z"/><path d="m9.5 14.6 2.4 2.4 4-4.6"/></svg></span>
                 <span className="sp-cat-body">
                   <span className="sp-cat-line">
-                    <span className="sp-cat-name">Profile</span>
-                    <span className="sp-cat-sum">{user ? 'Signed in' : (isSupabaseConfigured ? 'Sign in' : 'Local')}</span>
+                    <span className="sp-cat-name">Connect</span>
+                    <span className="sp-cat-sum">{user ? 'Connected' : (isSupabaseConfigured ? 'Ready — sign in' : 'Local only')}</span>
                   </span>
-                  <span className="sp-cat-desc">Personal and account information.</span>
+                  <span className="sp-cat-desc">Cloud sync, account and sign in.</span>
                 </span>
               </button>
 
-              <button type="button" className="sp-cat-card" onClick={()=>setSpCat('appearance')}>
+              <button type="button" className="sp-cat-card" onClick={()=>navigate(settingsPath('appearance'))}>
                 <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 19.7l-.7-1.8-1.8-.7 1.8-.7L19 15Z"/></svg></span>
                 <span className="sp-cat-body">
                   <span className="sp-cat-line">
@@ -3005,7 +2887,15 @@ export default function App() {
                 </span>
               </button>
 
-              <button type="button" className="sp-cat-card" onClick={()=>setSpCat('earnings')}>
+              {/* §39: inside Settings, "Earnings" means the employer's OWN day rate
+                  and goal, and "Reminders" means reminders to record their own days —
+                  the personal tracker that rides along with the employer's app. The More
+                  pane already names that half ("Your own tracker"); nothing on this screen
+                  did, so an employer looking for something about their workers opened
+                  their own pay. One label; no re-ordering, nothing hidden. */}
+              <div className="sp-section-label">Your own tracker</div>
+
+              <button type="button" className="sp-cat-card" onClick={()=>navigate(settingsPath('earnings'))}>
                 <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/></svg></span>
                 <span className="sp-cat-body">
                   <span className="sp-cat-line">
@@ -3016,7 +2906,7 @@ export default function App() {
                 </span>
               </button>
 
-              <button type="button" className="sp-cat-card" onClick={()=>setSpCat('reminders')}>
+              <button type="button" className="sp-cat-card" onClick={()=>navigate(settingsPath('reminders'))}>
                 <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
                 <span className="sp-cat-body">
                   <span className="sp-cat-line">
@@ -3027,18 +2917,18 @@ export default function App() {
                 </span>
               </button>
 
-              <button type="button" className="sp-cat-card" onClick={()=>setSpCat('data')}>
+              <button type="button" className="sp-cat-card" onClick={()=>navigate(settingsPath('data'))}>
                 <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg></span>
                 <span className="sp-cat-body">
                   <span className="sp-cat-line">
-                    <span className="sp-cat-name">Your Data</span>
+                    <span className="sp-cat-name">Your data</span>
                     <span className="sp-cat-sum">{user ? 'Cloud ✓' : (isSupabaseConfigured ? 'Sign in' : 'Local')}</span>
                   </span>
                   <span className="sp-cat-desc">Export your DayPay data.</span>
                 </span>
               </button>
 
-              <button type="button" className="sp-cat-card" onClick={()=>setSpCat('about')}>
+              <button type="button" className="sp-cat-card" onClick={()=>navigate(settingsPath('about'))}>
                 <span className="sp-cat-ico" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></span>
                 <span className="sp-cat-body">
                   <span className="sp-cat-line">
@@ -3092,6 +2982,64 @@ export default function App() {
                     {user && <p className="sp-hint">Your name appears on payslips, shares and your summary — saving updates it everywhere immediately.</p>}
                   </>
                 )}
+
+                {spCat === 'workplace' && (
+                  <Workplace
+                    name={roles?.businessName}
+                    onSaved={async (saved) => {
+                      /* The roles are re-read so every surface that shows the name shows
+                         the new one — the row behind this page included. */
+                      await refreshRoles()
+                      dpShowToast({ title: 'Workplace name saved', sub: saved })
+                    }}
+                  />
+                )}
+
+                {spCat === 'connect' && (() => {
+                  /* describeConfig() is the same reader the connection-check page
+                     uses: it never returns the key, only enough of it to say which
+                     KIND of key this build carries. A screen that says "Connected"
+                     without saying to WHAT is not an answer. */
+                  const cfg = describeConfig()
+                  const project = cfg.configured
+                    ? String(cfg.url).replace(/^https?:\/\//, '').split('/')[0]
+                    : null
+                  return (
+                    <>
+                      <div className="sp-section-label">Cloud sync</div>
+                      <div className="sp-card">
+                        <div className="sp-kv"><span>Connection</span><span className="sp-kv-val" style={{color: isSupabaseConfigured ? 'var(--green-ink)' : 'var(--danger)'}}>{isSupabaseConfigured ? (user ? 'Connected' : 'Ready — sign in') : 'Not configured'}</span></div>
+                        <div className="sp-kv"><span>Account</span><span className="sp-kv-val dp-ell">{user ? (displayName || user.email) : (isSupabaseConfigured ? 'Not signed in' : 'Local only')}</span></div>
+                        {project && <div className="sp-kv"><span>Project</span><span className="sp-kv-val dp-ell">{project}</span></div>}
+                        {cfg.configured && <div className="sp-kv"><span>Key</span><span className="sp-kv-val">{cfg.keyKind}</span></div>}
+                        <div className="sp-kv"><span>Sync</span><span className="sp-kv-val">{syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'synced' ? 'Synced ✓' : syncStatus === 'error' ? 'Not reachable — will retry' : 'Idle'}</span></div>
+                      </div>
+
+                      <div className="sp-section-label">Account</div>
+                      <div className="sp-card">
+                        {user ? (
+                          <>
+                            <div className="sp-kv"><span>Signed in as</span><span className="sp-kv-val dp-ell">{user.email}</span></div>
+                            <div className="sp-export-row">
+                              <button type="button" className="sp-export-btn ghost" onClick={handleLogout}>Sign out</button>
+                            </div>
+                          </>
+                        ) : isSupabaseConfigured ? (
+                          <div className="sp-export-row">
+                            <button type="button" className="sp-export-btn primary" onClick={()=>{setAuthMode('signin'); setShowAuth(true)}}>Sign in</button>
+                            <button type="button" className="sp-export-btn ghost" onClick={()=>{setAuthMode('signup'); setShowAuth(true)}}>Create account</button>
+                          </div>
+                        ) : (
+                          <p className="sp-hint">This build carries no cloud project, so your record stays on this device. Nothing is lost — take a backup from Your data.</p>
+                        )}
+                      </div>
+
+                      <p className="sp-hint">{isSupabaseConfigured
+                        ? 'Signing in ties this device to your DayPay record. Every read and write is filtered by row-level security: a worker sees their own days, an employer sees their workforce, and neither can reach the other.'
+                        : 'DayPay works offline by design. Connecting is what lets one record follow you across devices.'}</p>
+                    </>
+                  )
+                })()}
 
                 {spCat === 'appearance' && (
                   <div className="sp-card sp-appear-card">
@@ -3336,7 +3284,7 @@ export default function App() {
                     <div className="sp-card sp-about-card">
                       <div className="sp-kv"><span>Works offline</span><span className="sp-kv-val" style={{color:'var(--green-ink)'}}>PWA ready</span></div>
                       <div className="sp-kv"><span>Cloud sync</span><span className="sp-kv-val" style={{color: isSupabaseConfigured ? 'var(--green-ink)' : 'var(--danger)'}}>{isSupabaseConfigured ? (user ? 'Connected' : 'Ready — sign in') : 'Not configured'}</span></div>
-                      <div className="sp-kv"><span>Running at</span><span className="sp-kv-val">{(typeof window !== 'undefined' && window.location.hostname) || 'this device'}</span></div>
+                      <div className="sp-kv"><span>Running at</span><span className="sp-kv-val dp-ell">{(typeof window !== 'undefined' && window.location.hostname) || 'this device'}</span></div>
                     </div>
                     <div className="sp-about-copy">© 2026 Akaninyene — All rights reserved.<br/>DayPay — Know what your work is worth.</div>
                   </div>
@@ -3357,7 +3305,7 @@ export default function App() {
         <div className={`modal-overlay${authX.closing ? ' mo-out' : ''}`} onClick={()=>{setShowAuth(false); setShowForgot(false); setForgotSent(false)}}>
           <div className={`modal${authX.closing ? ' m-out' : ''}`} onClick={e=>e.stopPropagation()}>
             <div className="modal-header">
-              <div style={{display:'flex', alignItems:'center', gap:10}}>
+              <div className="dp-gap-12" style={{ display:'flex', alignItems:'center' }}>
                 <svg className="hdr-mark" viewBox="0 0 48 48" width="21" height="21" role="img" aria-label="DayPay logo">
                   <rect x="15" y="16" width="26" height="26" rx="7" fill="var(--daypay-green)"/>
                   <rect x="7" y="8" width="26" height="26" rx="7" fill={isDarkAppearance ? '#0D1424' : '#FFFFFF'} stroke={isDarkAppearance ? '#2A3550' : '#0B1B32'} strokeWidth="4"/>
@@ -3367,8 +3315,8 @@ export default function App() {
               <button className="icon-btn small" onClick={()=>{setShowAuth(false); setShowForgot(false); setForgotSent(false)}}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
             </div>
             <div className="modal-body">
-              <div style={{textAlign:'center', marginBottom:18}}>
-                <span className="hdr-lockup" style={{justifyContent:'center', marginBottom:8}} title="DayPay - Know what your work is worth.">
+              <div className="dp-mb-20" style={{ textAlign:'center' }}>
+                <span className="hdr-lockup dp-mb-8" style={{ justifyContent:'center' }} title="DayPay - Know what your work is worth.">
                   <svg className="hdr-mark" viewBox="0 0 48 48" width="30" height="30" role="img" aria-label="DayPay logo">
                     <rect x="15" y="16" width="26" height="26" rx="7" fill="var(--daypay-green)"/>
                     <rect x="7" y="8" width="26" height="26" rx="7" fill={isDarkAppearance ? '#0D1424' : '#FFFFFF'} stroke={isDarkAppearance ? '#2A3550' : '#0B1B32'} strokeWidth="4"/>
@@ -3402,13 +3350,13 @@ export default function App() {
                         </button>
                       </div>
                       <label className="field-label">Full name</label>
-                      <div className="field-wrap" style={{marginBottom:12}}>
+                      <div className="field-wrap dp-mb-12">
                         <input className="field-input" type="text" required value={authForm.name} onChange={e=>setAuthForm({...authForm, name:e.target.value})} placeholder="e.g. John Doe" />
                       </div>
                     </>
                   )}
                   <label className="field-label">Email</label>
-                  <div className="field-wrap" style={{marginBottom:12}}>
+                  <div className="field-wrap dp-mb-12">
                     <input className="field-input" type="email" required value={authForm.email} onChange={e=>setAuthForm({...authForm, email:e.target.value})} placeholder="you@example.com" />
                   </div>
                   <label className="field-label">Password</label>
@@ -3417,7 +3365,7 @@ export default function App() {
                   </div>
                   {authMode==='signup' && authKind==='employee' && (
                     <>
-                      <label className="field-label" style={{marginTop:12}}>Employer invite code</label>
+                      <label className="field-label dp-mt-12">Employer invite code</label>
                       <div className="field-wrap">
                         <input
                           className="field-input"
@@ -3440,7 +3388,7 @@ export default function App() {
                     <button type="button" className="link-btn" onClick={()=>{setShowForgot(true); setForgotEmail(authForm.email); setForgotSent(false); setAuthError('')}}>Forgot password?</button>
                   )}
                   {authError && <div className="auth-error">{authError}</div>}
-                  <div className="modal-actions" style={{marginTop:18}}>
+                  <div className="modal-actions dp-mt-20">
                     <button type="button" className="btn-secondary" onClick={()=>{ if(authMode==='signup' && authKind){ setAuthKind(null); setAuthError('') } else { setAuthMode(authMode==='signin'?'signup':'signin'); setAuthError('') } }}>{authMode==='signin' ? 'Need account? Sign up' : authKind ? 'Back' : 'Have account? Sign in'}</button>
                     <button type="submit" className="btn-primary" disabled={authBusy}>{authBusy ? 'Please wait…' : authMode==='signin' ? 'Sign in' : authKind==='employee' ? (accountMade ? 'Join' : 'Sign up and join') : 'Sign up'}</button>
                   </div>
@@ -3449,12 +3397,12 @@ export default function App() {
               ) : (
                 <form onSubmit={handleForgotPassword}>
                   <label className="field-label">Reset password</label>
-                  <p className="field-hint" style={{marginBottom:12}}>Enter email for reset link.</p>
-                  <div className="field-wrap" style={{marginBottom:12}}>
+                  <p className="field-hint dp-mb-12">Enter email for reset link.</p>
+                  <div className="field-wrap dp-mb-12">
                     <input className="field-input" type="email" required value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)} placeholder="you@example.com" />
                   </div>
                   {forgotSent ? <div className="success-banner">✅ Reset link sent! Check email.</div> : authError && <div className="auth-error">{authError}</div>}
-                  <div className="modal-actions" style={{marginTop:18}}>
+                  <div className="modal-actions dp-mt-20">
                     <button type="button" className="btn-secondary" onClick={()=>setShowForgot(false)}>Back</button>
                     <button type="submit" className="btn-primary" disabled={forgotBusy || forgotSent}>{forgotBusy ? 'Sending…' : forgotSent ? 'Sent ✓' : 'Send link'}</button>
                   </div>
@@ -3472,11 +3420,11 @@ export default function App() {
             <div className="modal-body">
               <form onSubmit={handleRecoverySubmit}>
                 <label className="field-label">New password</label>
-                <div className="field-wrap" style={{marginBottom:12}}>
+                <div className="field-wrap dp-mb-12">
                   <input className="field-input" type="password" required minLength={6} value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="••••••••" />
                 </div>
                 {recoveryError && <div className="auth-error">{recoveryError}</div>}
-                <div className="modal-actions" style={{marginTop:18}}>
+                <div className="modal-actions dp-mt-20">
                   <button type="button" className="btn-secondary" onClick={()=>setShowRecovery(false)}>Cancel</button>
                   <button type="submit" className="btn-primary" disabled={recoveryBusy}>{recoveryBusy ? 'Saving…' : 'Save'}</button>
                 </div>

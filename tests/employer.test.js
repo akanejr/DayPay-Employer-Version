@@ -8,6 +8,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   formatNaira, initials, monthBounds, todayKey,
@@ -17,6 +18,7 @@ import {
   correctionSentence, correctionEffect, openRequestsByDate, monthGrid,
   auditLabel, auditTone, workerMonthTotals,
   periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
+  workplaceVisible,
 } from '../src/lib/employerLogic.js'
 import { payslipModel } from '../src/lib/payslip.js'
 import {
@@ -45,7 +47,7 @@ const day = (employee_id, { amount = 16000, kind = 'work', status = 'claimed', m
 
 import {
   ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus, isMissingFunction,
-  isValidPinShape, isValidCodeShape,
+  isValidPinShape, isValidCodeShape, isOfflineError,
 } from '../src/lib/employerLogic.js'
 
 
@@ -55,6 +57,66 @@ import {
    the rules around it are small and load-bearing. Two kinds of rule live here:
    what counts as a well-formed PIN in the browser, and how the app behaves
    when the migration has not been run yet. */
+
+describe('a fetch that never arrived is not a database error (Phase 14)', () => {
+  /* This app is used on a phone at a site, outdoors, on one bar of signal, so
+     "the request never got there" is the most likely way a read fails — and its
+     raw text is about the browser, not about the person reading it. The screen
+     says "TypeError: Failed to fetch" only if this classifier misses. */
+
+  test('every engine’s words for the same failure are recognised', () => {
+    const messages = [
+      'TypeError: Failed to fetch',                        // Chrome, Firefox, Edge
+      'Load failed',                                       // Safari (iOS)
+      'NetworkError when attempting to fetch resource.',   // Firefox, older
+      'Network request failed',                            // React Native
+      'fetch failed',                                      // Node/undici
+      'net::ERR_INTERNET_DISCONNECTED',                    // Chrome, offline
+      'The Internet connection appears to be offline.',    // iOS WebView
+    ]
+    for (const message of messages) {
+      assert.equal(isOfflineError(new TypeError(message)), true, `missed: ${message}`)
+    }
+  })
+
+  test('a database error is never mistaken for a connection problem', () => {
+    /* The distinction is load-bearing: "check your connection" sends somebody to
+       wave a phone in the air when the real answer is a migration that has not
+       been run, and it would hide the setup messages that exist for exactly that
+       case. A SQLSTATE settles it, so anything carrying one is not network. */
+    const database = [
+      { code: '42P01', message: 'relation "day_records" does not exist' },
+      { code: '42501', message: 'permission denied for table employees' },
+      { code: '42883', message: 'function employee_pin_status does not exist' },
+      { code: 'PGRST202', message: 'Could not find the function in the schema cache' },
+      { code: '23514', message: 'No rate period covers 2026-10-02' },
+      // A message that MENTIONS a fetch but carries a code is still a database
+      // error, and the code wins.
+      { code: '57014', message: 'canceling statement due to statement timeout in fetch failed job' },
+    ]
+    for (const error of database) {
+      assert.equal(isOfflineError(error), false, `misread: ${error.code} ${error.message}`)
+    }
+    assert.equal(isOfflineError(null), false)
+    assert.equal(isOfflineError(undefined), false)
+    assert.equal(isOfflineError(''), false)
+    assert.equal(isOfflineError({ message: 'That worker is not yours.' }), false)
+  })
+
+  test('it does not rewrite an error that already says something true', () => {
+    // The mapper only reaches this case after the SQLSTATE cases, and its own
+    // sentence must not claim the write failed: a request with no answer may
+    // still have landed, and telling an employer their day was not recorded when
+    // it was is worse than saying we do not know.
+    const source = readFileSync(new URL('../src/lib/employer.js', import.meta.url), 'utf8')
+    assert.ok(/isOfflineError\(error\)/.test(source),
+      'the mapper never asks whether the failure was the connection')
+    assert.ok(/Could not reach DayPay\. Check your connection\./.test(source),
+      'the connection failure has no sentence of its own')
+    assert.ok(!/isOfflineError[\s\S]{0,400}?(nothing was|not recorded|did not save|was not saved)/i.test(source),
+      'the connection message claims to know what the server did')
+  })
+})
 
 describe('a PIN must not spend an attempt just to be typed', () => {
   test('four digits is a PIN', () => {
@@ -209,6 +271,28 @@ describe('the account status an employer sees (§4)', () => {
     assert.equal(accountStatus(null).text, 'Not registered')
     assert.equal(accountStatus(undefined).registered, false)
     assert.equal(accountStatus({}).registered, false)
+  })
+})
+
+describe('who is offered a workplace to name (Phase 17, §20)', () => {
+  test('a business account is', () => {
+    assert.equal(workplaceVisible({ isBusiness: true, businessName: null }), true)
+  })
+
+  test('a worker is not, and is not shown a door that refuses', () => {
+    assert.equal(workplaceVisible({ isBusiness: false, employee: { id: 'e1' } }), false)
+  })
+
+  test('nor is a personal workspace, which is never granted business powers', () => {
+    assert.equal(workplaceVisible({ isBusiness: false, kind: 'personal' }), false)
+  })
+
+  test('an account whose roles have not loaded yet is not offered one', () => {
+    // `null` is what the shell holds for the first render. A door drawn on the
+    // strength of "not known yet" is a door that appears and then vanishes.
+    assert.equal(workplaceVisible(null), false)
+    assert.equal(workplaceVisible(undefined), false)
+    assert.equal(workplaceVisible({}), false)
   })
 })
 
@@ -798,7 +882,7 @@ describe('isMissingColumn', () => {
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
-import { dayBoard, unmetRates, monthFigures } from '../src/lib/employerLogic.js'
+import { dayBoard, unmetRates, monthFigures, filterPeople } from '../src/lib/employerLogic.js'
 
 const staff = [
   { id: 'a', full_name: 'James', job_title: 'Welder', status: 'active' },
@@ -1918,5 +2002,107 @@ describe('the invoice document', () => {
     assert.equal(M.totalText, '₦0')
     assert.deepEqual(M.rows, [])
     assert.equal(M.rowCount, 0)
+  })
+})
+
+// ── Finding a person ────────────────────────────────────────────────────────
+
+/* The roster's search. Every rule here is a way an employer actually types: a
+   first name on a phone keyboard with no accent, half a word, the trade instead
+   of the name, the contractor they work for. */
+describe('filterPeople', () => {
+  const people = [
+    { id: 'e1', full_name: 'Amina Yusuf', job_title: 'Welder', employee_user_id: 'u1' },
+    { id: 'e2', full_name: 'James Okon', job_title: 'Electric', employee_user_id: null },
+    { id: 'e3', full_name: 'Adé Bakare', job_title: null, employee_user_id: null },
+    { id: 'e4', full_name: 'Bassey Etim', job_title: 'Rigger', employee_user_id: null },
+  ]
+  const words = (e) => (e.id === 'e1' ? ['Topher'] : e.id === 'e2' ? ['Eddimore'] : [])
+  const find = (q) => filterPeople(people, q, words).map(e => e.full_name)
+
+  test('no search is not the same as no match', () => {
+    assert.equal(filterPeople(people, '', words).length, 4)
+    assert.equal(filterPeople(people, '   ', words).length, 4)
+    assert.equal(filterPeople(null, 'amina', words).length, 0)
+  })
+
+  test('case does not matter, and part of a word is enough', () => {
+    assert.deepEqual(find('AMINA'), ['Amina Yusuf'])
+    assert.deepEqual(find('ami'), ['Amina Yusuf'])
+    assert.deepEqual(find('ba'), ['Adé Bakare', 'Bassey Etim'])
+  })
+
+  test('the words may come in any order, and any word may match any field', () => {
+    assert.deepEqual(find('okon james'), ['James Okon'])
+    assert.deepEqual(find('topher weld'), ['Amina Yusuf'])
+  })
+
+  test('the trade and the contractor are searched, because the row shows them', () => {
+    assert.deepEqual(find('electric'), ['James Okon'])
+    assert.deepEqual(find('eddimore'), ['James Okon'])
+    assert.deepEqual(find('rigger'), ['Bassey Etim'])
+  })
+
+  test('an accent typed the way a phone keyboard offers it still finds the name', () => {
+    assert.deepEqual(find('ade'), ['Adé Bakare'])
+    assert.deepEqual(find('Adé'), ['Adé Bakare'])
+  })
+
+  test('every word has to match something', () => {
+    assert.deepEqual(find('amina rigger'), [])
+  })
+
+  test('a roster with holes in it does not throw', () => {
+    const rough = [null, { id: 'x' }, { id: 'y', full_name: null, job_title: null }]
+    assert.equal(filterPeople(rough, 'anything', () => null).length, 0)
+    assert.equal(filterPeople(rough, '', () => null).length, 2)
+  })
+})
+
+/* ── §39: the sentence an employer reads about a request ──────────────────────
+ *
+ * `correctionSentence()` used to say "Says this was X, not Y" whenever the day
+ * already had a kind — and the worker's form offers every kind, including the one
+ * the day already is. So an employer read "Says this was overtime, not overtime."
+ * on Today, in the shipped build. The sentence collapses now; the form keeps every
+ * option, because asking for the kind a day already has is how somebody says "yes,
+ * that is right, but it was never confirmed".
+ */
+describe('the correction sentence never doubles back on itself', () => {
+  const row = (want, kind = 'reclassify') => ({
+    request_kind: kind, want_kind: want, leave_type: null, leave_percent: 0,
+  })
+
+  test('asking for the kind the day already is reads as one kind, not two', () => {
+    const said = correctionSentence(row('overtime'), 'overtime')
+    assert.equal(said, 'Says this was overtime.')
+    assert.doesNotMatch(said, /not overtime/, 'the sentence contradicted itself')
+  })
+
+  test('and every kind behaves the same way, not just overtime', () => {
+    for (const [kind, phrase] of [
+      ['work', 'a normal working day'], ['weekend', 'weekend work'],
+      ['overtime', 'overtime'], ['holiday', 'a holiday'], ['leave', 'leave'],
+    ]) {
+      assert.equal(correctionSentence(row(kind), kind), `Says this was ${phrase}.`, kind)
+    }
+  })
+
+  test('a real change still says what changed, in both kinds', () => {
+    assert.equal(correctionSentence(row('overtime'), 'work'),
+      'Says this was overtime, not a normal working day.')
+    assert.equal(correctionSentence(row('weekend'), 'holiday'),
+      'Says this was weekend work, not a holiday.')
+  })
+
+  test('a day with nothing recorded still reads as a plain claim', () => {
+    assert.equal(correctionSentence(row('holiday'), null), 'Says this was a holiday.')
+  })
+
+  test('the other two request kinds are untouched', () => {
+    assert.equal(correctionSentence(row(null, 'remove'), 'work'),
+      'Says they did not work this day.')
+    assert.equal(correctionSentence(row(null, 'missing'), 'work'),
+      'Says they worked this day and it is not recorded.')
   })
 })

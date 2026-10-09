@@ -62,6 +62,35 @@ describe('vercel.json deploys what the build actually produces', () => {
     assert.match(vite, /kiosk:\s*path\.resolve\(process\.cwd\(\), 'kiosk\.html'\)/)
   })
 
+  test('neither entry point stops a reader zooming the page', () => {
+    /* `maximum-scale=1.0` and `user-scalable=no` block pinch-zoom, which fails
+       WCAG 1.4.4 Resize Text (AA) — a reader who needs 200% cannot get it. The
+       app's index.html carried both until Phase 4; kiosk.html never did, so the
+       two front doors disagreed about whether a person is allowed to zoom.
+
+       The usual defence is the 300ms double-tap zoom delay, and that is already
+       handled where it matters: `touch-action: manipulation` on every button in
+       index.css. So nothing was being bought by blocking zoom.
+
+       Checked per entry point rather than on a concatenation, so one clean file
+       cannot hide a locked one. */
+    for (const file of ['index.html', 'kiosk.html']) {
+      const meta = /<meta[^>]+name="viewport"[^>]*>/i.exec(read(file))?.[0]
+      assert.ok(meta, `${file} has no viewport meta at all`)
+      assert.ok(!/user-scalable\s*=\s*no/i.test(meta),
+        `${file} sets user-scalable=no — a reader cannot pinch-zoom a payslip`)
+      const cap = /maximum-scale\s*=\s*([0-9.]+)/i.exec(meta)
+      assert.ok(!cap || Number(cap[1]) >= 2,
+        `${file} caps zoom at ${cap?.[1]}× — WCAG 1.4.4 needs 200%`)
+      assert.match(meta, /width=device-width/, `${file} is not sized to the device`)
+    }
+    /* And the thing that was supposedly being protected by locking zoom. If this
+       ever goes, the double-tap delay comes back and someone will "fix" it by
+       re-adding user-scalable=no. */
+    assert.match(read('src/index.css'), /touch-action:\s*manipulation/,
+      'buttons no longer suppress the double-tap zoom delay')
+  })
+
   test('nothing the app needs at runtime lives outside the published directory', () => {
     // Everything in public/ is copied to the web root. The service worker
     // caches its app shell by absolute path, so a rename here breaks the
@@ -283,5 +312,69 @@ describe('the shipped app knows its own address and its own release', () => {
       'a bumped version with an unbumped cache serves the previous shell')
     assert.match(appVersion[1], /^daypay-employer-v\d/,
       `the release name must identify this product, not the tracker it came from: ${appVersion[1]}`)
+  })
+})
+
+/* ── No key may be declared twice, in any JSON we ship ────────────────────
+ * JSON.parse is silent about duplicates and keeps the LAST one, so a stale
+ * value can sit underneath a correct one and win. That happened here: the new
+ * product description was added above the tracker's, so every machine-read
+ * this file — npm, a registry, a tool — still saw the tracker. The file looked
+ * right to anyone reading it and was wrong to every program that did.
+ *
+ * Nothing in the app reads these descriptions, which is exactly why it needs a
+ * test: no user-visible symptom, no failing screen, just a stale sentence in
+ * the published metadata, discoverable only by reading the raw text.
+ */
+/* Duplicate keys *within one object*, found by scanning the raw text with a
+ * nesting stack — JSON.parse cannot see them at all. Repeated names in
+ * different objects are normal and correct (every header entry has a "key" and
+ * a "value"; every icon has a "src"), so only same-object repeats count. */
+function duplicateKeys(raw) {
+  const duplicates = []
+  const stack = []
+  let i = 0
+  while (i < raw.length) {
+    const c = raw[i]
+    if (c === '"') {
+      let j = i + 1
+      let value = ''
+      while (j < raw.length) {
+        if (raw[j] === '\\') { value += raw[j + 1]; j += 2; continue }
+        if (raw[j] === '"') break
+        value += raw[j]
+        j++
+      }
+      const isKey = /^\s*:/.test(raw.slice(j + 1))
+      const scope = stack[stack.length - 1]
+      if (isKey && scope && scope.type === 'object') {
+        if (scope.keys.has(value)) duplicates.push(value)
+        else scope.keys.add(value)
+      }
+      i = j + 1
+      continue
+    }
+    if (c === '{') stack.push({ type: 'object', keys: new Set() })
+    else if (c === '[') stack.push({ type: 'array' })
+    else if (c === '}' || c === ']') stack.pop()
+    i++
+  }
+  return duplicates
+}
+
+describe('shipped JSON declares each key once per object', () => {
+  for (const file of ['package.json', 'vercel.json', 'public/manifest.json']) {
+    test(`${file} has no duplicate keys`, () => {
+      const duplicated = duplicateKeys(read(file))
+      assert.deepEqual(duplicated, [],
+        `declared twice in the same object — the last one silently wins: ${duplicated.join(', ')}`)
+    })
+  }
+
+  test('the scanner can actually detect one (so a pass means something)', () => {
+    assert.deepEqual(duplicateKeys('{"a": 1, "a": 2}'), ['a'])
+    assert.deepEqual(duplicateKeys('{"a": {"b": 1, "b": 2}}'), ['b'])
+    assert.deepEqual(duplicateKeys('[{"a": 1}, {"a": 2}]'), [],
+      'the same name in two different objects is not a duplicate')
   })
 })

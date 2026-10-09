@@ -25,7 +25,7 @@ import {
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
   buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
   dayBoard, unmetRates, monthFigures,
-  groupByContractor, contractorRollup, isMissingTable,
+  groupByContractor, contractorRollup, filterPeople, isMissingTable,
   endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
   timeLeftLabel, attendancePrompt, checkInError,
   ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote, dayOriginChip,
@@ -34,7 +34,7 @@ import {
   auditLabel, auditTone, workerMonthTotals,
   periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
   ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus, isMissingFunction,
-  isValidPinShape,
+  isOfflineError, isValidPinShape,
 } from './employerLogic'
 
 /* The pure helpers live in employerLogic.js — no imports there, so they can be
@@ -46,7 +46,7 @@ export {
   suggestedKind, prettyDateKey, shortDateKey, KIND_LABELS,
   buildMonthCsv, monthLabelFor, resolveRoles, PERSONAL, BUSINESS, isMissingColumn,
   dayBoard, unmetRates, monthFigures,
-  groupByContractor, contractorRollup, isMissingTable,
+  groupByContractor, contractorRollup, filterPeople, isMissingTable,
   endOfLocalDay, sessionState, sessionIsLive, isValidCodeShape,
   timeLeftLabel, attendancePrompt, checkInError,
   ledgerToRecord, recordsByDate, ledgerTotals, ledgerSourceLabel, notebookMonthNote, dayOriginChip,
@@ -55,7 +55,7 @@ export {
   auditLabel, auditTone, workerMonthTotals,
   periodLabel, billingRows, isBillable, liveInvoiceFor, invoiceStatusLabel,
   ACCOUNT_TYPES, accountTypeById, homeViewFor, accountStatus, isMissingFunction,
-  isValidPinShape,
+  isOfflineError, isValidPinShape,
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ function describe(error) {
     if (/permission denied for table/i.test(msg)) {
       return {
         message: 'Setup problem: the database has not granted access to these tables.',
-        hint: 'Run the pending migration (supabase/migrations, in order). This is not something you did wrong.',
+        hint: 'Ask whoever set DayPay up to run the pending database update. This is not something you did wrong.',
       }
     }
     return { message: 'You do not have permission to do that.', hint: 'Check this record belongs to you.' }
@@ -123,12 +123,26 @@ function describe(error) {
     const table = /relation "([^"]+)"/.exec(msg)?.[1] || 'a table'
     return {
       message: `Setup problem: ${table} does not exist yet.`,
-      hint: 'Run the migrations in supabase/migrations, in order, in the Supabase SQL Editor.',
+      /* §39: this hint used to send an employer to a folder of .sql files and a
+         vendor's console. Whoever can act on it is the person who set DayPay up; the
+         file names live in the setup documentation, where they belong. */
+      hint: 'Ask whoever set DayPay up to run the database update, then try again.',
     }
   }
 
-  if (/insufficient_privilege|Only the employer/.test(msg)) {
+    if (/insufficient_privilege|Only the employer/.test(msg)) {
     return { message: 'Only the employer can do that.' }
+  }
+
+  /* No SQLSTATE and the sentence is the browser's. Nothing was decided — the
+     question never arrived — so the only truthful thing to say is that we could
+     not ask. It deliberately does not say the change failed: a request that never
+     got an answer is not the same as a request that was refused. */
+  if (isOfflineError(error)) {
+    return {
+      message: 'Could not reach DayPay. Check your connection.',
+      hint: 'Try again when you have a signal.',
+    }
   }
 
   return { message: msg }
@@ -1086,8 +1100,8 @@ export async function resolveCorrection(id, approve, note = null) {
   })
   if (error) {
     if (isMissingTable(error, 'correction_requests')) {
-      throw new EmployerError('Corrections need a database update.', {
-        hint: 'Run supabase/migrations/012_correction_requests.sql in the SQL editor.',
+      throw new EmployerError('Corrections aren’t switched on for this account yet.', {
+        hint: 'Everything else keeps working. Whoever set DayPay up can switch them on.',
       })
     }
     const d = describe(error)
@@ -1159,8 +1173,8 @@ function invoicesNeedUpdate(error) {
 
 function invoiceError(error, { emptyMessage = null } = {}) {
   if (invoicesNeedUpdate(error)) {
-    return new EmployerError('Invoices need a database update.', {
-      hint: 'Run supabase/migrations/013_invoices.sql in the SQL editor.',
+    return new EmployerError('Invoices aren’t switched on for this account yet.', {
+      hint: 'Everything else keeps working. Whoever set DayPay up can switch them on.',
       cause: error,
     })
   }

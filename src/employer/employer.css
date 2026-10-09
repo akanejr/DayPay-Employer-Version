@@ -5,9 +5,50 @@
 .ew {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--sp-4);
   padding-bottom: 40px;
 }
+
+/* The workspace while it is still loading has no bottom bar to clear, and giving
+   it that 40px anyway would make a phone scroll a skeleton (Phase 15). */
+.ew-is-waiting { padding-bottom: 0; }
+
+/* ── The page grid: one left edge for the whole app (the brief's §6) ──────────
+   The app has ONE left edge, and it is 16px in from the frame. That is where the
+   header's logo sits (`.header`, `var(--sp-3) var(--sp-4)`), and where the
+   tracker's own pages put their content (`.summary-card`, `.year-totals`,
+   `var(--sp-4) var(--sp-4) 0`). Rows and cards carry the same 16px inside their
+   own padding, so the text within them lines up with the logo without a second
+   number anywhere.
+
+   The workspace was the one surface missing it: unlike every other screen, its
+   blocks sit directly on `.ew`, which had no side padding at all. So a page title
+   began at the glass while the row that repeated the same word began at 16px —
+   two left edges on one screen.
+
+   Only the blocks that sit DIRECTLY on a page are listed. A block already inside
+   a card, a sheet, a list or a person row is inset by its container, and the
+   `:not()` is what stops it being inset twice. `:is()` is used rather than
+   `:where()` so this wins over the single-class rules it is correcting — a
+   `.ew-today-head` that already declares its own vertical padding. */
+.ew :is(.ew-head, .dp-sec, .ew-glance, .ew-today-head, .ew-dash-block-title,
+        .ew-dash-money, .ew-dash-note, .ew-screen-note, .ew-dash-foot,
+        .ew-att-foot, .ew-more-foot, .ew-find):not(
+  .ew-card *, .ew-sheet *, .ew-bill-row *, .dp-list *, .ew-person *,
+  .dp-notice *, .ew-prof *, .ew-screen-info *, .ew-owe *, .ew-codebox *,
+  .ew-corr-card *, .ew-corr-row *, .ew-dayrow *) {
+  padding-inline: var(--gap-page);
+}
+
+/* ── The wide-screen wrappers (Phase 15) ──────────────────────────────────────
+   Three wrappers exist only so the layout can have columns above 1280px. Below
+   that they are `display: contents` — no box, no margin, no gap of their own — so
+   the phone screens are laid out exactly as they were before the wrappers were
+   added. That is the whole reason the desktop work could be done without moving a
+   single pixel of the layout the screen checks were written against. */
+.ew-dash-col,
+.ew-att-side,
+.ew-att-main { display: contents; }
 
 /* ── Section headers ─────────────────────────────────────────────────────── */
 
@@ -15,16 +56,25 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 4px;
+  gap: var(--sp-3);
+  margin-top: var(--sp-1);
+  /* The one gap under a page header (20px). Margins collapse, so a following
+     block with a bigger top margin still wins — this is a floor, not a sum. */
+  margin-bottom: var(--gap-head);
   flex-wrap: wrap;
 }
 
 /* Without min-width:0 a long roster summary can push the Add button off a
    narrow phone screen. The button is non-shrinkable so it always stays put. */
+/* The page header's title and its description. Same rule as the list row's text
+   stack: a column flex with an explicit gap, because these were block elements
+   with a 4px margin and no line height of their own — close, but not a system. */
 .ew-head-text {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-stack);
 }
 
 .ew-head > .ew-btn {
@@ -34,17 +84,28 @@
 
 .ew-title {
   margin: 0;
-  font-size: 19px;
-  font-weight: 800;
+  /* A page title is 22px, the middle of the brief's 20–24 band (it was 19). The
+     line height is the title role's 1.25, so a title that wraps stays a title. */
+  font-size: var(--fs-page);
+  font-weight: var(--fw-title);
+  line-height: var(--lh-title);
   letter-spacing: -0.02em;
   color: var(--text);
 }
 
+/* A description that belongs to a title. Where the two live inside a stack
+   (`.ew-head-text`), the container's gap owns the space and this margin is zero;
+   where a title and its description are the only two children of a card, the
+   margin still gives them the same 4px. Either way the two never touch — which is
+   the thing the brief asked for, in one rule rather than in nine. */
 .ew-sub {
-  margin: 3px 0 0;
-  font-size: 12.5px;
+  margin: var(--gap-stack) 0 0;
+  font-size: var(--fs-body);
+  line-height: var(--lh-row);
   color: var(--text-3);
 }
+
+.ew-head-text > .ew-sub { margin-top: 0; }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 
@@ -52,20 +113,28 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 14px;
+  padding: var(--sp-4);
 }
 
-.ew-card + .ew-card { margin-top: 10px; }
+.ew-card + .ew-card { margin-top: var(--sp-2); }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 
 .ew-btn {
   font: inherit;
-  font-size: 13.5px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-value);
+  min-height: var(--tap);
+  /* One box for every button in the product: the label is centred in it, and an
+     icon that comes with a label is a step of the scale away from it — never
+     touching, which is what "+ Add" and an inline SVG used to risk. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
   border-radius: 10px;
   border: 1px solid transparent;
-  padding: 9px 14px;
+  padding: var(--sp-2) var(--sp-4);
   cursor: pointer;
   white-space: nowrap;
   transition: filter .15s ease, background .15s ease;
@@ -85,21 +154,28 @@
 .ew-btn-ghost:hover:not(:disabled) { background: var(--bg-cell-hover); }
 
 .ew-btn-danger { background: transparent; color: var(--danger); border-color: var(--border-strong); }
-.ew-btn-sm { font-size: 12.5px; padding: 6px 11px; }
+.ew-btn-sm { font-size: var(--fs-xs); padding: var(--sp-2) var(--sp-3); min-height: var(--tap); }
 
 /* ── Employee rows ───────────────────────────────────────────────────────── */
 
 .ew-person {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 13px 14px;
+  gap: var(--sp-3);
+  padding: var(--pad-row-y) var(--pad-row-x);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
 }
 
-.ew-person + .ew-person { margin-top: 9px; }
+.ew-person + .ew-person { margin-top: var(--sp-2); }
+
+/* Inside the shared list container a contractor row drops the card it would
+   otherwise be — border, radius, background — and takes the same hairline divider
+   the roster's rows have. On its own (the rate panel's header) `.ew-person` keeps
+   the card. Phase 16. */
+.ew-list .ew-person { border: 0; border-radius: 0; background: none; }
+.ew-list .ew-person + .ew-person { margin-top: 0; border-top: 1px solid var(--border-light); }
 
 .ew-avatar {
   flex: 0 0 auto;
@@ -108,16 +184,25 @@
   display: flex; align-items: center; justify-content: center;
   background: var(--daypay-green-light);
   color: var(--daypay-green);
-  font-weight: 800;
-  font-size: 14px;
+  font-weight: 600;
+  font-size: var(--fs-sm);
   letter-spacing: .02em;
 }
 
-.ew-person-body { flex: 1 1 auto; min-width: 0; }
+/* The roster row's name and the line of facts under it: a stack, like every other
+   title-and-description pair in the product. */
+.ew-person-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-stack);
+}
 
 .ew-name {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--fs-row);
+  font-weight: var(--fw-value);
+  line-height: var(--lh-row);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -125,30 +210,35 @@
 }
 
 .ew-meta {
-  font-size: 12.5px;
+  font-size: var(--fs-body);
+  line-height: var(--lh-row);
   color: var(--text-3);
-  margin-top: 2px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
 }
 
 .ew-rate {
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--daypay-green);
   font-variant-numeric: tabular-nums;
 }
 
-.ew-rate-none { color: var(--amber); font-weight: 700; }
+/* The rate is the number an employer scans a row for, so it stands one ramp
+   step above the 13px meta it sits in — in tabular figures, so a column of
+   amounts still lines up. "No rate set" moves with it: a card whose figure
+   changed size when the rate was missing would jump as rates are entered. */
+.ew-rate-none { font-size: var(--fs-sm); color: var(--amber); font-weight: 700; }
 
 .ew-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2.5px 7px;
+  gap: var(--sp-1);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  padding: 2.5px var(--sp-2);
   border-radius: 999px;
   background: var(--bg-sunken);
   color: var(--text-3);
@@ -158,26 +248,231 @@
 .ew-chip-live { background: var(--daypay-green-light); color: var(--daypay-green); border-color: transparent; }
 .ew-chip-warn { background: var(--amber-wash); color: var(--amber); border-color: transparent; }
 
-.ew-person-actions { flex: 0 0 auto; display: flex; gap: 6px; }
+/* §4 — "Not registered" is a fact about a LOGIN, not a fault and not a state to
+   watch: the worker is on the roster and is paid. It used to be a plain chip,
+   which is still a badge — the same pill, the same 12px/600, as the green
+   "Registered" chip beside it, told apart by colour alone. That is exactly the
+   distinction that goes first in sunlight and for a colour-blind reader. Quiet,
+   unpilled type reads as information; the green chip keeps the badge role for
+   the state that is genuinely worth flagging. */
+.ew-chip-quiet {
+  background: none;
+  border-color: transparent;
+  padding-left: 0;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.ew-person-actions { flex: 0 0 auto; display: flex; gap: var(--sp-2); }
+
+/* ── The roster list ────────────────────────────────────────────────────────
+   One container with hairline dividers, not a card per person. A roster of
+   three should read as a list; separate cards made every row look like its own
+   screen, and on a phone the gaps alone pushed the third person below the fold.
+   The row is two lines: who the person is, then what they cost and what you can
+   do about it. */
+
+.ew-list {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ew-row { padding: var(--pad-row-y) var(--pad-row-x); }
+.ew-row + .ew-row { border-top: 1px solid var(--border-light); }
+
+.ew-row-top { display: flex; align-items: flex-start; gap: var(--sp-3); }
+.ew-row-text { flex: 1 1 auto; min-width: 0; }
+
+.ew-row-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+/* A description under a row's title: the same stack gap as everywhere else, and
+   not the 1px that did nothing before. */
+.ew-row-sub {
+  margin-top: var(--gap-stack);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* The chip grows to 12px inside a row. Its 11px default is fine as a spare
+   badge in a dense table; on the roster it is the answer to "can they sign
+   in?", which is a sentence, not a tag. */
+.ew-row .ew-chip { font-size: var(--fs-label); flex: 0 0 auto; }
+
+.ew-row-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+  /* Sits under the text column, clear of the 42px avatar above it. */
+  padding-left: 54px;
+}
+
+.ew-row-actions { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-1); }
+.ew-row-note { font-size: var(--fs-xs); color: var(--text-3); }
+
+@media (max-width: 420px) {
+  /* At this width the rate and the actions cannot share a line without the
+     rate losing. They stack, and the space the avatar was using is given back
+     to them. */
+  .ew-row-foot { padding-left: 0; flex-wrap: wrap; }
+}
+
+/* The overflow trigger. A 16px glyph in a 44px target, so it is a thumb press
+   and not a sniper shot. */
+/* Phase 6 turned the caps off for the roster's panels with an override here.
+   Phase 9 moved the shared .ew-label style itself, so the override is gone: a
+   leftover exception is how one screen drifts from the rest. The marker class
+   .ew-roster-panel stays — the panels are still grouped and still need to be
+   addressable. */
+
+.ew-more {
+  padding: var(--sp-2);
+  /* 44 wide but 35 tall before this: a control a thumb can miss */
+  min-width: var(--tap);
+  min-height: var(--tap);
+  justify-content: center;
+  color: var(--text-2);
+}
+
+/* The overflow itself. Inline, under its own row: a floating menu on a phone
+   covers the row that explains what it is for. */
+.ew-menu {
+  margin-top: var(--sp-2);
+  padding: var(--sp-1);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.ew-menu-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.ew-menu-label { font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); }
+
+/* The contractor select lives here now, not on the row — where its 116px cap
+   clipped the rate and the status beside it. */
+.ew-menu-select { max-width: none; flex: 1 1 auto; min-width: 0; min-height: var(--tap); }
+
+.ew-menu-item {
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.ew-menu-item:hover { background: var(--bg-cell-hover); }
+.ew-menu-item.is-danger { color: var(--danger); font-weight: 600; }
+
+/* "Are you sure", in the row rather than in a browser dialog. */
+.ew-confirm { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+.ew-confirm-text {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+.ew-confirm-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+/* A quiet text button: housekeeping that must not compete with Add. */
+.ew-text-btn {
+  align-self: flex-start;
+  min-height: var(--tap);
+  padding: var(--sp-1) 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-3);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.ew-text-btn:hover { color: var(--text); }
+
+/* Phase 8 — kiosk and contractors are destinations of their own now (More →
+   Site kiosk, More → Contractors), so the compact "tool row" styling that held
+   them at the foot of the roster was removed with them. The replacement is the
+   screen header every other employer screen uses: .ew-head + .ew-title +
+   .ew-sub, with .ew-screen-info / .ew-screen-note for what hangs below it. */
+
+/* The outline button a worker with no login gets — invite them, which is the
+   one thing that changes their situation. */
+.ew-btn-accent {
+  background: transparent;
+  color: var(--green-ink);
+  border-color: var(--green-ink);
+}
+.ew-btn-accent:hover:not(:disabled) { background: var(--green-wash); }
+
+.ew-icon-btn {
+  flex: 0 0 auto;
+  width: var(--tap); height: var(--tap);
+  display: grid; place-items: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.ew-icon-btn:hover { background: var(--bg-sunken); color: var(--text); }
+
+/* Five controls share this row — a contractor select and four buttons — and it
+   was `flex: 0 0 auto`, so it never gave way; the name beside it is
+   `flex: 1 1 auto; min-width: 0` and collapsed to nothing instead. Measured
+   rather than guessed: the four buttons are ~270px of text and padding at
+   --fs-xs, the four gaps 32px, the select ~150px — about 450px of row, so the
+   card needs roughly 560px of viewport to hold that beside an avatar and a
+   name. Below 600px it takes its own full-width line, where it can wrap among
+   itself. Nothing is hidden: all five controls stay visible and reachable. */
+@media (max-width: 600px) {
+  .ew-person { flex-wrap: wrap; }
+  .ew-person-actions { flex: 1 1 100%; flex-wrap: wrap; }
+}
 
 /* ── Form ────────────────────────────────────────────────────────────────── */
 
-.ew-form { display: flex; flex-direction: column; gap: 11px; }
+/* A form is a sequence of fields; a field is a label, an input, and whatever the
+   field has to say. Both gaps are steps of the scale, so a label never touches its
+   input and a helper never touches the field above it. */
+.ew-form { display: flex; flex-direction: column; gap: var(--sp-4); }
 
-.ew-field { display: flex; flex-direction: column; gap: 5px; }
+.ew-field { display: flex; flex-direction: column; gap: var(--sp-2); }
 
 .ew-label {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: .05em;
+  text-transform: none;
+  letter-spacing: 0.01em;
 }
 
 .ew-input {
   font: inherit;
-  font-size: 15px;
-  padding: 11px 12px;
+  font-size: var(--fs-md);
+  padding: var(--sp-3) var(--sp-3);
   border-radius: 10px;
   border: 1px solid var(--border-strong);
   background: var(--bg-sunken);
@@ -187,54 +482,60 @@
 
 .ew-input:focus { outline: 2px solid var(--daypay-green); outline-offset: -1px; background: var(--bg-elevated); }
 
-.ew-hint { font-size: 12px; color: var(--text-4); }
+.ew-hint { font-size: var(--fs-xs); color: var(--text-4); }
 
-.ew-row { display: flex; gap: 9px; }
-.ew-row > * { flex: 1 1 0; min-width: 0; }
+/* The FORM row — a horizontal pair of fields that share the width. It used to
+   be called `.ew-row`, which is also the name of the roster's list row, so the
+   two layouts were fighting over one class: the list row inherited `display:
+   flex` and every child was squeezed to an equal share, and both form rows
+   silently gained the list row's padding. One name, one meaning. */
+.ew-formrow { display: flex; gap: var(--sp-2); }
+.ew-formrow > * { flex: 1 1 0; min-width: 0; }
 
-.ew-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 2px; }
+.ew-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; margin-top: var(--sp-1); }
 
 /* ── Messages ────────────────────────────────────────────────────────────── */
 
+/* A message is read at the same left edge as the card above it, and its first and
+   last line get the same 12px of air (the brief's §8). */
 .ew-msg {
   border-radius: 11px;
-  padding: 11px 13px;
-  font-size: 13.5px;
-  line-height: 1.45;
+  padding: var(--sp-3) var(--pad-row-x);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
 }
 
 .ew-msg-error { background: #FEE2E2; color: #7F1D1D; border: 1px solid #FCA5A5; }
 .ew-msg-ok    { background: var(--daypay-green-light); color: var(--daypay-green); border: 1px solid #86EFAC; }
 .ew-msg-warn  { background: var(--amber-wash); color: var(--amber); border: 1px solid #FCD34D; }
-.ew-msg-hint { display: block; margin-top: 3px; opacity: .85; font-size: 12.5px; }
+.ew-msg-hint { display: block; margin-top: var(--sp-1); opacity: .85; font-size: var(--fs-xs); }
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 
 .ew-empty {
   text-align: center;
-  padding: 34px 20px;
+  padding: var(--sp-6) 20px;
   color: var(--text-3);
   border: 1px dashed var(--border-strong);
   border-radius: 14px;
   background: var(--bg-sunken);
 }
 
-.ew-empty-title { font-size: 15px; font-weight: 700; color: var(--text-2); margin-bottom: 5px; }
-.ew-empty-body { font-size: 13px; line-height: 1.5; max-width: 34ch; margin: 0 auto; }
+.ew-empty-title { font-size: var(--fs-md); font-weight: 700; color: var(--text-2); margin-bottom: var(--sp-1); }
+.ew-empty-body { font-size: var(--fs-sm); line-height: var(--lh-body); max-width: 34ch; margin: 0 auto; }
 
-.ew-loading { text-align: center; padding: 26px; color: var(--text-3); font-size: 13.5px; }
 
 /* ── Rate history ────────────────────────────────────────────────────────── */
 
-.ew-rates { margin-top: 9px; border-top: 1px solid var(--border-light); padding-top: 9px; }
+.ew-rates { margin-top: var(--sp-2); border-top: 1px solid var(--border-light); padding-top: var(--sp-2); }
 
 .ew-rate-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  padding: 5px 0;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) 0;
 }
 
 .ew-rate-row + .ew-rate-row { border-top: 1px dashed var(--border-light); }
@@ -246,18 +547,18 @@
 .ew-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: 9px;
+  gap: var(--sp-2);
 }
 
 .ew-stat {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 13px;
-  padding: 12px;
+  padding: var(--sp-3);
 }
 
-.ew-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); }
-.ew-stat-value { font-size: 19px; font-weight: 800; color: var(--text); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.ew-stat-label { font-size: var(--fs-label); font-weight: 600; text-transform: none; letter-spacing: 0.01em; color: var(--text-3); }
+.ew-stat-value { font-size: var(--fs-lg); font-weight: 700; color: var(--text); margin-top: var(--sp-1); font-variant-numeric: tabular-nums; }
 .ew-stat-money .ew-stat-value { color: var(--daypay-green); }
 
 /* ── Invite code ─────────────────────────────────────────────────────────── */
@@ -265,16 +566,16 @@
 .ew-invite {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 15px;
-  font-weight: 700;
+  gap: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  font-weight: 600;
   letter-spacing: .12em;
   color: var(--daypay-navy);
   background: var(--bg-sunken);
   border: 1px dashed var(--border-strong);
   border-radius: 9px;
-  padding: 8px 11px;
+  padding: var(--sp-2) var(--sp-3);
   user-select: all;
 }
 
@@ -282,19 +583,28 @@
 
 .ew-subtabs {
   display: flex;
-  gap: 4px;
+  gap: var(--sp-1);
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: 11px;
-  padding: 3px;
+  padding: var(--sp-1);
+  /* Five one-word tabs do not fit across 380px. They grow to share a wide
+     screen and scroll sideways when they cannot — a bar you can push, rather
+     than labels squeezed until they wrap mid-word. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.ew-subtabs::-webkit-scrollbar { display: none; }
 
 .ew-subtab {
-  flex: 1 1 0;
+  flex: 1 0 auto;
+  white-space: nowrap;
+  min-height: var(--tap);
   font: inherit;
-  font-size: 13.5px;
-  font-weight: 700;
-  padding: 8px 10px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: var(--sp-2) var(--sp-2);
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -309,17 +619,19 @@
 .ew-datebar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 8px;
+  padding: var(--sp-2);
 }
 
 .ew-datebar-step {
+  /* 42px was two short of the thumb rule, and this is a one-handed stepper: it is
+     the size of the token now (Phase 17). */
   flex: 0 0 auto;
-  width: 42px; height: 42px;
-  font-size: 22px;
+  width: var(--tap); height: var(--tap);
+  font-size: var(--fs-xl);
   line-height: 1;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
@@ -333,8 +645,8 @@
 .ew-datebar-mid { flex: 1 1 auto; text-align: center; min-width: 0; }
 
 .ew-datebar-day {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--fs-md);
+  font-weight: 600;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -343,8 +655,8 @@
 
 .ew-datebar-today {
   font: inherit;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--daypay-green);
   background: none;
   border: 0;
@@ -353,44 +665,33 @@
   text-decoration: underline;
 }
 
-/* ── Quick strip ─────────────────────────────────────────────────────────── */
-
-.ew-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 2px 2px 0;
-}
-
-.ew-strip-day { font-size: 12.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
 
 /* ── Day rows ────────────────────────────────────────────────────────────── */
 
 .ew-dayrow {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  padding: 12px 13px;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-3);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
 }
 
-.ew-dayrow + .ew-dayrow { margin-top: 8px; }
+.ew-dayrow + .ew-dayrow { margin-top: var(--sp-2); }
 .ew-dayrow.is-marked { border-color: var(--daypay-green); background: var(--daypay-green-light); }
 
 .ew-dayrow-body { flex: 1 1 auto; min-width: 0; }
 
-.ew-muted { color: var(--text-4); font-size: 12.5px; }
+.ew-muted { color: var(--text-4); font-size: var(--fs-xs); }
 
-.ew-kinds { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+.ew-kinds { display: flex; gap: var(--sp-1); flex-wrap: wrap; margin-top: var(--sp-2); }
 
 .ew-kindchip {
   font: inherit;
-  font-size: 11.5px;
-  font-weight: 700;
-  padding: 4px 9px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: var(--sp-1) var(--sp-2);
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--bg-elevated);
@@ -401,39 +702,18 @@
 .ew-kindchip.active { background: var(--daypay-navy); color: #fff; border-color: var(--daypay-navy); }
 .ew-kindchip:disabled { opacity: .5; cursor: default; }
 
-.ew-toggle {
-  flex: 0 0 auto;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  min-width: 66px;
-  padding: 9px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--daypay-green);
-  background: transparent;
-  color: var(--daypay-green);
-  cursor: pointer;
-}
 
-.ew-toggle.is-on { background: var(--daypay-green); color: #fff; }
-.ew-toggle:disabled { opacity: .5; cursor: default; }
-
-/* ── Month footer ────────────────────────────────────────────────────────── */
-
-.ew-monthfoot { margin-top: 14px; }
-.ew-monthfoot-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--text-2); }
-.ew-monthfoot-row strong { font-size: 19px; color: var(--daypay-green); font-variant-numeric: tabular-nums; }
 
 /* ── Month bar (summary) ─────────────────────────────────────────────────── */
 
 .ew-monthbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 8px;
+  padding: var(--sp-2);
 }
 
 /* ── The headline figure ─────────────────────────────────────────────────── */
@@ -441,26 +721,26 @@
 .ew-owe {
   background: var(--daypay-navy);
   border-radius: 16px;
-  padding: 18px 16px;
+  padding: var(--sp-4) var(--sp-4);
   color: #fff;
 }
 
-.ew-owe-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; opacity: .72; }
+.ew-owe-label { font-size: var(--fs-xs); font-weight: 600; text-transform: none; letter-spacing: 0.01em; opacity: .72; }
 
 .ew-owe-figure {
   font-size: 34px;
   font-weight: 800;
   letter-spacing: -0.02em;
-  margin-top: 4px;
+  margin-top: var(--sp-1);
   font-variant-numeric: tabular-nums;
   color: #4ADE80;
-  line-height: 1.1;
+  line-height: var(--lh-tight);
   word-break: break-word;
 }
 
-.ew-owe-sub { font-size: 13px; opacity: .8; margin-top: 6px; }
+.ew-owe-sub { font-size: var(--fs-sm); opacity: .8; margin-top: var(--sp-2); }
 
-.ew-owe-flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.ew-owe-flags { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); }
 .ew-owe-flags .ew-chip { background: rgba(255,255,255,.16); color: #FDE68A; border-color: transparent; }
 
 /* ── Payroll rows ────────────────────────────────────────────────────────── */
@@ -472,14 +752,14 @@
   overflow: hidden;
 }
 
-.ew-pay + .ew-pay { margin-top: 9px; }
+.ew-pay + .ew-pay { margin-top: var(--sp-2); }
 
 .ew-pay-head {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: var(--sp-3);
   width: 100%;
-  padding: 12px 13px;
+  padding: var(--sp-3) var(--sp-3);
   background: none;
   border: 0;
   font: inherit;
@@ -490,60 +770,60 @@
 
 .ew-pay-body { flex: 1 1 auto; min-width: 0; }
 
-.ew-pay-amount { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+.ew-pay-amount { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-2); }
 
 .ew-pay-figure {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--fs-md);
+  font-weight: 600;
   color: var(--daypay-green);
   font-variant-numeric: tabular-nums;
 }
 
-.ew-pay-chev { color: var(--text-4); font-size: 12px; }
+.ew-pay-chev { color: var(--text-4); font-size: var(--fs-xs); }
 
 .ew-pay-detail {
   border-top: 1px dashed var(--border-light);
-  padding: 11px 13px 13px;
+  padding: var(--sp-3) var(--sp-3) var(--sp-3);
   background: var(--bg-sunken);
 }
 
 .ew-pay-line {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
   color: var(--text-2);
-  padding: 3px 0;
+  padding: var(--sp-1) 0;
 }
 
-.ew-pay-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+.ew-pay-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); }
 
 /* ── Disputed days ───────────────────────────────────────────────────────── */
 
-.ew-disputed { margin: 6px 0 0 13px; padding-left: 11px; border-left: 2px solid var(--amber); }
+.ew-disputed { margin: var(--sp-2) 0 0 var(--sp-3); padding-left: var(--sp-3); border-left: 2px solid var(--amber); }
 
 .ew-disputed-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 12.5px;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
   color: var(--text-3);
-  padding: 5px 0;
+  padding: var(--sp-1) 0;
 }
 
 /* ── Month-end actions ───────────────────────────────────────────────────── */
 
-.ew-monthend { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.ew-monthend { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
 
-.ew-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.ew-confirm-actions { display: flex; gap: var(--sp-2); justify-content: flex-end; margin-top: var(--sp-2); }
 
 /* ── Employee view ───────────────────────────────────────────────────────── */
 
 .ew-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 20px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 600;
   letter-spacing: .22em;
   text-align: center;
   text-transform: uppercase;
@@ -553,12 +833,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--sp-2);
   width: 100%;
   background: none;
   border: 0;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--text-2);
   padding: 0;
@@ -566,53 +846,54 @@
   text-align: left;
 }
 
-.ew-leave { display: flex; justify-content: center; margin-top: 6px; }
+.ew-leave { display: flex; justify-content: center; margin-top: var(--sp-2); }
 
 /* ── Invite code in the roster ───────────────────────────────────────────── */
 
-.ew-invite-wrap { margin-top: 9px; border-top: 1px solid var(--border-light); padding-top: 10px; }
+.ew-invite-wrap { margin-top: var(--sp-2); border-top: 1px solid var(--border-light); padding-top: var(--sp-2); }
 
-.ew-invite-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ew-invite-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 
 .ew-invite-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 17px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 600;
   letter-spacing: .18em;
   color: var(--daypay-navy);
   background: var(--bg-sunken);
   border: 1px dashed var(--border-strong);
   border-radius: 9px;
-  padding: 7px 12px;
+  padding: var(--sp-2) var(--sp-3);
   user-select: all;
 }
 
-.ew-invite-used { font-size: 12.5px; color: var(--text-3); }
+.ew-invite-used { font-size: var(--fs-xs); color: var(--text-3); }
 
 /* ── Dashboard ───────────────────────────────────────────────────────────── */
 
-.ew-dash { display: flex; flex-direction: column; gap: 10px; }
+.ew-dash { display: flex; flex-direction: column; gap: var(--sp-2); }
 
 .ew-board-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 9px;
+  gap: var(--sp-2);
 }
 
 .ew-board-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .05em;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
   color: var(--text-3);
 }
 
 .ew-board-date {
-  font-size: 17px;
-  font-weight: 800;
+  font-size: var(--fs-page);
+  font-weight: var(--fw-title);
+  line-height: var(--lh-title);
   color: var(--text);
-  margin-top: 2px;
+  margin-top: var(--gap-stack);
   letter-spacing: -.01em;
 }
 
@@ -623,57 +904,57 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 9px;
-  margin-top: 11px;
-  padding-top: 11px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
   border-top: 1px solid var(--border);
 }
 
-.ew-dash-money-label { font-size: 12.5px; color: var(--text-3); }
+.ew-dash-money-label { font-size: var(--fs-xs); color: var(--text-3); }
 .ew-dash-money-value {
-  font-size: 19px;
-  font-weight: 800;
+  font-size: var(--fs-lg);
+  font-weight: 700;
   color: var(--daypay-green);
   font-variant-numeric: tabular-nums;
 }
 
 /* ── The missing-by-name list ────────────────────────────────────────────── */
 
-.ew-dash-block { margin-top: 12px; }
+.ew-dash-block { margin-top: var(--sp-3); }
 
 .ew-dash-block-title {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12.5px;
-  font-weight: 700;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--text-2);
-  margin-bottom: 8px;
+  margin-bottom: var(--sp-2);
 }
 
 .ew-dash-count {
   min-width: 20px;
-  padding: 1px 6px;
+  padding: 1px var(--sp-2);
   border-radius: 99px;
   background: var(--amber-wash);
   color: var(--amber);
-  font-size: 11.5px;
-  font-weight: 800;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   text-align: center;
 }
 
 .ew-mini-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 7px;
+  gap: var(--sp-2);
 }
 
 .ew-mini {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   min-width: 0;
-  padding: 7px 9px;
+  padding: var(--sp-2) var(--sp-2);
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: 11px;
@@ -682,15 +963,15 @@
 .ew-avatar-sm {
   width: 26px;
   height: 26px;
-  font-size: 10.5px;
+  font-size: var(--fs-label);
   border-radius: 9px;
 }
 
 .ew-mini-body { min-width: 0; flex: 1 1 auto; }
 
 .ew-mini-name {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -698,7 +979,7 @@
 }
 
 .ew-mini-sub {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--text-4);
   white-space: nowrap;
   overflow: hidden;
@@ -708,8 +989,8 @@
 /* ── Notes, chips, footers ───────────────────────────────────────────────── */
 
 .ew-dash-note {
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-3);
 }
 
@@ -718,22 +999,22 @@
 .ew-dash-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 9px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
 }
 
 .ew-dash-foot {
-  font-size: 11.5px;
-  line-height: 1.55;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-4);
-  margin: 11px 0 0;
-  padding-top: 10px;
+  margin: var(--sp-3) 0 0;
+  padding-top: var(--sp-2);
   border-top: 1px solid var(--border);
 }
 
 /* An inline link that reads as part of a sentence, not a button. */
 .ew-linkbtn {
-  margin-left: 5px;
+  margin-left: var(--sp-1);
   padding: 0;
   background: none;
   border: 0;
@@ -744,41 +1025,17 @@
 }
 .ew-linkbtn:hover { text-decoration: underline; }
 
-/* ── Needs attention ─────────────────────────────────────────────────────── */
-
-.ew-card-attention { border-color: var(--border-strong); }
-
-.ew-attention + .ew-attention {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.ew-attention-title {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--text);
-  margin-top: 7px;
-}
-
-.ew-attention-body {
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--text-3);
-  margin: 5px 0 0;
-}
-
 @media (max-width: 420px) {
   .ew-mini-list { grid-template-columns: 1fr; }
 }
 
 /* A one-line explanation at the top of a pane that is not the daily routine. */
 .ew-pane-note {
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-4);
-  margin: 0 0 11px;
-  padding: 9px 11px;
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--gap-page);
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: 11px;
@@ -791,14 +1048,14 @@
 
 /* ── Contractors ─────────────────────────────────────────────────────────── */
 
-.ew-contractors { margin-top: 11px; }
+.ew-contractors { margin-top: var(--sp-3); }
 
 .ew-contractor-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-2);
   width: 100%;
-  padding: 10px 11px;
+  padding: var(--sp-2) var(--sp-3);
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -807,7 +1064,7 @@
   font: inherit;
   color: inherit;
 }
-.ew-contractor-row + .ew-contractor-row { margin-top: 7px; }
+.ew-contractor-row + .ew-contractor-row { margin-top: var(--sp-2); }
 .ew-contractor-row:hover { background: var(--bg-cell-hover); }
 
 .ew-contractor-body { flex: 1 1 auto; min-width: 0; }
@@ -815,47 +1072,34 @@
 .ew-contractor-nums {
   display: flex;
   align-items: baseline;
-  gap: 3px;
+  gap: var(--sp-1);
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
 }
 
-.ew-contractor-present { font-size: 16px; font-weight: 800; color: var(--daypay-green); }
-.ew-contractor-sep { font-size: 13px; color: var(--text-4); }
-.ew-contractor-expected { font-size: 13px; font-weight: 700; color: var(--text-3); }
+.ew-contractor-present { font-size: var(--fs-md); font-weight: 600; color: var(--daypay-green); }
+.ew-contractor-sep { font-size: var(--fs-sm); color: var(--text-4); }
+.ew-contractor-expected { font-size: var(--fs-sm); font-weight: 600; color: var(--text-3); }
 .ew-contractor-cap {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .05em;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
   color: var(--text-4);
-  margin-left: 3px;
+  margin-left: var(--sp-1);
 }
 
 /* ── Contractor detail ───────────────────────────────────────────────────── */
 
-.ew-contractor { display: flex; flex-direction: column; gap: 10px; }
-
-.ew-back {
-  align-self: flex-start;
-  padding: 5px 2px;
-  background: none;
-  border: 0;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--daypay-green);
-  cursor: pointer;
-}
-.ew-back:hover { text-decoration: underline; }
+.ew-contractor { display: flex; flex-direction: column; gap: var(--sp-2); }
 
 .ew-section-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .05em;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
   color: var(--text-3);
-  margin-top: 3px;
+  margin-top: var(--sp-1);
 }
 
 /* ── Worker card ─────────────────────────────────────────────────────────── */
@@ -864,60 +1108,60 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 13px;
-  padding: 11px;
+  padding: var(--sp-3);
 }
 .ew-worker.is-present { border-color: var(--daypay-green); }
 
-.ew-worker-head { display: flex; align-items: center; gap: 9px; }
+.ew-worker-head { display: flex; align-items: center; gap: var(--sp-2); }
 .ew-worker-body { flex: 1 1 auto; min-width: 0; }
 
 .ew-worker-today {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-top: 9px;
-  padding-top: 9px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
   border-top: 1px solid var(--border);
-  font-size: 12.5px;
+  font-size: var(--fs-xs);
   color: var(--text-3);
 }
 
 .ew-worker-figures {
   display: flex;
-  gap: 16px;
-  margin-top: 9px;
-  padding-top: 9px;
+  gap: var(--sp-4);
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
   border-top: 1px solid var(--border);
 }
 
-.ew-worker-figure { display: flex; flex-direction: column; gap: 1px; }
+.ew-worker-figure { display: flex; flex-direction: column; gap: var(--gap-stack); }
 
 .ew-worker-num {
-  font-size: 17px;
-  font-weight: 800;
+  font-size: var(--fs-lg);
+  font-weight: 700;
   color: var(--text);
   font-variant-numeric: tabular-nums;
-  line-height: 1.1;
+  line-height: var(--lh-tight);
 }
 .ew-worker-num-quiet { color: var(--text-3); }
 
 .ew-worker-cap {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .04em;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
   color: var(--text-4);
 }
 
 /* ── Selects ─────────────────────────────────────────────────────────────── */
 
 .ew-select {
-  padding: 7px 9px;
+  padding: var(--sp-2) var(--sp-2);
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--text);
   max-width: 100%;
 }
@@ -925,16 +1169,16 @@
 .ew-select:disabled { opacity: .5; }
 
 .ew-select-sm {
-  font-size: 12.5px;
-  padding: 6px 7px;
+  font-size: var(--fs-xs);
+  padding: var(--sp-2) var(--sp-2);
   max-width: 116px;
 }
 
 /* A filename or identifier quoted inside a sentence. */
 .ew-code-inline {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
-  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  padding: 1px var(--sp-1);
   border-radius: 5px;
   background: var(--bg-cell-hover);
   color: var(--text-2);
@@ -953,15 +1197,15 @@
 .ew-att-pick {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
 }
 
 /* The code exists to be read out loud across a site or copied onto a board.
    It is the one place in this app where big and plain is the whole design. */
 .ew-codebox {
-  margin-top: 12px;
-  padding: 15px 13px;
+  margin-top: var(--sp-3);
+  padding: var(--sp-4) var(--sp-3);
   background: var(--bg-sunken);
   border: 1px dashed var(--border-strong);
   border-radius: 13px;
@@ -969,29 +1213,29 @@
 }
 
 .ew-code-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .06em;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
   color: var(--text-3);
 }
 
 .ew-code-big {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 42px;
   font-weight: 700;
   letter-spacing: .18em;
-  line-height: 1.15;
+  line-height: var(--lh-tight);
   color: var(--daypay-green);
-  margin: 7px 0 5px;
+  margin: var(--sp-2) 0 var(--sp-1);
   font-variant-numeric: tabular-nums;
   /* The letter-spacing pushes the last digit off-centre; nudge it back. */
   text-indent: .18em;
 }
 
 .ew-code-sub {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-4);
   max-width: 32ch;
   margin: 0 auto;
@@ -1000,42 +1244,42 @@
 .ew-att-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 11px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
 }
 
 /* ── Attendance: the worker checking in ──────────────────────────────────── */
 
 .ew-checkin-q {
-  font-size: 16.5px;
-  font-weight: 800;
+  font-size: var(--fs-md);
+  font-weight: 600;
   color: var(--text);
   letter-spacing: -.01em;
 }
 
 .ew-checkin-sub {
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
   color: var(--text-3);
   margin: 0;
 }
 
 .ew-code-entry {
   display: flex;
-  gap: 8px;
-  margin-top: 13px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
   align-items: stretch;
 }
 
 .ew-code-input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 11px 12px;
+  padding: var(--sp-3) var(--sp-3);
   background: var(--bg-sunken);
   border: 1px solid var(--border-strong);
   border-radius: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 24px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xl);
   font-weight: 700;
   letter-spacing: .22em;
   text-align: center;
@@ -1050,14 +1294,14 @@
 .ew-checkin-refusal {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  margin-top: 11px;
-  padding: 9px 11px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
   background: var(--amber-wash);
   border: 1px solid var(--amber);
   border-radius: 11px;
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-2);
 }
 
@@ -1074,19 +1318,19 @@
   border-radius: 50%;
   background: var(--daypay-green-light);
   color: var(--daypay-green);
-  font-size: 23px;
-  font-weight: 800;
+  font-size: var(--fs-xl);
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.ew-checkin-title { font-size: 17px; font-weight: 800; color: var(--text); }
+.ew-checkin-title { font-size: var(--fs-lg); font-weight: 700; color: var(--text); }
 .ew-checkin-note {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-4);
-  margin: 7px 0 0;
+  margin: var(--sp-2) 0 0;
 }
 
 @media (max-width: 420px) {
@@ -1103,37 +1347,37 @@
 .ew-crash { border-color: var(--danger); }
 
 .ew-crash-title {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--fs-md);
+  font-weight: 700;
   color: var(--text);
 }
 
 .ew-crash-body {
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-3);
-  margin: 6px 0 0;
+  margin: var(--sp-2) 0 0;
 }
 
 .ew-crash-detail {
-  margin: 11px 0 0;
-  padding: 9px 11px;
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-2) var(--sp-3);
   background: var(--bg-sunken);
   border: 1px solid var(--border);
   border-radius: 9px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-2);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .ew-crash-hint {
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-4);
-  margin: 11px 0 0;
+  margin: var(--sp-3) 0 0;
 }
 
 /* ── Phase 6: corrections, the worker's calendar, overtime, audit ─────────── */
@@ -1148,22 +1392,22 @@
 .ew-mgrid {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin: 12px 0 4px;
+  gap: var(--sp-1);
+  margin: var(--sp-3) 0 var(--sp-1);
 }
 
 .ew-mgrid-head,
 .ew-mgrid-week {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  gap: var(--sp-1);
 }
 
 .ew-mgrid-dow {
   text-align: center;
-  font-size: 10.5px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-size: var(--fs-label);
+  letter-spacing: 0.01em;
+  text-transform: none;
   color: var(--text-4);
   padding-bottom: 2px;
 }
@@ -1179,7 +1423,7 @@
   background: var(--bg-elevated-2);
   color: var(--text-3);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-xs);
   cursor: pointer;
   transition: background .12s ease, border-color .12s ease;
 }
@@ -1243,18 +1487,18 @@
 
 /* ── The worker's request form ───────────────────────────────────────────── */
 
-.ew-corr-tools { display: flex; gap: 8px; margin: 12px 0 4px; }
+.ew-corr-tools { display: flex; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-1); }
 
-.ew-corr-form { margin-top: 12px; }
+.ew-corr-form { margin-top: var(--sp-3); }
 
-.ew-choice-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.ew-choice-list { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
 
 .ew-choice {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--gap-stack);
   text-align: left;
-  padding: 9px 11px;
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   background: var(--bg-elevated);
@@ -1268,13 +1512,13 @@
   background: var(--bg-cell-hover);
 }
 
-.ew-choice-label { font-size: 13px; font-weight: 600; }
-.ew-choice-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.4; }
+.ew-choice-label { font-size: var(--fs-sm); font-weight: 500; }
+.ew-choice-hint { font-size: var(--fs-xs); color: var(--text-3); line-height: var(--lh-snug); }
 
-.ew-datestep { display: flex; align-items: center; gap: 6px; }
-.ew-inline-fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; }
+.ew-datestep { display: flex; align-items: center; gap: var(--sp-2); }
+.ew-inline-fields { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2) var(--sp-2); align-items: center; margin-top: var(--sp-2); }
 
-.ew-corr-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.ew-corr-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-top: var(--sp-3); }
 
 /* ── Requests, as read by either party ───────────────────────────────────── */
 
@@ -1283,8 +1527,8 @@
   border: 1px solid var(--border-light);
   border-left: 3px solid var(--border-strong);
   border-radius: 9px;
-  padding: 10px 12px;
-  margin-top: 8px;
+  padding: var(--sp-2) var(--sp-3);
+  margin-top: var(--sp-2);
   background: var(--bg-elevated);
 }
 
@@ -1296,28 +1540,28 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
-.ew-corr-msg { font-size: 12.5px; line-height: 1.5; color: var(--text-2); margin: 6px 0 0; }
-.ew-corr-effect { font-size: 11.5px; line-height: 1.45; color: var(--text-3); margin: 6px 0 0; }
-.ew-corr-decision { font-size: 12px; line-height: 1.5; color: var(--text-2); margin: 6px 0 0; }
+.ew-corr-msg { font-size: var(--fs-xs); line-height: var(--lh-body); color: var(--text-2); margin: var(--sp-2) 0 0; }
+.ew-corr-effect { font-size: var(--fs-xs); line-height: var(--lh-body); color: var(--text-3); margin: var(--sp-2) 0 0; }
+.ew-corr-decision { font-size: var(--fs-xs); line-height: var(--lh-body); color: var(--text-2); margin: var(--sp-2) 0 0; }
 .ew-corr-decision-label {
   display: block;
-  font-size: 10.5px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-size: var(--fs-label);
+  letter-spacing: 0.01em;
+  text-transform: none;
   color: var(--text-4);
 }
-.ew-corrections-meta { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+.ew-corrections-meta { font-size: var(--fs-xs); color: var(--text-3); margin-top: var(--sp-1); }
 
 .ew-dayrow.is-asked { border-left: 3px solid var(--amber); }
-.ew-dayrow-source { font-size: 11px; color: var(--text-4); margin-top: 3px; }
-.ew-dayrow-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.ew-dayrow-source { font-size: var(--fs-label); color: var(--text-4); margin-top: var(--sp-1); }
+.ew-dayrow-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-1); }
 
 /* ── Worker detail ───────────────────────────────────────────────────────── */
 
-.ew-worker-view { display: flex; flex-direction: column; gap: 11px; }
+.ew-worker-view { display: flex; flex-direction: column; gap: var(--sp-3); }
 
 .ew-worker-btn {
   width: 100%;
@@ -1334,14 +1578,14 @@
   position: absolute;
   right: 12px;
   bottom: 10px;
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-4);
 }
 
 .ew-sheet {
   border: 1px solid var(--daypay-navy);
   border-radius: 12px;
-  padding: 12px 13px;
+  padding: var(--sp-4) var(--pad-row-x);
   background: var(--bg-elevated);
 }
 
@@ -1349,24 +1593,24 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--sp-2);
 }
 
-.ew-sheet-figures { display: flex; gap: 18px; margin: 10px 0 8px; flex-wrap: wrap; }
-.ew-sheet-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
-.ew-sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.ew-sheet-figures { display: flex; gap: var(--sp-4); margin: var(--sp-2) 0 var(--sp-2); flex-wrap: wrap; }
+.ew-sheet-meta { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-2); }
+.ew-sheet-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-top: var(--sp-3); }
 
 /* Overtime assignment: four taps, one row changed, clearly reversible. */
-.ew-kind-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.ew-kind-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-1); }
 
 .ew-kind-btn {
-  padding: 6px 11px;
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   background: var(--bg-elevated);
   color: var(--text-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 
@@ -1386,16 +1630,16 @@
 .ew-audit-row {
   display: grid;
   grid-template-columns: 118px 1fr;
-  gap: 4px 10px;
-  padding: 7px 0;
+  gap: var(--sp-1) var(--sp-2);
+  padding: var(--sp-2) 0;
   border-bottom: 1px solid var(--border-light);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .ew-audit-row:last-child { border-bottom: 0; }
 .ew-audit-when { color: var(--text-4); font-variant-numeric: tabular-nums; }
 .ew-audit-what { color: var(--text); font-weight: 600; }
-.ew-audit-why { grid-column: 2; color: var(--text-3); font-size: 11.5px; }
+.ew-audit-why { grid-column: 2; color: var(--text-3); font-size: var(--fs-xs); }
 
 .ew-audit-row.tone-create .ew-audit-what { color: var(--daypay-green); }
 .ew-audit-row.tone-good   .ew-audit-what { color: var(--daypay-green); }
@@ -1405,7 +1649,7 @@
 @media (max-width: 420px) {
   .ew-audit-row { grid-template-columns: 1fr; }
   .ew-audit-why { grid-column: 1; }
-  .ew-mgrid-cell { font-size: 11.5px; border-radius: 7px; }
+  .ew-mgrid-cell { font-size: var(--fs-xs); border-radius: 7px; }
 }
 
 /* ── Phase 7 — billing ───────────────────────────────────────────────────────
@@ -1417,23 +1661,24 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 13px;
+  /* A card is a card: the same insets as every other one. */
+  padding: var(--pad-row-y) var(--pad-row-x);
 }
 
-.ew-bill-row + .ew-bill-row { margin-top: 9px; }
+.ew-bill-row + .ew-bill-row { margin-top: var(--sp-2); }
 
 .ew-bill-head {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
+  gap: var(--sp-3);
 }
 
 .ew-bill-body { flex: 1 1 auto; min-width: 0; }
 
 .ew-bill-amount {
   flex: 0 0 auto;
-  font-size: 16px;
-  font-weight: 800;
+  font-size: var(--fs-md);
+  font-weight: 700;
   color: var(--daypay-green);
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -1441,24 +1686,24 @@
 
 .ew-bill-flags {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
-  margin-top: 9px;
+  margin-top: var(--sp-2);
 }
 
 .ew-bill-actions {
   display: flex;
-  gap: 7px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
   align-items: center;
-  margin-top: 11px;
+  margin-top: var(--sp-3);
 }
 
 .ew-bill-note {
   margin: 0;
   flex: 1 1 100%;
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--text-3);
 }
 
@@ -1468,10 +1713,10 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 13px;
+  padding: var(--sp-3);
 }
 
-.ew-inv + .ew-inv { margin-top: 9px; }
+.ew-inv + .ew-inv { margin-top: var(--sp-2); }
 
 /* A voided invoice must never be mistakeable for a live one at a glance. */
 .ew-inv-void {
@@ -1487,7 +1732,7 @@
 .ew-inv-head {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
+  gap: var(--sp-3);
 }
 
 .ew-inv-body { flex: 1 1 auto; min-width: 0; }
@@ -1495,33 +1740,33 @@
 .ew-inv-number {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--fs-md);
+  font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .ew-inv-void-note {
-  margin: 9px 0 0;
-  font-size: 12.5px;
-  line-height: 1.5;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
   color: var(--danger);
 }
 
 .ew-inv-actions {
   display: flex;
-  gap: 7px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
-  margin-top: 11px;
+  margin-top: var(--sp-3);
 }
 
 /* On a phone the four columns still fit; anything tighter scrolls rather than
    squashing the amounts into two lines. */
 .ew-inv-table-wrap {
-  margin-top: 11px;
+  margin-top: var(--sp-3);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -1530,21 +1775,21 @@
   width: 100%;
   min-width: 300px;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--fs-xs);
 }
 
 .ew-inv-table th {
   text-align: left;
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: .06em;
+  font-size: var(--fs-label);
+  text-transform: none;
+  letter-spacing: 0.01em;
   color: var(--text-4);
-  padding: 0 6px 5px 0;
+  padding: 0 var(--sp-2) var(--sp-1) 0;
   border-bottom: 1px solid var(--border-light);
 }
 
 .ew-inv-table td {
-  padding: 7px 6px 7px 0;
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) 0;
   border-bottom: 1px solid var(--border-light);
   color: var(--text-2);
   vertical-align: top;
@@ -1560,41 +1805,42 @@
 .ew-inv-table tfoot td {
   border-bottom: 0;
   border-top: 1.5px solid var(--border-strong);
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text);
 }
 
 .ew-inv-job {
   display: block;
-  font-size: 11px;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-row);
   color: var(--text-4);
-  margin-top: 1px;
+  margin-top: var(--gap-stack);
 }
 
 .ew-inv-money { color: var(--text); font-weight: 600; }
 
 /* ── Voiding ── */
 
-.ew-void-form { padding: 14px; }
+.ew-void-form { padding: var(--sp-4); }
 
 .ew-void-label {
   display: block;
-  margin: 12px 0 5px;
-  font-size: 12.5px;
-  font-weight: 600;
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--text-2);
 }
 
 .ew-void-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 10px 12px;
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--bg-elevated);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--fs-sm);
 }
 
 .ew-void-input:focus {
@@ -1604,14 +1850,14 @@
 
 .ew-void-actions {
   display: flex;
-  gap: 7px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: var(--sp-3);
 }
 
 @media (max-width: 420px) {
-  .ew-bill-amount { font-size: 15px; }
-  .ew-inv-number { font-size: 14px; }
+  .ew-bill-amount { font-size: var(--fs-md); }
+  .ew-inv-number { font-size: var(--fs-sm); }
 }
 
 /* ── Phase 11: the personal attendance PIN ──────────────────────────────────
@@ -1621,41 +1867,41 @@
    somebody has to read off a screen and write down or say out loud is a
    typographic job, not a data job. */
 .ew-pin-fresh {
-  margin-top: 10px;
-  padding: 12px;
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
   border-radius: 12px;
   background: var(--bg-sunken, #F7F8FA);
   border: 1px solid var(--border);
 }
 
 .ew-pin-caption {
-  margin: 0 0 6px;
+  margin: 0 0 var(--sp-2);
   font-size: var(--fs-label, 11px);
-  font-weight: 800;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
   color: var(--text-3);
 }
 
 .ew-pin-value {
-  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 34px;
   font-weight: 700;
   letter-spacing: .26em;
-  line-height: 1.1;
+  line-height: var(--lh-tight);
   color: var(--text);
   /* The tracking pushes the last digit right by one gap; pull it back so the
      number sits optically centred rather than visibly off to the left. */
   margin-left: -.26em;
-  padding: 2px 0 6px;
+  padding: 2px 0 var(--sp-2);
   user-select: all;
 }
 
 .ew-pin-warn {
-  margin: 0 0 10px;
+  margin: 0 0 var(--sp-2);
   font-size: var(--fs-xs);
   font-weight: 500;
-  line-height: 1.55;
+  line-height: var(--lh-body);
   color: var(--text-3);
 }
 
@@ -1668,14 +1914,14 @@
    micro-sized, which is right for a field name and wrong for a promise. */
 .ew-check {
   display: flex;
-  gap: 9px;
+  gap: var(--sp-2);
   align-items: flex-start;
-  margin-top: 12px;
+  margin-top: var(--sp-3);
   cursor: pointer;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
-  line-height: 1.45;
+  line-height: var(--lh-body);
 }
 
 .ew-check input {
@@ -1688,11 +1934,11 @@
 
 .ew-check-sub {
   display: block;
-  margin-top: 3px;
+  margin-top: var(--sp-1);
   font-size: var(--fs-xs);
   font-weight: 500;
   color: var(--text-3);
-  line-height: 1.5;
+  line-height: var(--lh-body);
 }
 
 /* ── Phase 12: the machine at the worksite ──────────────────────────────────
@@ -1704,30 +1950,708 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 11px 0;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
   border-top: 1px solid var(--border-light);
-  margin-top: 10px;
+  margin-top: var(--sp-2);
 }
 
 .ew-device:first-of-type { border-top: 0; }
 
-.ew-device-body { min-width: 0; flex: 1; }
+.ew-device-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: var(--gap-stack); }
 
 .ew-device-name {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
   font-size: var(--fs-sm);
-  font-weight: 800;
+  font-weight: 600;
   color: var(--text);
 }
 
 .ew-device-hint {
-  margin-top: 3px;
+  margin-top: var(--sp-1);
   font-size: var(--fs-xs);
   font-weight: 500;
   color: var(--text-3);
-  line-height: 1.5;
+  line-height: var(--lh-body);
+}
+
+/* ── Today (Phase 4) ─────────────────────────────────────────────────────────
+   The command centre's hero. It is not a card: the figure is the page, and a
+   border around it would say "one more thing on a list" rather than "this is
+   what you came for" (§7 — fewer cards, more sections). */
+.ew-today-head { padding: var(--sp-4) 0 var(--sp-2); }
+
+.ew-today-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.ew-today-money {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+.ew-today-money-label { font-size: var(--fs-xs); color: var(--text-3); }
+
+.ew-today-money-value {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-hero);
+  color: var(--text);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The screen's one filled button, full width where a thumb reaches it. */
+.ew-today-cta { width: 100%; margin-top: var(--sp-4); }
+
+.ew-today-amount {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-value);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ew-today-amount.is-money { color: var(--text); }
+
+/* ── Attendance (Phase 5) ────────────────────────────────────────────────────
+   One screen, three ranges, and one list of people per day. The rows are
+   dividers inside a single container rather than a card each: twenty workers on
+   a phone were twenty bordered cards, and the page read as a pile rather than a
+   day. Every colour here is a token, so both themes are decisions already made. */
+.ew-att { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.ew-att-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+}
+
+.ew-att-day-note { font-size: var(--fs-body); line-height: var(--lh-row); color: var(--text-3); margin-top: var(--gap-stack); }
+
+/* ── the week, and the month ──────────────────────────────────────────────── */
+
+.ew-att-week,
+.ew-att-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--sp-1); }
+
+.ew-att-wd {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: var(--tap);
+  padding: var(--sp-1) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ew-att-wd-dow { font-size: var(--fs-label); color: var(--text-3); }
+.ew-att-wd-day { font-size: var(--fs-sm); font-weight: var(--fw-value); }
+.ew-att-wd-n { font-size: var(--fs-label); font-weight: var(--fw-value); color: var(--green-ink); }
+
+/* Today is a ring, the selected day is filled: two different facts, told apart
+   by more than colour — one is a border, one is the whole cell. */
+.ew-att-wd.is-today,
+.ew-att-cell.is-today { border-color: var(--green-ink); }
+
+.ew-att-wd.is-sel,
+.ew-att-cell.is-sel {
+  background: var(--daypay-navy);
+  border-color: var(--daypay-navy);
+  color: #fff;
+}
+.ew-att-wd.is-sel .ew-att-wd-dow,
+.ew-att-wd.is-sel .ew-att-wd-n,
+.ew-att-cell.is-sel .ew-att-cell-n { color: #fff; }
+
+.ew-att-month-head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-1);
+  font-size: var(--fs-label);
+  color: var(--text-4);
+  text-align: center;
+}
+
+.ew-att-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: var(--tap);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-value);
+  cursor: pointer;
+}
+
+.ew-att-cell.is-gap { border-color: transparent; background: none; }
+.ew-att-cell-n { font-size: var(--fs-label); font-weight: var(--fw-value); color: var(--green-ink); }
+
+/* ── one person, one day ──────────────────────────────────────────────────── */
+
+.ew-att-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  min-height: var(--tap);
+  padding: var(--pad-row-y) var(--pad-row-x);
+}
+.ew-att-row + .ew-att-row { border-top: 1px solid var(--border-light); }
+.ew-att-row.is-marked { background: var(--green-wash); }
+
+/* The same text stack as the list row — the name and the line under it were a pair
+   of inline <span>s here too, separated by a 1px margin that did nothing. */
+.ew-att-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-stack);
+}
+.ew-att-name { font-size: var(--fs-row); font-weight: var(--fw-value); line-height: var(--lh-row); color: var(--text); }
+.ew-att-sub { font-size: var(--fs-body); font-weight: var(--fw-body); line-height: var(--lh-row); color: var(--text-3); }
+
+.ew-att-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.ew-att-amount {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-value);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ew-att-amount.is-money { color: var(--text); }
+
+.ew-att-kinds { display: flex; gap: var(--sp-1); flex-wrap: wrap; margin-top: var(--sp-2); }
+
+/* The one control that writes a day. Neutral once the day is recorded, because
+   the button then offers the opposite act — green means "working", and taking a
+   day back is not that. */
+.ew-att-mark {
+  flex: 0 0 auto;
+  min-height: var(--tap);
+  min-width: 76px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius);
+  border: 1px solid var(--green-ink);
+  background: transparent;
+  color: var(--green-ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-value);
+  cursor: pointer;
+}
+.ew-att-mark.is-on { border-color: var(--border-strong); color: var(--text-2); }
+.ew-att-mark:disabled { opacity: .5; cursor: default; }
+
+/* What just happened, said once. It holds its line even when empty, so the list
+   does not jump when a mark lands. */
+.ew-att-said {
+  min-height: 18px;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--green-ink);
+}
+
+.ew-att-foot {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-4);
+}
+
+
+/* ── Phase 6 — People: finding a person, and opening one ─────────────────────
+
+   The roster used to be a list you could only read. It is a list you can search
+   now, and every row is a door onto that worker's own screen. Three pieces:
+
+     · `.ew-find` — the search box and the filter above the list. The filter is
+       the app's one segmented control (index.css:269), not a new kind of toggle,
+       and it is the same three words the row's status chip uses, so the filter
+       and the chip cannot describe different people;
+     · `.ew-row-open` — the upper half of a row, as a button. It is reset to look
+       exactly like the div it replaced, and it keeps the 44px minimum target;
+     · `.ew-row-go` — the chevron, which is what makes a row read as a door.
+
+   Nothing here carries meaning by colour alone, and nothing here is off the type
+   ramp. */
+
+.ew-find {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.ew-find-input { width: 100%; }
+
+/* The control is full width, so each label gets a third of a phone. 13px is what
+   keeps "Not registered" on one line on a 360px screen. */
+.ew-find-filter button { font-size: var(--fs-xs); }
+
+.ew-find-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* A button that has to look like the div it replaced: the row's own padding is
+   on `.ew-row`, and the avatar/text/chip line inside it is now the target. */
+.ew-row-open {
+  width: 100%;
+  min-height: var(--tap);
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ew-row-open:hover .ew-row-name { text-decoration: underline; }
+
+.ew-row-go {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: var(--fs-xl);
+  line-height: 1;
+  color: var(--text-4);
+}
+
+/* ── Phase 6 — the roster's two numbers, as one line of context ───────────── */
+
+.ew-glance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.ew-glance strong { font-weight: var(--fw-value); color: var(--text); }
+.ew-glance-sep { color: var(--text-4); }
+/* Not the only signal — the line says "with no rate yet" in words. */
+.ew-glance-warn strong { color: var(--amber); }
+
+/* ── Phase 7 — the worker profile: one person, in one place ──────────────────
+
+   This screen used to open with four stat cards, a card per section and a
+   paragraph telling the employer to go somewhere else to record a day. It opens
+   with the person now, then what they earn, then what the month is worth — and
+   the figures are read off the stored rows, never recomputed here.
+
+   Three ideas, and nothing else:
+
+     · `.ew-prof*` — who this is. The name is the heading, the trade and the
+       contractor are one line, and the account state is a chip plus ONE sentence
+       in words. "Not registered" is a fact about a login: a worker without an
+       account still has a job, still has days and is still paid for them.
+     · `.ew-prof-pay*` — the month's money as one figure with the facts that made
+       it underneath. Not four cards: a card is a thing to read before the thing
+       you came for, and all four numbers here answer one question.
+     · `.ew-mgrid*` / `.ew-sheet*` / `.ew-corr*` — the calendar, the day sheet and
+       the corrections queue, kept exactly as they were; they are the screen's
+       substance and Phase 7 moved nothing about them except where the sheet
+       appears. */
+
+.ew-prof {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.ew-prof-who { display: flex; align-items: center; gap: var(--sp-3); }
+/* A worker's name and the line under it — the same text stack as a list row, and
+   the last place where a pair of inline-ish children were held apart by a 2px
+   margin. The guard in tests/design.test.js found this one after the fix above. */
+.ew-prof-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-stack);
+}
+
+.ew-prof-sub {
+  font-size: var(--fs-body);
+  line-height: var(--lh-row);
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.ew-prof-chips { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
+.ew-prof-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-4);
+}
+
+/* ── what the month is worth ───────────────────────────────────────────────── */
+
+.ew-prof-pay {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.ew-prof-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.ew-prof-hero-label { font-size: var(--fs-xs); color: var(--text-3); }
+
+.ew-prof-hero-sum {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-hero);
+  color: var(--text);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The facts behind the figure. A definition list rather than cards: they are one
+   thought, and they are read left to right on a phone. */
+.ew-prof-facts {
+  margin: 0;
+  padding: 0 var(--sp-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ew-prof-fact {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+}
+
+.ew-prof-fact + .ew-prof-fact { border-top: 1px solid var(--border-light); }
+
+.ew-prof-fact dt {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+/* The explanation sits under the label, so the number keeps the right edge to
+   itself and a long sentence cannot push it off the line. */
+.ew-prof-fact-note {
+  display: block;
+  margin-top: var(--gap-stack);
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+}
+
+.ew-prof-fact dd {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-value);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Money that is not confirmed yet is not settled money — and the note beside it
+   says so in words, so the amber is agreement rather than the message. */
+.ew-prof-fact dd.is-warn { color: var(--amber); }
+
+.ew-prof-rate {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.ew-prof-rate-label {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+}
+
+.ew-prof-rate.is-missing { color: var(--amber); line-height: var(--lh-body); }
+
+.ew-prof-corr, .ew-prof-error { margin: 0; }
+
+/* ============================================================
+   Phase 8 · a More destination is a screen
+   ------------------------------------------------------------
+   The four screens under More used to open as a row at the foot of
+   the roster: an icon, a title and an action, with no name of its
+   own and nowhere to say what it is for. Each one is a destination
+   now, so each one needs the same three things at the top — its own
+   name, one sentence of job, and its one action — which is .ew-head,
+   already used by Today, Attendance and People.
+
+   Kept to the jobs those screens actually have. The old .ew-tool*
+   block — the compact row that held them at the foot of the roster —
+   went with them; a usage scan found no renderer left.
+   ============================================================ */
+
+.ew-screen > .ew-dash-note:first-of-type {
+  margin-top: var(--sp-2);
+}
+
+/* Who is under each contractor, on the contractor's own row. A name is not a
+   control here, so it reads as text: quieter than the name above it, and set on
+   its own line so a long list wraps inside the row rather than pushing it wide. */
+.ew-contractor-who {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+
+/* The kiosk's "what is this" panel, and its two standing notes. These used to
+   hang off the roster row; they belong to the screen now and are spaced from it. */
+.ew-screen-info {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+.ew-screen-note {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+}
+
+/* ── Phase 9 — polish ────────────────────────────────────────────────────────
+   The last pass over screens that already exist. Nothing here changes what the
+   app records; it is the difference between a screen that works and a screen
+   that reads as finished.
+
+   Two pieces:
+
+     · `.ew-form-title` / `.ew-form-lede` / `.ew-tick` — the add-a-worker step
+       says what it does before it asks for anything. The tick is a confirmation
+       with words beside it, never a colour on its own (§26).
+     · a `:focus-visible` rule for the controls index.css misses. */
+
+.ew-form-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-value);
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+/* A tick is a second signal, not the signal: it sits beside the sentence that
+   says the same thing in words. */
+.ew-tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--green-wash);
+  color: var(--green-ink);
+  font-size: var(--fs-xs);
+  line-height: 1;
+}
+
+.ew-form-lede {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  line-height: var(--lh-body);
+}
+
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--daypay-green);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ══ Desktop (Phase 15) ═══════════════════════════════════════════════════════
+
+   The phone layout is the media query's `else`: nothing above this line is
+   rewritten, and at 1024px the workspace stops being a 480px column in a
+   decorative frame and becomes a window — a rail down the left, and one measured
+   column of content beside it. The audit's finding was blunt: on a 27-inch
+   monitor DayPay was a phone in a box, and the widest breakpoint anywhere in this
+   file was 600px. */
+
+@media (min-width: 1024px) {
+  .ew {
+    /* The rail is fixed to the window, so the pane simply gets out of its way. */
+    padding-left: var(--rail);
+    padding-right: var(--sp-5);
+    padding-bottom: var(--sp-6);
+  }
+
+  /* One column of content, capped and centred in what is left. A 1600px line of
+     text is unreadable and a figure at the far end of one is worse: the cap is
+     what makes the width usable rather than merely large. */
+  .ew > :not(.dp-tabbar) {
+    width: 100%;
+    max-width: var(--content-max);
+    margin-inline: auto;
+  }
+
+  /* Sentences stop at a reading measure. Rows, lists and tables do not. */
+  .ew p { max-width: 78ch; }
+
+  /* ── The navigation, off the bottom of the phone and onto the left ──────────
+     Same element, same four links, same address behind each one, same
+     `aria-current` — only where the marker is drawn changes. */
+  .ew > .dp-tabbar {
+    position: fixed;
+    top: var(--header-h);      /* under the sticky bar, not over it */
+    bottom: 0;
+    left: 0;
+    width: var(--rail);
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: var(--sp-1);   /* the phone bar's item gap, so the rail is the same bar */
+    /* The surface is the page's own colour rather than a panel's, so the rail and
+       the bar above it can never show a seam — the bar is translucent, and it sits
+       over exactly what the rest of the page is made of. If the bar is ever taller
+       than --header-h, the rail's first item simply hides behind it for a few
+       pixels; there is no number here that can come between the two. */
+    padding: var(--sp-3);
+    background: var(--bg);
+    border-top: 0;
+    border-right: 1px solid var(--border-light);
+    z-index: 5;                /* below the header's 10 */
+  }
+
+  .ew > .dp-tabbar .dp-tab {
+    flex: 0 0 auto;            /* no longer an equal share of the screen's width */
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--sp-3);
+    padding: 0 var(--sp-3);
+    border-radius: 10px;
+  }
+
+  /* The active marker turns ninety degrees. It is still the same fact, and it is
+     still carried by position and weight rather than by colour alone. */
+  .ew > .dp-tabbar .dp-tab-rule { width: 3px; height: 20px; max-width: none; }
+
+  .ew > .dp-tabbar .dp-tab-label { font-size: var(--fs-sm); }
+
+  /* The calendar is a control, not the page. Seven columns stretched across a
+     metre of desk is all cells and no day. */
+  .ew-att-week,
+  .ew-att-month { max-width: 640px; }
+
+  /* Four groups of two, two columns. The foot line spans both. */
+  .ew-more-pane {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--sp-5);
+    align-items: start;
+  }
+
+  .ew-more-pane > .ew-more-foot { grid-column: 1 / -1; }
+}
+
+/* ── Wide: the screens with two jobs (Phase 15) ───────────────────────────────
+   At 1024 there is room for a rail and a column, not for two columns without
+   squeezing each of them back to phone width. From 1280 there is. */
+
+@media (min-width: 1280px) {
+  /* Today: the day and what it needs on the left, what it adds up to and the
+     setup behind it on the right. */
+  .ew-dash {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: var(--sp-4) var(--sp-5);
+    align-items: start;
+  }
+
+  .ew-dash-col { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+  /* The skeleton is one block: it belongs to both columns. */
+  .ew-dash > .dp-loading { grid-column: 1 / -1; }
+
+  /* Attendance: the calendar on the left — where a day is chosen — and the people
+     on that day on the right, where the day is recorded. The calendar stays put
+     while the roster scrolls, because it is the control for what is beside it. */
+  .ew-att-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: var(--sp-3) var(--sp-5);
+    align-items: start;
+  }
+
+  .ew-att > .ew-title,
+  .ew-att > .ew-att-note,
+  .ew-att > .ew-att-foot { grid-column: 1 / -1; }
+
+  .ew-att-side {
+    grid-column: 1;
+    position: sticky;
+    top: calc(var(--header-h) + var(--sp-4));
+  }
+
+  .ew-att-main { grid-column: 2; }
+
+  .ew-att-side,
+  .ew-att-main { display: flex; flex-direction: column; gap: var(--sp-3); }
 }

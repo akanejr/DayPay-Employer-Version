@@ -20,6 +20,11 @@ const require_ = createRequire(new URL('../../node_modules/', import.meta.url))
 const { JSDOM } = require_('jsdom')
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true })
+
+// Fixture dates are derived from today, not hardcoded — see the note in
+// mock-employer.js. Imported at the top so every block below shares one set.
+const FIX = (await import('./mock-employer.js')).FIXTURE
+
 global.window = dom.window
 global.document = dom.window.document
 Object.defineProperty(global, 'navigator', { value: dom.window.navigator, configurable: true })
@@ -266,7 +271,7 @@ const roster = () => [{
 
   client.resetCalls()
   globalThis.__kiosk.reply.kiosk_check_in = [{
-    ok: true, message: 'Recorded.', full_name: 'James Okon', work_date: '2026-09-30',
+    ok: true, message: 'Recorded.', full_name: 'James Okon', work_date: FIX.DATE(FIX.TODAY_DAY),
     kind: 'work', contractor_name: 'Contractor A', method: 'kiosk', already: false,
   }]
 
@@ -301,7 +306,7 @@ const roster = () => [{
   await click(byText(host, '.ks-btn-choice', 'Contractor B'))
   await click(byText(host, '.ks-btn-choice', 'Monday Udo'))
   globalThis.__kiosk.reply.kiosk_check_in = [{
-    ok: true, already: true, full_name: 'Monday Udo', work_date: '2026-09-30',
+    ok: true, already: true, full_name: 'Monday Udo', work_date: FIX.DATE(FIX.TODAY_DAY),
     kind: 'work', method: 'kiosk', message: '',
   }]
   await pressAll(host, ['1', '1', '1', '1'])
@@ -422,20 +427,37 @@ const roster = () => [{
   globalThis.__calls.length = 0
   const { host } = await mountEl(<DevicePanel />)
 
-  ok('the employer has a card for the machine, in the roster where they organise the site',
-    text(host).includes('Site attendance kiosk'), text(host).slice(0, 60))
-  ok('it says what a kiosk is FOR, because this is where an employer learns it exists',
-    /no smartphone/i.test(text(host)) && /no network today/i.test(text(host)))
+  ok('the employer has a screen for the machine, opened by its own name',
+    text(host).includes('Site kiosk') && !!host.querySelector('.ew-title'),
+    text(host).slice(0, 60))
+  /* Phase 8: a destination, not a row at the foot of the roster. It says what it is
+     for in one sentence, and keeps its single action in its header. */
+  ok('and the screen says what it is for, in one sentence',
+    !!host.querySelector('.ew-head .ew-sub'))
+  ok('and its one action lives in that header',
+    !!host.querySelector('.ew-head .ew-btn-primary'))
+
+  /* The explanation sits behind the info button: the screen states its business and
+     the paragraph is on demand. That makes it more important to check, not less — an
+     employer who never learns a kiosk exists will not look for one. */
+  const infoBtn = host.querySelector('[aria-label="What a site kiosk is"]')
+  ok('the screen offers the explanation instead of printing it', !!infoBtn)
+
+  await click(infoBtn)
+  ok('and it says what a kiosk is FOR, because this is where an employer learns it exists',
+    /no smartphone/i.test(text(host)) && /no network today/i.test(text(host)),
+    text(host).slice(0, 90))
   ok('an employer who has never linked one is told exactly what to do',
-    text(host).includes('No kiosk is linked') && text(host).includes('works once'))
-  ok('the card offers a code to create, not a settings screen to configure',
-    !!byText(host, '.ew-btn', 'Link a site kiosk'))
+    /No machine is linked yet/i.test(text(host)) && /works once/i.test(text(host)),
+    text(host).slice(0, 90))
+  ok('the screen offers a code to create, not a settings screen to configure',
+    !!byText(host, '.ew-btn', 'Link'))
 
   /* ── the machine has been used and is reporting in ─────────────────────── */
   employer.setDeviceFixtures([
     { id: 'dv1', label: 'Gate kiosk', status: 'active', link_code: null,
-      device_user_id: 'kiosk-account', created_at: '2026-09-28T07:00:00Z',
-      linked_at: '2026-09-28T07:04:00Z', revoked_at: null,
+      device_user_id: 'kiosk-account', created_at: FIX.STAMP(FIX.TODAY_DAY, '07:00:00Z'),
+      linked_at: FIX.STAMP(FIX.TODAY_DAY, '07:04:00Z'), revoked_at: null,
       last_seen_at: new Date(Date.now() - 5000).toISOString() },
   ])
   const linked = await mountEl(<DevicePanel />)
@@ -451,7 +473,7 @@ const roster = () => [{
   /* ── the code is created, read out, and used once ──────────────────────── */
   employer.setDeviceFixtures(null)
   const created = await mountEl(<DevicePanel />)
-  await click(byText(created.host, '.ew-btn', 'Link a site kiosk'))
+  await click(byText(created.host, '.ew-btn', 'Link'))
 
   const createCall = globalThis.__calls.find(c => c[0] === 'createDevice')
   ok('creating a kiosk records it against the business, with a label',
@@ -464,8 +486,17 @@ const roster = () => [{
     !!codeEl && codeEl.textContent.trim().length === 8, codeEl?.textContent)
   ok('the employer is told it works once, so nobody pins it to a wall',
     /stops working the moment it is used/i.test(text(created.host)))
-  ok('and where to type it, in words, because the kiosk is a different address',
-    text(created.host).includes('/kiosk.html'))
+  /* §39: this used to REQUIRE the path inside the sentence — "/kiosk.html" was the
+     only file path in the product's own words. The sentence says "the site
+     machine" now, and the address is one tap away, which is where somebody standing
+     at the machine will look for it. */
+  ok('and the sentence says where in words, not in a file path',
+    /site machine/i.test(text(created.host)) &&
+    !/\/kiosk\.html/.test(text(created.host.querySelector('.ew-hint') || created.host)),
+    'no path in the sentence')
+  ok('...with the address behind the detail, for whoever has to type it',
+    !!created.host.querySelector('details.dp-tech') &&
+    /\/kiosk\.html/.test(text(created.host)))
 
   await click(byText(created.host, '.ew-btn', 'Copy'))
   ok('Copy puts the code on the clipboard',
@@ -483,14 +514,22 @@ const roster = () => [{
   ok('and the employer is told the signed-out machine kept nothing',
     /Nothing they recorded was removed/i.test(text(created.host)))
 
-  /* ── a project that has not run migration 019 ──────────────────────────── */
+  /* ── an account that has not been switched on for the kiosk ───────────────
+     §39: the words used to be about the schema ("has not run the site kiosk
+     migration yet"). Same truth, told to a business owner rather than to whoever
+     runs the database — with the file name still one tap away for that person. */
   employer.setDevicesMissing(true)
-  const old = await mountEl(<DevicePanel />)
-  ok('an un-updated project says so instead of showing an empty list',
-    /has not run the site kiosk migration yet/i.test(text(old.host)))
+  const off = await mountEl(<DevicePanel />)
+  ok('an account without the kiosk says so instead of showing an empty list',
+    /aren’t switched on for this account yet/i.test(text(off.host)))
   ok('and it says the rest of the roster still works, which is true',
-    /rest of the roster works normally/i.test(text(old.host)))
-  ok('no crash, no blank card', text(old.host).length > 60, `${text(old.host).length} chars`)
+    /rest of the roster works normally/i.test(text(off.host)))
+  ok('and the file name is there for whoever CAN act on it, behind the detail',
+    /019_site_kiosk\.sql/.test(text(off.host)) &&
+    !!off.host.querySelector('details.dp-tech') &&
+    !off.host.querySelector('details.dp-tech[open]'),
+    'closed by default')
+  ok('no crash, no blank card', text(off.host).length > 60, `${text(off.host).length} chars`)
 
   employer.setDevicesMissing(false)
   employer.setDeviceFixtures(null)

@@ -15,6 +15,8 @@ const WorkerView = (await import('../../src/employer/WorkerView.jsx')).default
 const EmployeeView = (await import('../../src/employer/EmployeeView.jsx')).default
 const PinPanel = (await import('../../src/employer/PinPanel.jsx')).default
 const mock = await import('./mock-employer.js')
+// Fixture dates are derived from today; see the note in mock-employer.js.
+const FIX = mock.FIXTURE
 const EmployerWorkspace = (await import('../../src/employer/EmployerWorkspace.jsx')).default
 
 const employee = { id: 'e1', full_name: 'James Okon', job_title: 'Rigger', status: 'active' }
@@ -36,7 +38,11 @@ const click = async (el) => {
 const byText = (host, sel, text) =>
   [...host.querySelectorAll(sel)].find(e => e.textContent.trim().includes(text))
 
-async function mount(el) {
+async function mount(el, at = '') {
+  /* The address is real browser state and outlives a component unmounting, so
+     every mount starts from a known one — otherwise a check would open wherever
+     the previous check left off. Pass an address to open a screen deeper in. */
+  try { dom.window.location.hash = at } catch { /* no window */ }
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
@@ -54,7 +60,8 @@ async function mount(el) {
   await click(cells[0])
   const sheet = host.querySelector('.ew-sheet')
   ok('tapping a day opens its detail', !!sheet)
-  ok('the detail names the day', !!sheet && sheet.textContent.includes('8 Sep 2026') === false ? true : !!sheet)
+  ok('the detail names the day', !!sheet && sheet.textContent.includes(FIX.LABEL(FIX.WORK_DAY)),
+    sheet ? FIX.LABEL(FIX.WORK_DAY) : 'no sheet')
   ok('the detail offers every kind', !!sheet && sheet.querySelectorAll('.ew-kind-btn').length === 4,
     sheet ? `${sheet.querySelectorAll('.ew-kind-btn').length} kind buttons` : 'no sheet')
 
@@ -110,7 +117,7 @@ async function mount(el) {
   await click(byText(host, '.ew-btn-primary', 'Send to my employer'))
   const sent = globalThis.__calls.find(c => c[0] === 'requestCorrection')
   ok('the request carries the right day, kind and no invented fields',
-    !!sent && sent[1] === 'e1' && sent[2] === '2026-09-08'
+    !!sent && sent[1] === 'e1' && sent[2] === FIX.DATE(FIX.WORK_DAY)
       && sent[3].requestKind === 'reclassify'
       // the day is already recorded as work, so the default must be a DIFFERENT
       // kind — otherwise the request says "it is what it already says"
@@ -212,9 +219,9 @@ async function mount(el) {
 
   const issued = (id, contractorId, name, total) => ({
     id, employer_id: 'o1', contractor_id: contractorId, contractor_name: name,
-    number: `INV-000${id.slice(1)}`, period_from: '2026-09-01', period_to: '2026-09-30',
+    number: `INV-000${id.slice(1)}`, period_from: FIX.DATE(1), period_to: FIX.DATE(FIX.LAST_DAY),
     status: 'issued', note: null, void_reason: null,
-    issued_at: '2026-09-30T18:00:00Z', voided_at: null,
+    issued_at: FIX.STAMP(FIX.LAST_DAY, '18:00:00Z'), voided_at: null,
     worker_count: 1, actual_days: 2, leave_days: 0, equivalents: 3, total,
     confirmed_days: 1, claimed_days: 1, disputed_days: 0,
   })
@@ -283,13 +290,13 @@ async function mount(el) {
 /* A worker who already holds a PIN: the number is gone for good, and the only
    thing on offer is a replacement. */
 {
-  mock.setPinFixtures({ e1: { has_pin: true, set_at: '2026-09-30T08:00:00Z', locked_until: null } })
+  mock.setPinFixtures({ e1: { has_pin: true, set_at: FIX.STAMP(FIX.TODAY_DAY, '08:00:00Z'), locked_until: null } })
   const { host, root } = await mount(
     <PinPanel employee={{ id: 'e1', full_name: 'James Okon' }} onChanged={() => {}} />,
   )
 
   ok('an existing PIN is never re-displayed — only its issue date',
-    !host.querySelector('[data-testid="pin-value"]') && /30 Sep 2026/.test(host.textContent),
+    !host.querySelector('[data-testid="pin-value"]') && host.textContent.includes(FIX.LABEL(FIX.TODAY_DAY)),
     host.textContent.replace(/\s+/g, ' ').slice(0, 90))
 
   ok('and the button offers a replacement, not a lookup',
@@ -313,7 +320,7 @@ async function mount(el) {
 
   // The workspace opens on Today. The roster is where workers are added, so
   // the walk starts by going there — exactly as an employer would.
-  await click(byText(host, '.ew-subtab', 'Roster'))
+  await click(byText(host, '.dp-tab', 'People'))
   await click(byText(host, '.ew-btn', 'Add'))
 
   const nameField = [...host.querySelectorAll('.ew-input')]
@@ -351,16 +358,20 @@ async function mount(el) {
 // ── §18: the day sheet says how the day was recorded ────────────────────────
 {
   const kioskDay = {
-    id: 'd9', employee_id: 'e1', work_date: '2026-09-10', kind: 'work', status: 'claimed',
+    id: 'd9', employee_id: 'e1', work_date: FIX.DATE(FIX.WORK_DAY), kind: 'work', status: 'claimed',
     amount: 16000, rate: 16000, multiplier: 1, source: 'check_in',
-    checked_in_at: '2026-09-10T06:05:00Z', note: null, attendance_method: 'kiosk',
+    checked_in_at: FIX.STAMP(FIX.WORK_DAY, '06:05:00Z'), note: null, attendance_method: 'kiosk',
   }
   mock.addMonthFixture(kioskDay)
   const { host } = await mount(<WorkerView employee={employee} onBack={() => {}} onChanged={() => {}} />)
 
-  const tenth = [...host.querySelectorAll('.ew-mgrid-cell.is-marked')]
-    .find(c => c.textContent.trim() === '10')
-  await click(tenth)
+  /* The cell is located by the day the fixture is ON, not by a literal that
+     happens to match it. This used to say '10' because the fixture was dated
+     10 September; when the fixture moved into the current month the literal
+     became a click on nothing, and the run died mid-suite. */
+  const kioskCell = [...host.querySelectorAll('.ew-mgrid-cell.is-marked')]
+    .find(c => c.textContent.trim() === String(FIX.WORK_DAY))
+  await click(kioskCell)
   const sheet = host.querySelector('.ew-sheet')
   ok('the employer can see a kiosk day was recorded at the machine, not on a phone',
     !!sheet && sheet.textContent.includes('At the site kiosk'),
@@ -371,6 +382,247 @@ async function mount(el) {
     !!chip && !/₦|[0-9]/.test(chip.textContent), chip?.textContent)
   mock.removeMonthFixture('d9')
 }
+
+  /* ── the roster row ──────────────────────────────────────────────────────────
+     The Roster screen was relaid out: one list with dividers, the worker's name
+     on it, one contextual action, and everything else behind an overflow that
+     opens inline under its own row. Every one of those controls has to still do
+     what it did when it sat in a row of four — that is what this block is for.
+     The fixture worker has no login, so this exercises the NOT-registered half:
+     "Send invite" and the three-item menu. */
+  {
+    const calls = () => globalThis.__calls
+    calls().length = 0
+
+    const { host } = await mount(<EmployerWorkspace />)
+    await click(byText(host, '.dp-tab', 'People'))
+
+    /* One filled button on the screen. Everything else is an outline or a line
+       of text. A screen with four solid buttons has no answer to "what am I
+       meant to press", which is the fault this relay-out exists to fix. */
+    /* Counted whether or not they are enabled, and with no offsetParent test:
+       jsdom has no layout engine, so it is null for everything and that filter
+       would silently return an empty list — reporting an empty screen as a
+       passing one. A disabled submit still LOOKS like a filled button, which is
+       what the brief is about. */
+    const primaries = () => [...host.querySelectorAll('.ew-btn-primary')]
+    ok('the roster at rest offers exactly one filled button',
+      primaries().length === 1,
+      `${primaries().length}: ${primaries().map(b => b.textContent.trim()).join(' | ')}`)
+    ok('and that one is Add, in the header',
+      primaries()[0]?.textContent.trim() === '+ Add', primaries()[0]?.textContent)
+
+    /* The brief: sentence case for all labels, no ALL CAPS. Four or more
+       consecutive capitals is a shouted word; PIN, ₦ and an initial are not.
+
+       This catches a shouted LABEL WRITTEN IN THE MARKUP. It cannot catch one
+       that is shouted by CSS: jsdom applies no stylesheets, so textTransform is
+       invisible here and the caps the design test checks for would still read as
+       sentence case. The stylesheet half of this rule is asserted in
+       tests/design.test.js, against the CSS itself. */
+    const shouted = () => [...host.querySelectorAll('*')]
+      .filter(n => n.children.length === 0)
+      .map(n => n.textContent.trim())
+      .filter(t => /\b[A-Z]{4,}\b/.test(t))
+    ok('nothing on the roster at rest shouts', shouted().length === 0,
+      shouted().slice(0, 3).join(' / '))
+
+    await click(byText(host, '.ew-btn', '+ Add'))
+    ok('and the add form\'s labels are sentence case too', shouted().length === 0,
+      shouted().slice(0, 3).join(' / '))
+    ok('opening the add form swaps that button rather than adding a second',
+      primaries().length === 1,
+      `${primaries().length}: ${primaries().map(b => b.textContent.trim()).join(' | ')}`)
+    await click(byText(host, '.ew-btn', 'Cancel'))
+    ok('and cancelling returns the screen to its one button',
+      primaries().length === 1,
+      `${primaries().length}: ${primaries().map(b => b.textContent.trim()).join(' | ')}`)
+
+    ok('the roster is one list, not a card per person', !!host.querySelector('.ew-list'))
+    ok('and the row carries the worker’s own name',
+      host.querySelector('.ew-row-name')?.textContent.trim() === 'James Okon',
+      host.querySelector('.ew-row-name')?.textContent)
+
+    const sub = host.querySelector('.ew-row-sub')?.textContent.trim()
+    ok('with trade and contractor on one muted line, in that order',
+      sub === 'Rigger, Contractor A', sub)
+
+    ok('the contractor control is NOT on the row',
+      !host.querySelector('.ew-row-top select') && !host.querySelector('.ew-row-foot select'))
+
+    const contextual = byText(host, '.ew-row-actions .ew-btn', 'Send invite')
+    ok('a worker with no login gets Send invite, not Rates',
+      !!contextual && !byText(host, '.ew-row-actions .ew-btn', 'Rates'),
+      contextual?.textContent.trim())
+    ok('and it is the accent outline, not a fourth ghost button',
+      !!contextual && contextual.className.includes('ew-btn-accent'), contextual?.className)
+    ok('the row shows exactly one visible action plus the overflow',
+      host.querySelectorAll('.ew-row-actions .ew-btn').length === 2,
+      `${host.querySelectorAll('.ew-row-actions .ew-btn').length} controls`)
+
+    /* ── the overflow ─────────────────────────────────────────────────────── */
+    let more = host.querySelector('.ew-more')
+    await click(more)
+    ok('the overflow is sentence case as well', shouted().length === 0,
+      shouted().slice(0, 3).join(' / '))
+    ok('the overflow holds no filled button, only menu items',
+      primaries().length === 1, `${primaries().length}: ${primaries().map(b => b.textContent.trim()).join(' | ')}`)
+    await click(more)
+    ok('the overflow says whether it is open, for a screen reader',
+      more.getAttribute('aria-expanded') === 'false')
+    await click(more)
+    ok('the overflow opens inline, inside the row it belongs to',
+      !!host.querySelector('.ew-row .ew-menu'))
+    const items = [...host.querySelectorAll('.ew-menu-item')].map(b => b.textContent.trim())
+    ok('and it offers the unregistered set, in order',
+      items.join(' | ') === 'Reset PIN | Edit rates | Archive', items.join(' | '))
+    ok('Archive is marked dangerous and sits last',
+      host.querySelector('.ew-menu-item:last-child')?.className.includes('is-danger'))
+
+    /* ── changing the contractor, which used to be the thing ON the row ──── */
+    const select = host.querySelector('.ew-menu-select')
+    ok('the contractor select moved into the overflow, with room to show a name',
+      !!select && select.value === 'c1', select ? `value=${select.value}` : 'no select')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(select), 'value').set
+      setter.call(select, '')
+      select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
+    const moved = calls().find(c => c[0] === 'setEmployeeContractor')
+    ok('“No contractor” on that select really unassigns the worker',
+      !!moved && moved[1] === 'e1' && moved[2] === '', JSON.stringify(moved))
+
+    /* ── Archive asks first, and Cancel means cancel ───────────────────────
+       The menu is still open from the contractor change above; clicking the
+       trigger again would close it, which is how this check first failed. */
+    await click(byText(host, '.ew-menu-item', 'Archive'))
+    ok('archiving asks before it acts',
+      !!host.querySelector('.ew-confirm') && host.textContent.includes('Move James Okon off the roster?'),
+      host.textContent.slice(-90))
+    ok('and nothing has been archived yet',
+      !calls().some(c => c[0] === 'archiveEmployee'))
+
+    await click(byText(host, '.ew-btn', 'Cancel'))
+    ok('Cancel closes the confirmation and archives nothing',
+      !host.querySelector('.ew-confirm') && !calls().some(c => c[0] === 'archiveEmployee'))
+
+    await click(byText(host, '.ew-menu-item', 'Archive'))
+    await click(byText(host, '.ew-btn', 'Yes, archive'))
+    const archived = calls().find(c => c[0] === 'archiveEmployee')
+    ok('confirming archives that worker and only that worker',
+      !!archived && archived[1] === 'e1', JSON.stringify(archived))
+
+    /* ── Reset PIN, and the one panel with its own button ────────────────── */
+    more = host.querySelector('.ew-more')
+    await click(more)
+    await click(byText(host, '.ew-menu-item', 'Reset PIN'))
+    ok('Reset PIN still opens the PIN panel for that worker',
+      !!host.querySelector('[data-testid="pin-value"]') || /James Okon/.test(host.textContent),
+      host.textContent.slice(-90))
+  }
+
+  /* ── the two things at the foot of the roster, and the archive ──────────────
+     The kiosk row is driven in kiosk.jsx, where its own feature lives. These are
+     the other two: the contractor row, and the quiet toggle that reveals the
+     workers who have left. Both were relaid out, and a relaid-out control that
+     still LOOKS right but no longer calls anything is the exact failure this
+     exercise is about. */
+  {
+    mock.setArchivedEmployee(true)
+    const calls = () => globalThis.__calls
+    calls().length = 0
+
+    /* Contractor management is under More now (Phase 3): it is not what an
+       employer opened People to do, and it was pushing the list down. Same
+       screen, same behaviour, one level deeper — so the walk opens its address
+       directly, which is also how somebody would link to it. */
+    const { host: contractorHost } = await mount(<EmployerWorkspace />, '/more/contractors')
+
+    /* ── Add contractor ───────────────────────────────────────────────────── */
+    const contractorAdd = byText(contractorHost, '.ew-head .ew-btn', 'Add')
+    ok('the contractor row offers Add, not a form that is always open',
+      !!contractorAdd && !contractorHost.querySelector('#ew-new-contractor'))
+    await click(contractorAdd)
+    const nameField = contractorHost.querySelector('#ew-new-contractor')
+    ok('Add opens one field, and only one', !!nameField)
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(nameField), 'value').set
+      setter.call(nameField, 'Alpha Services')
+      nameField.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await click(byText(contractorHost, '.ew-form .ew-btn', 'Add'))
+    const made = calls().find(c => c[0] === 'createContractor')
+    ok('adding a contractor reaches the data layer with the name typed',
+      !!made && made[1] === 'Alpha Services', JSON.stringify(made))
+
+      /* These are roster checks and the roster is the People screen, so this
+         half of the walk opens it: the contractor half above had to go to More. */
+      const { host } = await mount(<EmployerWorkspace />, '/people')
+
+    /* ── Show archived ────────────────────────────────────────────────────── */
+    const toggle = byText(host, '.ew-text-btn', 'Show 1 archived')
+    ok('the archive is behind a quiet line of text, not a button',
+      !!toggle && toggle.className.includes('ew-text-btn'), toggle?.className)
+    ok('and it is not showing while it is closed', !host.querySelector('.ew-list.is-archived'))
+    await click(toggle)
+    ok('opening it lists the archived worker in its own list',
+      !!host.querySelector('.ew-list.is-archived') &&
+      host.textContent.includes('Peter Bassey'), host.textContent.slice(-80))
+    ok('and the toggle says how to close it again',
+      !!byText(host, '.ew-text-btn', 'Hide archived'))
+
+    await click(byText(host, '.ew-list.is-archived .ew-btn', 'Restore'))
+    const back = calls().find(c => c[0] === 'restoreEmployee')
+    ok('Restore brings that worker back and says which one',
+      !!back && back[1] === 'e2', JSON.stringify(back))
+    ok('an archived row never offers to archive again',
+      !byText(host, '.ew-list.is-archived .ew-btn', 'Archive'))
+
+    mock.setArchivedEmployee(false)
+  }
+
+  /* ── one filled button, in every state the screen can be in ─────────────────
+     The brief asks for exactly one. A screen has more than one resting state,
+     and the earlier checks only covered four of them; the panels the OTHER
+     components own each brought a solid submit of their own, and until this
+     block existed nothing noticed that a second one appeared the moment a PIN
+     or an invite was being issued. */
+  {
+    /* Each state opens on the screen that owns it: the contractor panels moved
+       under More in Phase 3, so they are reached at their own address. */
+      /* `filled` is the class that means "a solid button" on that screen: the
+         People screen's single primary, and the contractor screen's single
+         accent submit. About them the rule is the same — one, not two. */
+      const openState = async (label, open, at = '/people', filled = '.ew-btn-primary') => {
+      const { host } = await mount(<EmployerWorkspace />, at)
+      if (open) await open(host)
+      const found = [...host.querySelectorAll(filled)].map(b => b.textContent.trim())
+      ok(`${label}: still exactly one filled button`, found.length === 1,
+        `${found.length}: ${found.join(' | ')}`)
+    }
+
+    await openState('at rest', null, '/people')
+    await openState('with the share form open', async (h) => {
+      await click(byText(h, '.ew-row-actions .ew-btn', 'Send invite'))
+    }, '/people')
+    await openState('with the rate editor open', async (h) => {
+      await click(h.querySelector('.ew-more'))
+      await click(byText(h, '.ew-menu-item', 'Edit rates'))
+    }, '/people')
+    await openState('with the PIN panel open', async (h) => {
+      await click(h.querySelector('.ew-more'))
+      await click(byText(h, '.ew-menu-item', 'Reset PIN'))
+    }, '/people')
+    await openState('with the contractor form open', async (h) => {
+      await click(byText(h, '.ew-head .ew-btn', 'Add'))
+      }, '/more/contractors', '.ew-btn-primary, .ew-btn-accent')
+    await openState('with a contractor being renamed', async (h) => {
+      await click(byText(h, '.ew-person-actions .ew-btn', 'Rename'))
+      }, '/more/contractors', '.ew-btn-primary, .ew-btn-accent')
+    await openState('with the add-worker form open', async (h) => {
+      await click(byText(h, '.ew-btn', '+ Add'))
+    }, '/people')
+  }
 
 console.log(bad === 0
   ? '\nINTERACTION: ALL CHECKS PASSED'

@@ -1,0 +1,149 @@
+/* DayPay 2.0 — the specimen page's own chrome.
+ *
+ * Nothing here is part of the product: this is the table the design system is
+ * laid out on. It is free to use plain values because it is not shipped in the
+ * application bundle — but it still works in both themes, because checking dark
+ * mode is the main reason it exists.
+ *
+ * Copyright © 2026 Akaninyene. All rights reserved.
+ */
+
+.spx-root {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  padding: var(--sp-5) var(--sp-4) var(--sp-6);
+}
+
+/* A reading measure, not a phone frame: this page is looked at on a laptop. */
+.spx-root > * { max-width: 760px; margin-left: auto; margin-right: auto; }
+
+.spx-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.spx-h1 {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-hero);
+  letter-spacing: -0.02em;
+}
+
+.spx-lede {
+  margin: var(--sp-2) 0 0;
+  max-width: 46ch;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+}
+
+.spx-theme {
+  min-height: var(--tap);
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.spx-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+}
+
+.spx-stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+.spx-row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+
+.spx-ramp-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--border-light);
+}
+.spx-ramp-row:last-child { padding-bottom: 0; border-bottom: 0; }
+
+.spx-ramp-sample { font-weight: var(--fw-body); line-height: var(--lh-tight); }
+.spx-ramp-meta { font-size: var(--fs-2xs); color: var(--text-4); }
+.spx-ramp-meta code { font-family: var(--font-mono); }
+
+.spx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--sp-3);
+}
+
+.spx-swatch {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.spx-swatch-chip {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+}
+
+.spx-swatch-body { display: flex; flex-direction: column; min-width: 0; }
+.spx-swatch-name { font-size: var(--fs-xs); font-weight: 600; color: var(--text); }
+.spx-swatch-token {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-4);
+  overflow-wrap: anywhere;
+}
+
+.spx-note {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+}
+
+.spx-btn {
+  min-height: var(--tap);
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.spx-btn-primary { background: var(--green-ink); border-color: var(--green-ink); color: #fff; }
+
+.spx-foot {
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+}

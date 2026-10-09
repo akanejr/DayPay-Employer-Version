@@ -30,6 +30,34 @@ node node_modules/.daypay-ui-check/entry.js
 
 Exit code 0 means every check passed; the output names each screen it mounted.
 
+**It also runs as the last step of `npm run prove`**, which compiles it and then
+runs it. That was added on 1 October 2026, and the reason is the paragraph below.
+
+## The fixtures are dated from today, and they have to be
+
+They were pinned to September 2026. The employer screen opens on the **current**
+month, so on 1 October every day this suite looked for was off the calendar:
+
+```
+FAIL  the calendar shows the recorded days  -> 0 marked cell(s)
+FAIL  Billing, loaded period — missing: Not yet billed | Ready to bill | ₦42,000
+Error: tried to click something that is not there
+```
+
+All three messages describe a broken product. All three were a broken test. The
+suite had gone from ALL GREEN to dying part-way through, and `npm run prove` did
+not run it, so nothing else in the repo could notice. Two things came out of it:
+
+- `mock-employer.js` derives its days from `new Date()` — and picks **weekdays**
+  for the days the app prices as ordinary work, because the calendar marks a
+  weekend 2×. `tests/harness.test.js` holds both facts, and fails if any ISO date
+  literal is ever pinned in this directory again.
+- `npm run prove` now runs this directory, so a suite that has stopped testing
+  can no longer pass unnoticed.
+
+If a check fails here, read the dates in the message before the code: the
+fixtures are supposed to follow the calendar.
+
 ## The polish invariants
 
 Every mounted screen is passed through `polish.js` before it is called a pass,

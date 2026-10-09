@@ -22,6 +22,7 @@ import {
   summarise, formatNaira, initials, monthBounds, monthLabelFor,
   buildMonthCsv, KIND_LABELS,
 } from '../lib/employer'
+import { Loading, Notice } from '../ui/Ui.jsx'
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -106,7 +107,7 @@ function PayRow({ row, onConfirm, onReopen, busy }) {
             )}
           </div>
 
-          <p className="ew-hint" style={{ marginTop: 8 }}>
+          <p className="ew-hint dp-mt-8">
             Confirming freezes these amounts. Reopening is recorded in the
             audit trail.
           </p>
@@ -207,6 +208,15 @@ export default function Summary({ employees }) {
 
   return (
     <>
+      <header className="ew-head">
+        <div className="ew-head-text">
+          <h2 className="ew-title">Reports</h2>
+          <p className="ew-sub">
+            What a month costs, person by person — and the CSV when you want the raw days.
+          </p>
+        </div>
+      </header>
+
       <div className="ew-monthbar">
         <button type="button" className="ew-datebar-step" aria-label="Previous month" onClick={() => stepMonth(-1)} disabled={busy}>‹</button>
         <div className="ew-datebar-mid">
@@ -224,7 +234,7 @@ export default function Summary({ employees }) {
       )}
 
       {loading ? (
-        <div className="ew-loading">Loading {label}…</div>
+                <Loading label={`Loading ${label}…`} />
       ) : (
         <>
           <div className="ew-owe">
@@ -248,18 +258,20 @@ export default function Summary({ employees }) {
               {stats.unmatchedDays} {stats.unmatchedDays === 1 ? 'day belongs' : 'days belong'} to someone no longer on your roster, worth {formatNaira(stats.unmatchedTotal)}.
               <span className="ew-msg-hint">
                 Included in the total above — otherwise you would underpay.
-                Restore the person on the Roster tab to see the detail.
+                Restore the person on the People screen to see the detail.
               </span>
             </div>
           )}
 
+          {/* The house pattern: an empty state is a Notice. The old block also sent
+              the employer to a screen that has not been called "Mark days" since
+              Phase 5 — the destination is Attendance. */}
           {stats.rows.length === 0 && (
-            <div className="ew-empty">
-              <div className="ew-empty-title">Nothing recorded in {label}</div>
-              <p className="ew-empty-body">
-                Head to Mark days and tap who worked. Amounts appear here as you go.
-              </p>
-            </div>
+            <Notice
+              tone="empty"
+              title={`Nothing recorded in ${label}`}
+              body="Days are recorded one at a time from Attendance. Amounts appear here as you go, and nothing on this screen is recalculated from a later rate."
+            />
           )}
 
           {stats.rows.map(row => (
@@ -342,7 +354,7 @@ export default function Summary({ employees }) {
             </button>
           )}
 
-          <p className="ew-hint" style={{ textAlign: 'center', marginTop: 4 }}>
+          <p className="ew-hint dp-mt-4" style={{ textAlign: 'center' }}>
             {from} to {to} · every figure is the amount stored on the day it was
             worked, never recalculated from a later rate.
           </p>

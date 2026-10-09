@@ -1,12 +1,27 @@
 // DayPay Service Worker - PWA offline-first
-const CACHE_NAME = 'daypay-employer-v1'
+const CACHE_NAME = 'daypay-employer-v2'
 const APP_SHELL = [
   '/',
   '/index.html',
   '/manifest.json',
   '/daypay-icon.svg',
   '/daypay-icon-512.png',
-  '/apple-touch-icon.png'
+  '/apple-touch-icon.png',
+  /* v25 — the typefaces ship with the app and are cached with it. They used to
+     be fetched from fonts.googleapis.com, which this worker deliberately skips,
+     so they were never stored: offline, every screen fell back to another
+     typeface. Money is set in Geist Mono, so its figures lost their alignment
+     too. */
+  '/fonts/manrope-400.woff2',
+  '/fonts/manrope-500.woff2',
+  '/fonts/manrope-600.woff2',
+  '/fonts/manrope-700.woff2',
+  '/fonts/manrope-800.woff2',
+  '/fonts/geist-mono-400.woff2',
+  '/fonts/geist-mono-500.woff2',
+  '/fonts/geist-mono-600.woff2',
+  '/fonts/geist-mono-700.woff2',
+  '/fonts/geist-mono-800.woff2'
 ]
 
 self.addEventListener('install', (event) => {

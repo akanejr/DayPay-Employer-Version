@@ -30,19 +30,27 @@ import {
   EmployerError, myAttendanceStatus, checkIn, formatNaira,
   attendancePrompt, isValidCodeShape, prettyDateKey, KIND_LABELS,
 } from '../lib/employer'
+import { Loading } from '../ui/Ui.jsx'
 
 export default function CheckIn({ employee, onRecorded }) {
-  const [status, setStatus] = useState(null)
+    const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
+  /* A load that failed used to be swallowed: `catch { setStatus(null) }` left the
+     screen saying "no session is open today", which is a statement about the
+     employer's site made by a screen that never reached the database. (Phase 14.) */
+  const [loadError, setLoadError] = useState(null)
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)     // { ok, message, day, already }
   const inputRef = useRef(null)
 
-  const load = useCallback(async () => {
+    const load = useCallback(async () => {
+    setLoadError(null)
     try { setStatus(await myAttendanceStatus()) }
-    catch { setStatus(null) }
-    finally { setLoading(false) }
+    catch (e) {
+      setStatus(null)
+      setLoadError(e instanceof EmployerError ? e : new EmployerError(String(e)))
+    } finally { setLoading(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -75,7 +83,27 @@ export default function CheckIn({ employee, onRecorded }) {
     }
   }
 
-  if (loading) return <div className="ew-card"><div className="ew-loading">Checking attendance…</div></div>
+        if (loading) return <Loading label="Checking today’s attendance…" shape="panel" />
+
+      /* The one state that must never be dressed up as an answer. "We could not tell
+         you" is not "there is nothing today". */
+      if (loadError) {
+        return (
+          <div className="ew-card">
+            <div className="ew-checkin-q">Could not check today’s attendance</div>
+            <p className="ew-checkin-sub dp-mt-8">
+              {loadError.message}
+              {loadError.hint ? ` ${loadError.hint}` : ''}
+            </p>
+            <button
+              type="button" className="ew-btn ew-btn-ghost ew-btn-sm dp-mt-12"
+              onClick={() => { setLoading(true); load() }}
+            >
+              Try again
+            </button>
+          </div>
+        )
+      }
 
   // ── Already recorded today ────────────────────────────────────────────────
   if (result?.ok) {
@@ -96,8 +124,7 @@ export default function CheckIn({ employee, onRecorded }) {
           </p>
         )}
         <button
-          type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
-          style={{ marginTop: 11 }}
+          type="button" className="ew-btn ew-btn-ghost ew-btn-sm dp-mt-12"
           onClick={() => { setResult(null); load() }}
         >
           Done
@@ -111,10 +138,9 @@ export default function CheckIn({ employee, onRecorded }) {
     return (
       <div className="ew-card">
         <div className="ew-checkin-q">{prompt.title}</div>
-        <p className="ew-checkin-sub" style={{ marginTop: 6 }}>{prompt.body}</p>
+        <p className="ew-checkin-sub dp-mt-8">{prompt.body}</p>
         <button
-          type="button" className="ew-btn ew-btn-ghost ew-btn-sm"
-          style={{ marginTop: 11 }}
+          type="button" className="ew-btn ew-btn-ghost ew-btn-sm dp-mt-12"
           onClick={load}
         >
           Check again
@@ -129,7 +155,7 @@ export default function CheckIn({ employee, onRecorded }) {
       <div className="ew-checkin-q">
         {employee?.full_name ? `Did you come to work today, ${employee.full_name.split(' ')[0]}?` : 'Did you come to work today?'}
       </div>
-      <p className="ew-checkin-sub" style={{ marginTop: 5 }}>
+      <p className="ew-checkin-sub dp-mt-4">
         {status?.contractor_name
           ? `Enter today’s workplace code for ${status.contractor_name}.`
           : 'Enter today’s workplace code. Your employer has it.'}
